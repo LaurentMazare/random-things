@@ -238,10 +238,25 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
         Ok(())
     }
 
-    fn index_select(&mut self, src: &Self, ids: &[u32], h: usize) -> Result<()> {
-        for (i, id) in ids.iter().enumerate() {
-            let id = *id as usize;
-            self[i * h..(i + 1) * h].copy_from_slice(&src[id * h..(id + 1) * h]);
+    fn index_select(
+        &mut self,
+        src: &Self,
+        ids: &[u32],
+        dim: usize,
+        dims: &[usize],
+    ) -> Result<()> {
+        let left_size: usize = dims[..dim].iter().product();
+        let right_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
+        let src_dim_size = dims[dim];
+
+        for left in 0..left_size {
+            for (i, &idx) in ids.iter().enumerate() {
+                let idx = idx as usize;
+                let src_offset = left * src_dim_size * right_size + idx * right_size;
+                let dst_offset = left * ids.len() * right_size + i * right_size;
+                self[dst_offset..dst_offset + right_size]
+                    .copy_from_slice(&src[src_offset..src_offset + right_size]);
+            }
         }
         Ok(())
     }

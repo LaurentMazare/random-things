@@ -112,7 +112,7 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
         // Allocate output
         let dev = self.device();
         let mut out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
-        out.data.index_select(&self.data, indices, dim)?;
+        out.data.index_select(&self.data, indices, dim, self.dims())?;
         Ok(out)
     }
 
@@ -133,63 +133,60 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
 
     /// Concatenate tensors along a given dimension.
     pub fn cat(tensors: &[&Self], dim: impl Dim) -> Result<Self> {
-        todo!()
-        // if tensors.is_empty() {
-        //     crate::bail!("cat requires at least one tensor");
-        // }
+        if tensors.is_empty() {
+            crate::bail!("cat requires at least one tensor");
+        }
 
-        // let first = tensors[0];
-        // let rank = first.rank();
-        // let dim = dim.to_index(first.shape(), "cat dim")?;
+        let first = tensors[0];
+        let rank = first.rank();
+        let dim = dim.to_index(first.shape(), "cat dim")?;
 
-        // for (i, t) in tensors.iter().enumerate().skip(1) {
-        //     if t.rank() != rank {
-        //         crate::bail!("cat: tensor {i} has rank {} but expected {rank}", t.rank());
-        //     }
-        //     for d in 0..rank {
-        //         if d != dim && t.dims()[d] != first.dims()[d] {
-        //             crate::bail!(
-        //                 "cat: tensor {i} has shape {:?} but expected dimension {d} to be {}",
-        //                 t.shape(),
-        //                 first.dims()[d]
-        //             );
-        //         }
-        //     }
-        // }
+        for (i, t) in tensors.iter().enumerate().skip(1) {
+            if t.rank() != rank {
+                crate::bail!("cat: tensor {i} has rank {} but expected {rank}", t.rank());
+            }
+            for d in 0..rank {
+                if d != dim && t.dims()[d] != first.dims()[d] {
+                    crate::bail!(
+                        "cat: tensor {i} has shape {:?} but expected dimension {d} to be {}",
+                        t.shape(),
+                        first.dims()[d]
+                    );
+                }
+            }
+        }
 
-        // // Calculate output shape
-        // let cat_dim_size: usize = tensors.iter().map(|t| t.dims()[dim]).sum();
-        // let mut out_dims: Vec<usize> = first.dims().to_vec();
-        // out_dims[dim] = cat_dim_size;
-        // let out_shape = Shape::from(out_dims);
+        // Calculate output shape
+        let cat_dim_size: usize = tensors.iter().map(|t| t.dims()[dim]).sum();
+        let mut out_dims: Vec<usize> = first.dims().to_vec();
+        out_dims[dim] = cat_dim_size;
+        let out_shape = Shape::from(out_dims);
 
-        // // Allocate output
-        // let mut out = unsafe { Tensor::alloc_uninit(out_shape) };
+        // Allocate output
+        let dev = first.device();
+        let mut out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
 
-        // // Copy data from each tensor
-        // // For contiguous tensors, data is laid out as: [outer dims][cat dim][inner dims]
-        // // outer_size = product of dimensions before cat dim
-        // // inner_size = product of dimensions after cat dim
-        // let outer_size: usize = if dim == 0 { 1 } else { out.dims()[..dim].iter().product() };
-        // let inner_size: usize = out.dims()[dim + 1..].iter().product::<usize>().max(1);
+        // Copy data from each tensor using copy2d
+        // For contiguous tensors, data is laid out as: [outer dims][cat dim][inner dims]
+        let outer_size: usize = if dim == 0 { 1 } else { out.dims()[..dim].iter().product() };
+        let inner_size: usize = out.dims()[dim + 1..].iter().product::<usize>().max(1);
 
-        // let mut cat_offset = 0;
-        // for tensor in tensors {
-        //     let t_cat_size = tensor.dims()[dim];
+        let mut cat_offset = 0;
+        for tensor in tensors {
+            let t_cat_size = tensor.dims()[dim];
+            // Copy using copy2d: outer_size rows of (t_cat_size * inner_size) elements
+            out.data.copy2d(
+                &tensor.data,
+                outer_size,                    // d1: number of outer blocks
+                t_cat_size * inner_size,       // d2: elements per block from this tensor
+                cat_dim_size * inner_size,     // dst_s: stride in output
+                t_cat_size * inner_size,       // src_s: stride in source
+                cat_offset * inner_size,       // dst_o: offset in output
+                0,                             // src_o: offset in source
+            )?;
+            cat_offset += t_cat_size;
+        }
 
-        //     for outer in 0..outer_size {
-        //         for cat_idx in 0..t_cat_size {
-        //             let src_offset = outer * (t_cat_size * inner_size) + cat_idx * inner_size;
-        //             let dst_offset =
-        //                 outer * (cat_dim_size * inner_size) + (cat_offset + cat_idx) * inner_size;
-
-        //             out.data[dst_offset..dst_offset + inner_size]
-        //                 .copy_from_slice(&tensor.data[src_offset..src_offset + inner_size]);
-        //         }
-        //     }
-        //     cat_offset += t_cat_size;
-        // }
-
-        // Ok(out)
+        Ok(out)
     }
 }

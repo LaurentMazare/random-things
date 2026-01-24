@@ -86,7 +86,13 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
         _: (usize, usize),
     ) -> Result<()>;
 
-    fn index_select(&mut self, src: &Self, ids: &[u32], dim: usize) -> Result<()>;
+    fn index_select(
+        &mut self,
+        src: &Self,
+        ids: &[u32],
+        dim: usize,
+        dims: &[usize],
+    ) -> Result<()>;
 }
 
 pub trait BackendF<T: crate::WithDTypeF>: Backend<T> {
