@@ -1,5 +1,5 @@
 //! The shape of a tensor is a tuple with the size of each of its dimensions.
-use crate::{bail, Error, Result};
+use crate::{bail, Backend, Error, Result, WithDType};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Shape(Vec<usize>);
@@ -104,7 +104,7 @@ macro_rules! extract_dims {
             }
         }
 
-        impl<T: crate::WithDType> crate::Tensor<T> {
+        impl<T: WithDType, B: Backend<T>> crate::Tensor<T, B> {
             pub fn $fn_name(&self) -> Result<$out_type> {
                 self.shape().$fn_name()
             }

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use mimi::llama::{precompute_freqs_cis, Attention, Config, KvCache, Llama, Mlp, TransformerBlock};
 use mimi::nn::{Linear, RmsNorm};
-use mimi::Tensor;
+use mimi::{Backend, BackendF, Tensor, WithDType, WithDTypeF};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -68,7 +68,11 @@ struct Args {
 }
 
 /// Load a tensor from safetensors data, converting to f32
-fn load_tensor(tensors: &safetensors::SafeTensors, name: &str) -> Result<Tensor<f32>> {
+fn load_tensor<B: Backend<f32>>(
+    tensors: &safetensors::SafeTensors,
+    name: &str,
+    dev: &B::Device,
+) -> Result<Tensor<f32, B>> {
     let view = tensors.tensor(name).with_context(|| format!("tensor {name} not found"))?;
     let shape: Vec<usize> = view.shape().to_vec();
 
@@ -102,8 +106,8 @@ fn load_tensor(tensors: &safetensors::SafeTensors, name: &str) -> Result<Tensor<
         }
         dtype => anyhow::bail!("unsupported dtype: {:?}", dtype),
     };
-
-    Ok(Tensor { data, shape: shape.into() })
+    let data = Tensor::from_vec(data, shape, dev)?;
+    Ok(data)
 }
 
 /// Container for memory-mapped safetensor files
@@ -134,16 +138,17 @@ impl SafeTensorFiles {
 }
 
 /// Load all tensors from safetensor files into a hashmap
-fn load_all_tensors(
+fn load_all_tensors<B: Backend<f32>>(
     files: &SafeTensorFiles,
     verbose: bool,
-) -> Result<HashMap<String, Tensor<f32>>> {
+    dev: &B::Device,
+) -> Result<HashMap<String, Tensor<f32, B>>> {
     let mut all_tensors = HashMap::new();
 
     for data in &files.data {
         let tensors = safetensors::SafeTensors::deserialize(data)?;
         for name in tensors.names() {
-            let tensor = load_tensor(&tensors, name)?;
+            let tensor = load_tensor(&tensors, name, dev)?;
             if verbose {
                 println!("  Tensor {}: {:?}", name, tensor.shape());
             }
@@ -154,15 +159,21 @@ fn load_all_tensors(
     Ok(all_tensors)
 }
 
-fn get_tensor(tensors: &HashMap<String, Tensor<f32>>, name: &str) -> Result<Tensor<f32>> {
-    tensors.get(name).cloned().with_context(|| format!("missing tensor: {name}"))
+fn get_tensor<T: WithDType, B: Backend<T>>(
+    tensors: &HashMap<String, Tensor<T, B>>,
+    name: &str,
+) -> Result<Tensor<T, B>> {
+    match tensors.get(name) {
+        None => anyhow::bail!("missing tensor: {name}"),
+        Some(tensor) => Ok(tensor.copy()?),
+    }
 }
 
-fn create_attention_from_weights(
-    tensors: &HashMap<String, Tensor<f32>>,
+fn create_attention_from_weights<T: WithDTypeF, B: BackendF<T>>(
+    tensors: &HashMap<String, Tensor<T, B>>,
     prefix: &str,
     config: &Config,
-) -> Result<Attention<f32>> {
+) -> Result<Attention<T, B>> {
     let q_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.q_proj.weight"))?);
     let k_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.k_proj.weight"))?);
     let v_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.v_proj.weight"))?);
@@ -179,10 +190,10 @@ fn create_attention_from_weights(
     ))
 }
 
-fn create_mlp_from_weights(
-    tensors: &HashMap<String, Tensor<f32>>,
+fn create_mlp_from_weights<T: WithDTypeF, B: BackendF<T>>(
+    tensors: &HashMap<String, Tensor<T, B>>,
     prefix: &str,
-) -> Result<Mlp<f32>> {
+) -> Result<Mlp<T, B>> {
     let gate_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.gate_proj.weight"))?);
     let up_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.up_proj.weight"))?);
     let down_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.down_proj.weight"))?);
@@ -190,11 +201,11 @@ fn create_mlp_from_weights(
     Ok(Mlp::new(gate_proj, up_proj, down_proj))
 }
 
-fn create_transformer_block_from_weights(
-    tensors: &HashMap<String, Tensor<f32>>,
+fn create_transformer_block_from_weights<T: WithDTypeF, B: BackendF<T>>(
+    tensors: &HashMap<String, Tensor<T, B>>,
     layer_idx: usize,
     config: &Config,
-) -> Result<TransformerBlock<f32>> {
+) -> Result<TransformerBlock<T, B>> {
     let prefix = format!("model.layers.{layer_idx}");
 
     let attn = create_attention_from_weights(tensors, &format!("{prefix}.self_attn"), config)?;
@@ -212,10 +223,11 @@ fn create_transformer_block_from_weights(
     Ok(TransformerBlock::new(attn, mlp, input_layernorm, post_attention_layernorm))
 }
 
-fn load_llama_from_weights(
-    tensors: &HashMap<String, Tensor<f32>>,
+fn load_llama_from_weights<T: WithDTypeF, B: BackendF<T>>(
+    tensors: &HashMap<String, Tensor<T, B>>,
     config: &Config,
-) -> Result<Llama<f32>> {
+    dev: &B::Device,
+) -> Result<Llama<T, B>> {
     println!("  Loading embed_tokens...");
     let embed_tokens = get_tensor(tensors, "model.embed_tokens.weight")?;
 
@@ -232,21 +244,30 @@ fn load_llama_from_weights(
     let norm = RmsNorm::new(get_tensor(tensors, "model.norm.weight")?, config.rms_norm_eps);
 
     // lm_head might be tied to embed_tokens in some models
-    let lm_head_weight =
-        tensors.get("lm_head.weight").cloned().unwrap_or_else(|| embed_tokens.clone());
+    let lm_head_weight = match tensors.get("lm_head.weight") {
+        Some(tensor) => tensor.copy()?,
+        None => embed_tokens.copy()?,
+    };
     let lm_head = Linear::new(lm_head_weight);
 
     println!("  Computing RoPE frequencies...");
-    let (cos_cache, sin_cache) =
-        precompute_freqs_cis(config.head_dim, config.max_position_embeddings, config.rope_theta)?;
+    let (cos_cache, sin_cache) = precompute_freqs_cis(
+        config.head_dim,
+        config.max_position_embeddings,
+        config.rope_theta,
+        dev,
+    )?;
 
     Ok(Llama::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
 }
 
-fn create_llama_zeros(config: &Config) -> Result<Llama<f32>> {
-    let embed_tokens = Tensor::zeros((config.vocab_size, config.hidden_size));
+fn create_llama_zeros<T: WithDTypeF, B: BackendF<T>>(
+    config: &Config,
+    dev: &B::Device,
+) -> Result<Llama<T, B>> {
+    let embed_tokens = Tensor::zeros((config.vocab_size, config.hidden_size), dev)?;
 
-    let layers: Vec<_> = (0..config.num_hidden_layers)
+    let layers: Vec<TransformerBlock<T, B>> = (0..config.num_hidden_layers)
         .map(|_| {
             let hidden_size = config.hidden_size;
             let num_heads = config.num_attention_heads;
@@ -254,31 +275,41 @@ fn create_llama_zeros(config: &Config) -> Result<Llama<f32>> {
             let head_dim = config.head_dim;
             let intermediate_size = config.intermediate_size;
 
-            let q_proj = Linear::new(Tensor::zeros((num_heads * head_dim, hidden_size)));
-            let k_proj = Linear::new(Tensor::zeros((num_kv_heads * head_dim, hidden_size)));
-            let v_proj = Linear::new(Tensor::zeros((num_kv_heads * head_dim, hidden_size)));
-            let o_proj = Linear::new(Tensor::zeros((hidden_size, num_heads * head_dim)));
+            let q_proj = Linear::new(Tensor::zeros((num_heads * head_dim, hidden_size), dev)?);
+            let k_proj = Linear::new(Tensor::zeros((num_kv_heads * head_dim, hidden_size), dev)?);
+            let v_proj = Linear::new(Tensor::zeros((num_kv_heads * head_dim, hidden_size), dev)?);
+            let o_proj = Linear::new(Tensor::zeros((hidden_size, num_heads * head_dim), dev)?);
             let attn =
                 Attention::new(q_proj, k_proj, v_proj, o_proj, num_heads, num_kv_heads, head_dim);
 
-            let gate_proj = Linear::new(Tensor::zeros((intermediate_size, hidden_size)));
-            let up_proj = Linear::new(Tensor::zeros((intermediate_size, hidden_size)));
-            let down_proj = Linear::new(Tensor::zeros((hidden_size, intermediate_size)));
+            let gate_proj = Linear::new(Tensor::zeros((intermediate_size, hidden_size), dev)?);
+            let up_proj = Linear::new(Tensor::zeros((intermediate_size, hidden_size), dev)?);
+            let down_proj = Linear::new(Tensor::zeros((hidden_size, intermediate_size), dev)?);
             let mlp = Mlp::new(gate_proj, up_proj, down_proj);
 
-            let input_layernorm = RmsNorm::new(Tensor::zeros((hidden_size,)), config.rms_norm_eps);
+            let input_layernorm =
+                RmsNorm::new(Tensor::zeros((hidden_size,), dev)?, config.rms_norm_eps);
             let post_attention_layernorm =
-                RmsNorm::new(Tensor::zeros((hidden_size,)), config.rms_norm_eps);
+                RmsNorm::new(Tensor::zeros((hidden_size,), dev)?, config.rms_norm_eps);
 
-            TransformerBlock::new(attn, mlp, input_layernorm, post_attention_layernorm)
+            Ok::<_, anyhow::Error>(TransformerBlock::<T, B>::new(
+                attn,
+                mlp,
+                input_layernorm,
+                post_attention_layernorm,
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
-    let norm = RmsNorm::new(Tensor::zeros((config.hidden_size,)), config.rms_norm_eps);
-    let lm_head = Linear::new(Tensor::zeros((config.vocab_size, config.hidden_size)));
+    let norm = RmsNorm::new(Tensor::zeros((config.hidden_size,), dev)?, config.rms_norm_eps);
+    let lm_head = Linear::new(Tensor::zeros((config.vocab_size, config.hidden_size), dev)?);
 
-    let (cos_cache, sin_cache) =
-        precompute_freqs_cis(config.head_dim, config.max_position_embeddings, config.rope_theta)?;
+    let (cos_cache, sin_cache) = precompute_freqs_cis(
+        config.head_dim,
+        config.max_position_embeddings,
+        config.rope_theta,
+        dev,
+    )?;
 
     Ok(Llama::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
 }
@@ -328,22 +359,27 @@ fn download_model(repo_id: &str) -> Result<ModelFiles> {
     Ok(ModelFiles { safetensor_paths, tokenizer_path })
 }
 
-fn sample_token(logits: &Tensor<f32>, temperature: f32, rng: &mut impl Rng) -> u32 {
+fn sample_token<B: Backend<f32>>(
+    logits: &Tensor<f32, B>,
+    temperature: f32,
+    rng: &mut impl Rng,
+) -> Result<u32> {
     // logits shape: (1, seq_len, vocab_size)
     let vocab_size = logits.dims()[2];
-    let data = &logits.data;
+    let data = logits.to_vec()?;
     // Get logits for the last token
     let start = data.len() - vocab_size;
     let last_logits = &data[start..];
 
     if temperature <= 0.0 {
         // Pure argmax
-        last_logits
+        let logit = last_logits
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx as u32)
-            .unwrap_or(0)
+            .unwrap_or(0);
+        Ok(logit)
     } else {
         // Temperature-scaled sampling with top-p
         let mut probs: Vec<(usize, f32)> =
@@ -380,12 +416,12 @@ fn sample_token(logits: &Tensor<f32>, temperature: f32, rng: &mut impl Rng) -> u
         for (idx, p) in top_probs {
             rng_val -= p / sum;
             if rng_val <= 0.0 {
-                return *idx as u32;
+                return Ok(*idx as u32);
             }
         }
 
         // Fallback to first token
-        top_probs[0].0 as u32
+        Ok(top_probs[0].0 as u32)
     }
 }
 
@@ -396,6 +432,9 @@ fn main() -> Result<()> {
     println!("Model: {:?}", args.model_size);
     println!("Config: {:?}", config);
 
+    // CPU Device
+    let dev = ();
+
     let (model, tokenizer) = if let Some(repo_id) = args.model_size.hf_repo() {
         let model_files = download_model(repo_id)?;
 
@@ -405,14 +444,14 @@ fn main() -> Result<()> {
 
         println!("Loading weights...");
         let files = SafeTensorFiles::new(model_files.safetensor_paths)?;
-        let tensors = load_all_tensors(&files, args.verbose)?;
+        let tensors = load_all_tensors(&files, args.verbose, &dev)?;
         println!("  Loaded {} tensors", tensors.len());
-        let model = load_llama_from_weights(&tensors, &config)?;
+        let model = load_llama_from_weights(&tensors, &config, &dev)?;
 
         (model, Some(tokenizer))
     } else {
         println!("Using zero-initialized weights (test mode)");
-        (create_llama_zeros(&config)?, None)
+        (create_llama_zeros(&config, &dev)?, None)
     };
 
     // Tokenize the prompt
@@ -438,18 +477,18 @@ fn main() -> Result<()> {
 
     // Autoregressive generation loop
     let mut rng = rand::rng();
-    let mut kv_cache: Option<KvCache<f32>> = None;
+    let mut kv_cache: Option<KvCache<f32, Vec<f32>>> = None;
     let mut pos = 0;
     let mut generated_tokens = Vec::new();
     let mut autoregressive_start: Option<std::time::Instant> = None;
 
     for step in 0..args.max_tokens {
-        let input_tokens: Vec<usize> = if kv_cache.is_none() {
+        let input_tokens: Vec<u32> = if kv_cache.is_none() {
             // First forward pass: process all prompt tokens
-            tokens.iter().map(|&t| t as usize).collect()
+            tokens.clone()
         } else {
             // Subsequent passes: only process the last generated token
-            vec![*tokens.last().unwrap() as usize]
+            vec![*tokens.last().unwrap()]
         };
 
         let (logits, new_kv_cache) = model.forward(&input_tokens, pos, kv_cache.as_ref())?;
@@ -462,7 +501,7 @@ fn main() -> Result<()> {
         }
 
         // Sample next token
-        let next_token = sample_token(&logits, args.temperature, &mut rng);
+        let next_token = sample_token(&logits, args.temperature, &mut rng)?;
         tokens.push(next_token);
         generated_tokens.push(next_token);
 

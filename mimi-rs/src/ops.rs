@@ -1,94 +1,86 @@
-use crate::shape::Dim;
-use crate::{Error, Result};
-use crate::{Tensor, WithDType, WithDTypeF};
+use crate::{Backend, BackendF, Dim, Error, Result, Tensor, WithDType, WithDTypeF};
 
-impl<T: WithDType> Tensor<T> {
-    pub fn add(&self, other: &Tensor<T>) -> Result<Tensor<T>> {
-        if self.shape != other.shape {
-            return Err(Error::ShapeMismatchBinaryOp {
-                lhs: self.shape.clone(),
-                rhs: other.shape.clone(),
-                op: "add",
-            }
-            .bt());
+fn check_same_shape<T: WithDType, B: Backend<T>>(
+    a: &Tensor<T, B>,
+    b: &Tensor<T, B>,
+    op: &'static str,
+) -> Result<()> {
+    if a.shape != b.shape {
+        return Err(Error::ShapeMismatchBinaryOp {
+            lhs: a.shape.clone(),
+            rhs: b.shape.clone(),
+            op,
         }
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+        .bt());
+    }
+    Ok(())
+}
+
+impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
+    pub fn add(&self, other: &Self) -> Result<Self> {
+        check_same_shape(self, other, "add")?;
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.add_(self, other)?;
         Ok(result)
     }
 
-    pub fn mul(&self, other: &Tensor<T>) -> Result<Tensor<T>> {
-        if self.shape != other.shape {
-            return Err(Error::ShapeMismatchBinaryOp {
-                lhs: self.shape.clone(),
-                rhs: other.shape.clone(),
-                op: "mul",
-            }
-            .bt());
-        }
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn mul(&self, other: &Self) -> Result<Self> {
+        check_same_shape(self, other, "mul")?;
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.mul_(self, other)?;
         Ok(result)
     }
 
-    pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Tensor<T>> {
+    pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Self> {
         let dim1 = dim1.to_index(self.shape(), "transpose dim1")?;
         let dim2 = dim2.to_index(self.shape(), "transpose dim2")?;
         let mut new_dims = self.dims().to_vec();
         new_dims.swap(dim1, dim2);
-        let mut result = unsafe { Tensor::alloc_uninit(new_dims.into()) };
+        let mut result = unsafe { Tensor::alloc_uninit(new_dims.into(), self.device()) }?;
         result.transpose_(self, dim1, dim2)?;
         Ok(result)
     }
 
-    pub fn copy(&self) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn copy(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.copy_(self)?;
         Ok(result)
     }
 
-    pub fn full_like(&self, value: T) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn full_like(&self, value: T) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.fill_(value)?;
         Ok(result)
     }
 
-    pub fn scale(&self, m: T) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
-        for (dst, src) in result.data.iter_mut().zip(self.data.iter()) {
-            *dst = *src * m;
-        }
+    pub fn scale(&self, m: T) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.scale_(self, m)?;
         Ok(result)
     }
 }
 
-impl<T: WithDTypeF> Tensor<T> {
-    pub fn cos(&self) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
+    pub fn cos(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.cos_(self)?;
         Ok(result)
     }
 
-    pub fn sin(&self) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn sin(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.sin_(self)?;
         Ok(result)
     }
 
-    pub fn exp(&self) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
-        result.exp_(self)?;
-        Ok(result)
-    }
-
-    pub fn silu(&self) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn silu(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.silu_(self)?;
         Ok(result)
     }
 
-    pub fn softmax(&self) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn softmax(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.softmax_(self)?;
         Ok(result)
     }
@@ -96,31 +88,29 @@ impl<T: WithDTypeF> Tensor<T> {
     /// Causal softmax for autoregressive attention.
     /// Input shape: (batch, heads, seq_q, seq_kv)
     /// q_offset: position of first query token (for cached generation)
-    pub fn softmax_causal(&self, q_offset: usize) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
-        result.softmax_causal_(self, q_offset)?;
-        Ok(result)
+    pub fn softmax_causal(&self, _q_offset: usize) -> Result<Self> {
+        todo!()
     }
 
-    pub fn rms_norm(&self, alpha: &Tensor<T>, eps: f32) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn rms_norm(&self, alpha: &Self, eps: f32) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rms_norm_(self, alpha, eps)?;
         Ok(result)
     }
 
-    pub fn rope(&self, cos: &Tensor<T>, sin: &Tensor<T>, pos: usize) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn rope(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_(self, cos, sin, pos)?;
         Ok(result)
     }
 
-    pub fn rope_i(&self, cos: &Tensor<T>, sin: &Tensor<T>, pos: usize) -> Result<Tensor<T>> {
-        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone()) };
+    pub fn rope_i(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_i_(self, cos, sin, pos)?;
         Ok(result)
     }
 
-    fn matmul_with_t(&self, other: &Tensor<T>, rhs_t: bool) -> Result<Tensor<T>> {
+    fn matmul_with_t(&self, other: &Self, rhs_t: bool) -> Result<Self> {
         if self.shape.rank() < 2 || other.shape.rank() < 2 {
             return Err(Error::MatmulShapeMismatch {
                 lhs: self.shape.clone(),
@@ -171,16 +161,17 @@ impl<T: WithDTypeF> Tensor<T> {
         target_shape.push(lhs_m);
         target_shape.push(rhs_n);
 
-        let mut result = unsafe { Tensor::alloc_uninit(target_shape.into()) };
+        let dev = self.device();
+        let mut result = unsafe { Self::alloc_uninit(target_shape.into(), dev) }?;
         result.matmul_(self, other, rhs_t)?;
         Ok(result)
     }
 
-    pub fn matmul(&self, other: &Tensor<T>) -> Result<Tensor<T>> {
+    pub fn matmul(&self, other: &Self) -> Result<Self> {
         self.matmul_with_t(other, false)
     }
 
-    pub fn matmul_t(&self, other: &Tensor<T>) -> Result<Tensor<T>> {
+    pub fn matmul_t(&self, other: &Self) -> Result<Self> {
         self.matmul_with_t(other, true)
     }
 }

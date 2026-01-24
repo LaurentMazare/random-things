@@ -15,3 +15,7 @@ pub use dtype::{DType, WithDType, WithDTypeF};
 pub use error::{Error, Result};
 pub use shape::{Dim, Shape, D};
 pub use tensor::Tensor;
+
+pub type CpuDevice = ();
+pub type CpuBackend<T> = Vec<T>;
+pub type CpuTensor<T> = Tensor<T, CpuBackend<T>>;

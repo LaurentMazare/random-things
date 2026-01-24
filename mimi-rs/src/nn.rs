@@ -1,30 +1,30 @@
-use crate::{Result, Tensor, WithDTypeF};
+use crate::{BackendF, Result, Tensor, WithDTypeF};
 
-pub struct RmsNorm<T: WithDTypeF> {
-    weight: Tensor<T>,
+pub struct RmsNorm<T: WithDTypeF, B: BackendF<T>> {
+    weight: Tensor<T, B>,
     eps: f32,
 }
 
-impl<T: WithDTypeF> RmsNorm<T> {
-    pub fn new(weight: Tensor<T>, eps: f32) -> Self {
+impl<T: WithDTypeF, B: BackendF<T>> RmsNorm<T, B> {
+    pub fn new(weight: Tensor<T, B>, eps: f32) -> Self {
         Self { weight, eps }
     }
 
-    pub fn forward(&self, x: &Tensor<T>) -> Result<Tensor<T>> {
+    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         x.rms_norm(&self.weight, self.eps)
     }
 }
 
-pub struct Linear<T: WithDTypeF> {
-    weight: Tensor<T>,
+pub struct Linear<T: WithDTypeF, B: BackendF<T>> {
+    weight: Tensor<T, B>,
 }
 
-impl<T: WithDTypeF> Linear<T> {
-    pub fn new(weight: Tensor<T>) -> Self {
+impl<T: WithDTypeF, B: BackendF<T>> Linear<T, B> {
+    pub fn new(weight: Tensor<T, B>) -> Self {
         Self { weight }
     }
 
-    pub fn forward(&self, x: &Tensor<T>) -> Result<Tensor<T>> {
+    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // weight: (out_features, in_features)
         // x: (..., in_features)
         // output: (..., out_features)

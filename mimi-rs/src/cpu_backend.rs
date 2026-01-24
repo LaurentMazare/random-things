@@ -32,8 +32,24 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
         Ok(())
     }
 
-    fn scale(&mut self, m: T, l: usize) -> Result<()> {
-        self[..l].iter_mut().for_each(|v| *v *= m);
+    fn scale(&mut self, src: &Self, m: T, l: usize) -> Result<()> {
+        for (d, s) in self[..l].iter_mut().zip(&src[..l]) {
+            *d = *s * m
+        }
+        Ok(())
+    }
+
+    fn add(&mut self, lhs: &Self, rhs: &Self, l: usize) -> Result<()> {
+        for ((d, l), r) in self[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
+            *d = *l + *r
+        }
+        Ok(())
+    }
+
+    fn mul(&mut self, lhs: &Self, rhs: &Self, l: usize) -> Result<()> {
+        for ((d, l), r) in self[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
+            *d = *l * *r
+        }
         Ok(())
     }
 
@@ -97,8 +113,9 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
         Ok(())
     }
 
-    fn copy(&self, l: usize) -> Result<Self> {
-        Ok(self[..l].to_vec())
+    fn copy(&mut self, src: &Self, l: usize) -> Result<()> {
+        self[..l].copy_from_slice(&src[..l]);
+        Ok(())
     }
 
     fn fill(&mut self, v: T, l: usize) -> Result<()> {
@@ -112,6 +129,7 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
 
     fn rope(
         &mut self,
+        src: &Self,
         cos: &Self,
         sin: &Self,
         b: usize,
@@ -123,15 +141,18 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
         if self.len() != b * h * t * d {
             crate::bail!("rope unexpected size for dst {} {b} {h} {t} {d}", self.len())
         }
+        if src.len() != b * h * t * d {
+            crate::bail!("rope unexpected size for src {} {b} {h} {t} {d}", src.len())
+        }
         let cos = &cos[pos * d / 2..];
         let sin = &sin[pos * d / 2..];
-        self.par_chunks_mut(t * d).for_each(|dst| {
+        self.par_chunks_mut(t * d).zip(src.par_chunks(t * d)).for_each(|(dst, src)| {
             for i_t in 0..t {
                 for i_d in 0..d / 2 {
                     let i1 = i_t * d + i_d;
                     let i2 = i1 + d / 2;
                     let i_cs = i_t * (d / 2) + i_d;
-                    let (src_i1, src_i2) = (dst[i1], dst[i2]);
+                    let (src_i1, src_i2) = (src[i1], src[i2]);
                     dst[i1] = src_i1 * cos[i_cs] - src_i2 * sin[i_cs];
                     dst[i2] = src_i1 * sin[i_cs] + src_i2 * cos[i_cs];
                 }
@@ -143,6 +164,7 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
 
     fn rope_i(
         &mut self,
+        src: &Self,
         cos: &Self,
         sin: &Self,
         b: usize,
@@ -154,12 +176,15 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
         if self.len() != b * h * t * d {
             crate::bail!("rope-i unexpected size for dst {} {b} {h} {t} {d}", self.len())
         }
+        if src.len() != b * h * t * d {
+            crate::bail!("rope-i unexpected size for src {} {b} {h} {t} {d}", src.len())
+        }
         let cos = &cos[pos * d / 2..];
         let sin = &sin[pos * d / 2..];
-        self.par_chunks_mut(t * d).for_each(|dst| {
+        self.par_chunks_mut(t * d).zip(src.par_chunks(t * d)).for_each(|(dst, src)| {
             for i_over_2 in 0..t * d / 2 {
                 let i = 2 * i_over_2;
-                let (s_i, s_ip) = (dst[i], dst[i + 1]);
+                let (s_i, s_ip) = (src[i], src[i + 1]);
                 dst[i] = s_i * cos[i_over_2] - s_ip * sin[i_over_2];
                 dst[i + 1] = s_i * sin[i_over_2] + s_ip * cos[i_over_2];
             }
@@ -223,23 +248,23 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
 }
 
 impl<T: WithDTypeF> crate::BackendF<T> for Vec<T> {
-    fn cos(&mut self, l: usize) -> Result<()> {
-        for d in self[..l].iter_mut() {
-            *d = d.cos();
+    fn cos(&mut self, src: &Self, l: usize) -> Result<()> {
+        for (d, s) in self[..l].iter_mut().zip(&src[..l]) {
+            *d = s.cos();
         }
         Ok(())
     }
 
-    fn sin(&mut self, l: usize) -> Result<()> {
-        for d in self[..l].iter_mut() {
-            *d = d.sin();
+    fn sin(&mut self, src: &Self, l: usize) -> Result<()> {
+        for (d, s) in self[..l].iter_mut().zip(&src[..l]) {
+            *d = s.sin();
         }
         Ok(())
     }
 
-    fn silu(&mut self, l: usize) -> Result<()> {
-        for d in self[..l].iter_mut() {
-            *d /= T::one() + (T::zero() - *d).exp()
+    fn silu(&mut self, src: &Self, l: usize) -> Result<()> {
+        for (d, s) in self[..l].iter_mut().zip(&src[..l]) {
+            *d = *s / (T::one() + (T::zero() - *s).exp())
         }
         Ok(())
     }

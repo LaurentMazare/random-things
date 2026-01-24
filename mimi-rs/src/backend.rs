@@ -22,12 +22,14 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
 
     fn device(&self) -> &Self::Device;
     fn fill(&mut self, elem: T, len: usize) -> Result<()>;
-    fn copy(&self, len: usize) -> Result<Self>;
+    fn copy(&mut self, src: &Self, len: usize) -> Result<()>;
     fn data(&self, len: usize) -> Result<std::borrow::Cow<'_, [T]>>;
 
     fn add_assign(&mut self, s: &Self, len: usize) -> Result<()>;
     fn mul_assign(&mut self, s: &Self, len: usize) -> Result<()>;
-    fn scale(&mut self, v: T, len: usize) -> Result<()>;
+    fn add(&mut self, lhs: &Self, rhs: &Self, len: usize) -> Result<()>;
+    fn mul(&mut self, lhs: &Self, rhs: &Self, len: usize) -> Result<()>;
+    fn scale(&mut self, src: &Self, v: T, len: usize) -> Result<()>;
 
     fn transpose(&mut self, s: &Self, dim1: usize, dim2: usize, dims: &[usize]) -> Result<()>;
 
@@ -46,8 +48,9 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
     #[allow(clippy::too_many_arguments)]
     fn rope(
         &mut self,
-        _: &Self,
-        _: &Self,
+        src: &Self,
+        cos: &Self,
+        sin: &Self,
         b: usize,
         h: usize,
         t: usize,
@@ -58,6 +61,7 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
     #[allow(clippy::too_many_arguments)]
     fn rope_i(
         &mut self,
+        src: &Self,
         _: &Self,
         _: &Self,
         b: usize,
@@ -86,9 +90,9 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
 }
 
 pub trait BackendF<T: crate::WithDTypeF>: Backend<T> {
-    fn cos(&mut self, len: usize) -> Result<()>;
-    fn sin(&mut self, len: usize) -> Result<()>;
-    fn silu(&mut self, len: usize) -> Result<()>;
+    fn cos(&mut self, src: &Self, len: usize) -> Result<()>;
+    fn sin(&mut self, src: &Self, len: usize) -> Result<()>;
+    fn silu(&mut self, src: &Self, len: usize) -> Result<()>;
     fn apply_causality_mask(&mut self, bh: usize, t1: usize, t2: usize) -> Result<()>;
     fn softmax(&mut self, src: &Self, dim_m1: usize, d: usize) -> Result<()>;
     fn rms_norm(
