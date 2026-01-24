@@ -1,7 +1,8 @@
-use crate::Result;
+use crate::{Result, WithDType, WithDTypeF};
 
-pub trait Backend<T: crate::WithDType>: Sized + 'static {
+pub trait Backend: Sized + 'static {
     type Device;
+    type S<T: WithDType>;
 
     fn len(&self) -> usize;
 
@@ -12,31 +13,49 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
     /// # Safety
     /// This function allocates an unitialized block of memory. It is the responsibility of the
     /// caller to set the memory before using or returning the block.
-    unsafe fn alloc_uninit(len: usize, dev: &Self::Device) -> Result<Self>;
-    fn from_vec(v: Vec<T>, dev: &Self::Device) -> Result<Self>;
-    fn cst(v: T, len: usize, dev: &Self::Device) -> Result<Self> {
+    unsafe fn alloc_uninit<T: WithDType>(len: usize, dev: &Self::Device) -> Result<Self::S<T>>;
+
+    fn from_vec<T: WithDType>(v: Vec<T>, dev: &Self::Device) -> Result<Self::S<T>>;
+
+    fn cst<T: WithDType>(v: T, len: usize, dev: &Self::Device) -> Result<Self::S<T>> {
         let mut res = unsafe { Self::alloc_uninit(len, dev)? };
         res.fill(v, len)?;
         Ok(res)
     }
 
     fn device(&self) -> &Self::Device;
-    fn fill(&mut self, elem: T, len: usize) -> Result<()>;
-    fn copy(&mut self, src: &Self, len: usize) -> Result<()>;
-    fn data(&self, len: usize) -> Result<std::borrow::Cow<'_, [T]>>;
+    fn fill<T: WithDType>(dst: &mut Self::S<T>, elem: T, len: usize) -> Result<()>;
+    fn copy<T: WithDType>(dst: &mut Self::S<T>, src: &Self::S<T>, len: usize) -> Result<()>;
+    fn data<T: WithDType>(src: &Self::S<T>, len: usize) -> Result<std::borrow::Cow<'_, [T]>>;
 
-    fn add_assign(&mut self, s: &Self, len: usize) -> Result<()>;
-    fn mul_assign(&mut self, s: &Self, len: usize) -> Result<()>;
-    fn add(&mut self, lhs: &Self, rhs: &Self, len: usize) -> Result<()>;
-    fn mul(&mut self, lhs: &Self, rhs: &Self, len: usize) -> Result<()>;
-    fn scale(&mut self, src: &Self, v: T, len: usize) -> Result<()>;
+    fn add_assign<T: WithDType>(dst: &mut Self::S<T>, s: &Self::S<T>, len: usize) -> Result<()>;
+    fn mul_assign<T: WithDType>(dst: &mut Self::S<T>, s: &Self::S<T>, len: usize) -> Result<()>;
+    fn add<T: WithDType>(
+        dst: &mut Self::S<T>,
+        lhs: &Self::S<T>,
+        rhs: &Self::S<T>,
+        len: usize,
+    ) -> Result<()>;
+    fn mul<T: WithDType>(
+        dst: &mut Self::S<T>,
+        lhs: &Self::S<T>,
+        rhs: &Self::S<T>,
+        len: usize,
+    ) -> Result<()>;
+    fn scale<T: WithDType>(dst: &mut Self::S<T>, src: &Self::S<T>, v: T, len: usize) -> Result<()>;
 
-    fn transpose(&mut self, s: &Self, dim1: usize, dim2: usize, dims: &[usize]) -> Result<()>;
+    fn transpose<T: WithDType>(
+        dst: &mut Self::S<T>,
+        s: &Self::S<T>,
+        dim1: usize,
+        dim2: usize,
+        dims: &[usize],
+    ) -> Result<()>;
 
     #[allow(clippy::too_many_arguments)]
-    fn copy2d(
-        &mut self,
-        src: &Self,
+    fn copy2d<T: WithDType>(
+        dst: &mut Self::S<T>,
+        src: &Self::S<T>,
         d1: usize,
         d2: usize,
         dst_s: usize,
@@ -46,11 +65,11 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
     ) -> Result<()>;
 
     #[allow(clippy::too_many_arguments)]
-    fn rope(
-        &mut self,
-        src: &Self,
-        cos: &Self,
-        sin: &Self,
+    fn rope<T: WithDTypeF>(
+        dst: &mut Self::S<T>,
+        src: &Self::S<T>,
+        cos: &Self::S<T>,
+        sin: &Self::S<T>,
         b: usize,
         h: usize,
         t: usize,
@@ -59,11 +78,11 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
     ) -> Result<()>;
 
     #[allow(clippy::too_many_arguments)]
-    fn rope_i(
-        &mut self,
-        src: &Self,
-        _: &Self,
-        _: &Self,
+    fn rope_i<T: WithDTypeF>(
+        dst: &mut Self::S<T>,
+        src: &Self::S<T>,
+        cos: &Self::S<T>,
+        sin: &Self::S<T>,
         b: usize,
         h: usize,
         t: usize,
@@ -86,25 +105,35 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
         _: (usize, usize),
     ) -> Result<()>;
 
-    fn index_select(&mut self, src: &Self, ids: &[u32], dim: usize, dims: &[usize]) -> Result<()>;
-}
-
-pub trait BackendF<T: crate::WithDTypeF>: Backend<T> {
-    fn cos(&mut self, src: &Self, len: usize) -> Result<()>;
-    fn sin(&mut self, src: &Self, len: usize) -> Result<()>;
-    fn silu(&mut self, src: &Self, len: usize) -> Result<()>;
-    fn apply_causality_mask(
-        &mut self,
+    fn index_select<T: WithDType>(
+        dst: &mut Self::S<T>,
+        src: &Self::S<T>,
+        ids: &[u32],
+        dim: usize,
+        dims: &[usize],
+    ) -> Result<()>;
+    fn cos<T: WithDTypeF>(dst: &mut Self::S<T>, src: &Self::S<T>, len: usize) -> Result<()>;
+    fn sin<T: WithDTypeF>(dst: &mut Self::S<T>, src: &Self::S<T>, len: usize) -> Result<()>;
+    fn silu<T: WithDTypeF>(dst: &mut Self::S<T>, src: &Self::S<T>, len: usize) -> Result<()>;
+    fn apply_causality_mask<T: WithDTypeF>(
+        dst: &mut Self::S<T>,
         bh: usize,
         t1: usize,
         t2: usize,
         offset: usize,
     ) -> Result<()>;
-    fn softmax(&mut self, src: &Self, dim_m1: usize, d: usize) -> Result<()>;
-    fn rms_norm(
-        &mut self,
-        src: &Self,
-        alpha: &Self,
+
+    fn softmax<T: WithDType>(
+        dst: &mut Self::S<T>,
+        src: &Self::S<T>,
+        dim_m1: usize,
+        d: usize,
+    ) -> Result<()>;
+
+    fn rms_norm<T: WithDType>(
+        dst: &mut Self::S<T>,
+        src: &Self::S<T>,
+        alpha: &Self::S<T>,
         dim_m1: usize,
         d: usize,
         eps: f32,

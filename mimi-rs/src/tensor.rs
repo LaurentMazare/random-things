@@ -1,13 +1,13 @@
-use crate::{shape::Dim, Backend, DType, Result, Shape, WithDType};
+use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
 
 #[derive(Clone)]
-pub struct Tensor<T: WithDType, B: Backend<T>> {
-    pub(crate) data: B,
+pub struct Tensor<T: WithDType, B: Backend> {
+    pub(crate) data: B::S<T>,
     pub(crate) shape: Shape,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
+impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub fn dtype(&self) -> DType {
         T::DTYPE
     }

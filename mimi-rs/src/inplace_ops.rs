@@ -1,33 +1,33 @@
 use crate::error::check_same_shape;
-use crate::{Backend, BackendF, Result, Tensor, WithDType, WithDTypeF};
+use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 
-impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
+impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub fn inplace_add(&mut self, other: &Self) -> Result<()> {
         check_same_shape(&self.shape, &other.shape, "inplace_add")?;
-        self.data.add_assign(&other.data, self.elem_count())?;
+        B::add_assign(&mut self.data, &other.data, self.elem_count())?;
         Ok(())
     }
 
     pub fn add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "add_")?;
         check_same_shape(&self.shape, &lhs.shape, "add_ (output)")?;
-        self.data.add(&lhs.data, &rhs.data, self.elem_count())?;
+        B::add(&mut self.data, &lhs.data, &rhs.data, self.elem_count())?;
         Ok(())
     }
 
     pub fn mul_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "mul_")?;
         check_same_shape(&self.shape, &lhs.shape, "mul_ (output)")?;
-        self.data.mul(&lhs.data, &rhs.data, self.elem_count())?;
+        B::mul(&mut self.data, &lhs.data, &rhs.data, self.elem_count())?;
         Ok(())
     }
 
     pub fn transpose_(&mut self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
         let dims = src.dims();
         if dim1 == dim2 {
-            self.data.copy(&src.data, self.elem_count())?;
+            B::copy(&mut self.data, &src.data, self.elem_count())?;
         } else {
-            self.data.transpose(&src.data, dim1, dim2, dims)?;
+            B::transpose(&mut self.data, &src.data, dim1, dim2, dims)?;
         }
         Ok(())
     }
@@ -50,22 +50,22 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
     }
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
+impl<T: WithDTypeF, B> Tensor<T, B> {
     pub fn cos_(&mut self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "cos_")?;
-        self.data.cos(&src.data, self.elem_count())?;
+        B::cos(&mut self.data, &src.data, self.elem_count())?;
         Ok(())
     }
 
     pub fn sin_(&mut self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sin_")?;
-        self.data.sin(&src.data, self.elem_count())?;
+        B::sin(&mut self.data, &src.data, self.elem_count())?;
         Ok(())
     }
 
     pub fn silu_(&mut self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "silu_")?;
-        self.data.silu(&src.data, self.elem_count())?;
+        B::silu(&mut self.data, &src.data, self.elem_count())?;
         Ok(())
     }
 
@@ -73,7 +73,7 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
         check_same_shape(&self.shape, &src.shape, "softmax_")?;
         let dim_m1 = self.shape.dims().last().copied().unwrap_or(1);
         let d = self.elem_count() / dim_m1;
-        self.data.softmax(&src.data, dim_m1, d)?;
+        B::max(&mut self.data, &src.data, dim_m1, d)?;
         Ok(())
     }
 
@@ -83,7 +83,7 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
     /// offset: starting position of the first query token (for KV cache generation).
     pub fn apply_causality_mask_(&mut self, offset: usize) -> Result<()> {
         let (bh, t1, t2) = self.dims3()?;
-        self.data.apply_causality_mask(bh, t1, t2, offset)?;
+        B::apply_causality_mask(&mut self.data, bh, t1, t2, offset)?;
         Ok(())
     }
 
@@ -96,7 +96,7 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
         let d = self.elem_count() / dim_m1;
         let expected_shape_alpha = dim_m1.into();
         check_same_shape(&alpha.shape, &expected_shape_alpha, "rms_norm_ alpha")?;
-        self.data.rms_norm(&src.data, &alpha.data, dim_m1, d, eps)?;
+        B::rms_norm(&mut self.data, &src.data, &alpha.data, dim_m1, d, eps)?;
         Ok(())
     }
 
@@ -213,7 +213,7 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
                 cos.shape()
             );
         }
-        self.data.rope(&src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
+        B::rope(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
         Ok(())
     }
 
@@ -236,7 +236,7 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
                 cos.shape()
             );
         }
-        self.data.rope_i(&src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
+        B::rope_i(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
         Ok(())
     }
 }

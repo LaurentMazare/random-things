@@ -3,19 +3,20 @@ use rayon::prelude::*;
 
 pub type Storage<T> = Vec<T>;
 
-impl<T: WithDType> crate::Backend<T> for Vec<T> {
+impl crate::Backend for () {
     type Device = ();
+    type S<T: WithDType> = Vec<T>;
 
-    unsafe fn alloc_uninit(len: usize, _: &Self::Device) -> Result<Self> {
+    unsafe fn alloc_uninit<T: WithDType>(len: usize, _: &Self::Device) -> Result<Self::S<T>> {
         Ok(vec![T::zero(); len])
     }
 
-    fn from_vec(v: Vec<T>, _: &Self::Device) -> Result<Self> {
+    fn from_vec<T: WithDType>(v: Vec<T>, _: &Self::Device) -> Result<Self::S<T>> {
         Ok(v)
     }
 
-    fn data(&self, len: usize) -> Result<std::borrow::Cow<'_, [T]>> {
-        Ok(std::borrow::Cow::Borrowed(&self[..len]))
+    fn data<T: WithDType>(src: &Self::S<T>, len: usize) -> Result<std::borrow::Cow<'_, [T]>> {
+        Ok(std::borrow::Cow::Borrowed(&src[..len]))
     }
 
     fn device(&self) -> &Self::Device {
