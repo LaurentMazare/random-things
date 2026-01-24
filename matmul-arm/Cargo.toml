@@ -1,0 +1,12 @@
+[package]
+name = "matmul"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = "0.9.1"
+seq-macro = "0.3.6"
+
+[profile.profiling]
+inherits = "release"
+debug = true
