@@ -85,11 +85,14 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
         Ok(result)
     }
 
-    /// Causal softmax for autoregressive attention.
-    /// Input shape: (batch, heads, seq_q, seq_kv)
-    /// q_offset: position of first query token (for cached generation)
-    pub fn softmax_causal(&self, _q_offset: usize) -> Result<Self> {
-        todo!()
+    /// Apply causality mask and return a new tensor.
+    /// Shape: (batch * heads, seq_q, seq_kv) or (batch, heads, seq_q, seq_kv)
+    /// Masks positions where key position > query position + offset (sets to -inf).
+    /// offset: starting position of the first query token (for KV cache generation).
+    pub fn apply_causality_mask(&self, offset: usize) -> Result<Self> {
+        let mut result = self.copy()?;
+        result.apply_causality_mask_(offset)?;
+        Ok(result)
     }
 
     pub fn rms_norm(&self, alpha: &Self, eps: f32) -> Result<Self> {

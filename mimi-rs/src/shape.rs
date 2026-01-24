@@ -1,5 +1,5 @@
 //! The shape of a tensor is a tuple with the size of each of its dimensions.
-use crate::{bail, Backend, Error, Result, WithDType};
+use crate::{Backend, Error, Result, WithDType, bail};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Shape(Vec<usize>);

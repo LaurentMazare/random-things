@@ -77,6 +77,16 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
         Ok(())
     }
 
+    /// Apply causality mask in-place.
+    /// Shape: (batch * heads, seq_q, seq_kv)
+    /// Masks positions where key position > query position + offset (sets to -inf).
+    /// offset: starting position of the first query token (for KV cache generation).
+    pub fn apply_causality_mask_(&mut self, offset: usize) -> Result<()> {
+        let (bh, t1, t2) = self.dims3()?;
+        self.data.apply_causality_mask(bh, t1, t2, offset)?;
+        Ok(())
+    }
+
     pub fn rms_norm_(&mut self, src: &Self, alpha: &Self, eps: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rms_norm_ src")?;
         if eps <= 0.0 {
@@ -148,29 +158,38 @@ impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
             );
         }
 
-        let lhs_strides = lhs.shape().stride_contiguous();
-        let rhs_strides = rhs.shape().stride_contiguous();
-        let (dst_rs, dst_cs) = (n, 1);
-
-        let (lhs_stride_m2, lhs_stride_m1) = {
-            let l = lhs_strides.len();
-            (lhs_strides[l - 2], lhs_strides[l - 1])
+        // For row-major contiguous tensors, gemm strides:
+        // - cs = column stride (moving to next column in same row) = 1 for row-major
+        // - rs = row stride (moving to next row in same column) = num_cols for row-major
+        // - dst: m×n, cs = 1, rs = n
+        // - lhs: m×k, cs = 1, rs = k
+        // - rhs: k×n (or n×k if transposed), cs = 1, rs = n (or swapped if transposed)
+        let (dst_cs, dst_rs) = (1, n);
+        let (lhs_cs, lhs_rs) = (1, lhs_k);
+        let (rhs_cs, rhs_rs) = if rhs_t {
+            // rhs is stored as n×k but we want k×n, swap strides
+            // Original: cs=1, rs=k. After transpose: cs=k, rs=1
+            (rhs_dims[rhs_dims.len() - 1], 1)
+        } else {
+            (1, rhs_n)
         };
-        let (lhs_rs, lhs_cs) = (lhs_stride_m2, lhs_stride_m1);
 
-        let (rhs_stride_m2, rhs_stride_m1) = {
-            let l = rhs_strides.len();
-            (rhs_strides[l - 2], rhs_strides[l - 1])
-        };
-        let (rhs_rs, rhs_cs) =
-            if rhs_t { (rhs_stride_m1, rhs_stride_m2) } else { (rhs_stride_m2, rhs_stride_m1) };
-
-        // rhs matrix size for indexing (original layout, before considering transpose)
+        // rhs matrix size for batch stride
         let rhs_mat_size = rhs_dims[rhs_dims.len() - 2] * rhs_dims[rhs_dims.len() - 1];
+        let b_stride = if rhs_batch == 1 { 0 } else { rhs_mat_size };
 
-        for b_idx in 0..lhs_batch {
-            todo!();
-        }
+        self.data.gemm(
+            (&lhs.data, 0),
+            (&rhs.data, 0),
+            m,
+            n,
+            k,
+            lhs_batch,
+            b_stride,
+            (dst_cs, dst_rs),
+            (lhs_cs, lhs_rs),
+            (rhs_cs, rhs_rs),
+        )?;
 
         Ok(())
     }

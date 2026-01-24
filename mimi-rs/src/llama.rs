@@ -178,7 +178,12 @@ impl<T: WithDTypeF, B: BackendF<T>> Attention<T, B> {
         let attn_weights = attn_weights.scale(scale)?;
 
         // Apply causal mask and softmax
-        let attn_weights = attn_weights.softmax_causal(pos)?;
+        // Reshape to (batch * heads, seq_q, seq_kv) for causality mask
+        let (b, h, seq_q, seq_kv) = attn_weights.dims4()?;
+        let attn_weights = attn_weights.reshape((b * h, seq_q, seq_kv))?;
+        let attn_weights = attn_weights.apply_causality_mask(pos)?;
+        let attn_weights = attn_weights.softmax()?;
+        let attn_weights = attn_weights.reshape((b, h, seq_q, seq_kv))?;
 
         // Attention output
         let attn_output = attn_weights.matmul(&v)?;
@@ -197,7 +202,14 @@ impl<T: WithDTypeF, B: BackendF<T>> Attention<T, B> {
         if self.num_kv_groups == 1 {
             return x.copy();
         }
-        todo!();
+        // x shape: (batch, num_kv_heads, seq_len, head_dim)
+        // output shape: (batch, num_heads, seq_len, head_dim)
+        // Repeat each KV head num_kv_groups times using index_select
+        // indices: [0, 0, ..., 1, 1, ..., 2, 2, ...] with num_kv_groups repetitions each
+        let indices: Vec<u32> = (0..self.num_kv_heads as u32)
+            .flat_map(|i| std::iter::repeat(i).take(self.num_kv_groups))
+            .collect();
+        x.index_select(&indices, 1)
     }
 }
 

@@ -238,13 +238,7 @@ impl<T: WithDType> crate::Backend<T> for Vec<T> {
         Ok(())
     }
 
-    fn index_select(
-        &mut self,
-        src: &Self,
-        ids: &[u32],
-        dim: usize,
-        dims: &[usize],
-    ) -> Result<()> {
+    fn index_select(&mut self, src: &Self, ids: &[u32], dim: usize, dims: &[usize]) -> Result<()> {
         let left_size: usize = dims[..dim].iter().product();
         let right_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
         let src_dim_size = dims[dim];
@@ -283,10 +277,18 @@ impl<T: WithDTypeF> crate::BackendF<T> for Vec<T> {
         }
         Ok(())
     }
-    fn apply_causality_mask(&mut self, bh: usize, t1: usize, t2: usize) -> Result<()> {
+    fn apply_causality_mask(
+        &mut self,
+        bh: usize,
+        t1: usize,
+        t2: usize,
+        offset: usize,
+    ) -> Result<()> {
         for idx_b in 0..bh {
             for idx1 in 0..t1 {
-                for idx2 in idx1 + 1..t2 {
+                // Query at position offset + idx1 can attend to keys at positions 0..=offset+idx1
+                // So mask positions where idx2 > offset + idx1
+                for idx2 in (offset + idx1 + 1)..t2 {
                     let idx = idx_b * t1 * t2 + idx1 * t2 + idx2;
                     self[idx] = T::neg_infinity()
                 }

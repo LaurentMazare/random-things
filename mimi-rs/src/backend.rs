@@ -86,20 +86,20 @@ pub trait Backend<T: crate::WithDType>: Sized + 'static {
         _: (usize, usize),
     ) -> Result<()>;
 
-    fn index_select(
-        &mut self,
-        src: &Self,
-        ids: &[u32],
-        dim: usize,
-        dims: &[usize],
-    ) -> Result<()>;
+    fn index_select(&mut self, src: &Self, ids: &[u32], dim: usize, dims: &[usize]) -> Result<()>;
 }
 
 pub trait BackendF<T: crate::WithDTypeF>: Backend<T> {
     fn cos(&mut self, src: &Self, len: usize) -> Result<()>;
     fn sin(&mut self, src: &Self, len: usize) -> Result<()>;
     fn silu(&mut self, src: &Self, len: usize) -> Result<()>;
-    fn apply_causality_mask(&mut self, bh: usize, t1: usize, t2: usize) -> Result<()>;
+    fn apply_causality_mask(
+        &mut self,
+        bh: usize,
+        t1: usize,
+        t2: usize,
+        offset: usize,
+    ) -> Result<()>;
     fn softmax(&mut self, src: &Self, dim_m1: usize, d: usize) -> Result<()>;
     fn rms_norm(
         &mut self,

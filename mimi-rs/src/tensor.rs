@@ -89,7 +89,7 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
     /// The returned tensor's data is uninitialized.
     pub unsafe fn alloc_uninit(shape: Shape, dev: &B::Device) -> Result<Self> {
         let size = shape.elem_count();
-        let data = unsafe { B::alloc_uninit(size, &dev)? };
+        let data = unsafe { B::alloc_uninit(size, dev)? };
         Ok(Tensor { data, shape, _marker: std::marker::PhantomData })
     }
 
@@ -127,7 +127,6 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
             );
         }
         let data = B::from_vec(data, dev)?;
-        let shape = shape.into();
         Ok(Tensor { data, shape, _marker: std::marker::PhantomData })
     }
 
@@ -177,12 +176,12 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
             // Copy using copy2d: outer_size rows of (t_cat_size * inner_size) elements
             out.data.copy2d(
                 &tensor.data,
-                outer_size,                    // d1: number of outer blocks
-                t_cat_size * inner_size,       // d2: elements per block from this tensor
-                cat_dim_size * inner_size,     // dst_s: stride in output
-                t_cat_size * inner_size,       // src_s: stride in source
-                cat_offset * inner_size,       // dst_o: offset in output
-                0,                             // src_o: offset in source
+                outer_size,                // d1: number of outer blocks
+                t_cat_size * inner_size,   // d2: elements per block from this tensor
+                cat_dim_size * inner_size, // dst_s: stride in output
+                t_cat_size * inner_size,   // src_s: stride in source
+                cat_offset * inner_size,   // dst_o: offset in output
+                0,                         // src_o: offset in source
             )?;
             cat_offset += t_cat_size;
         }

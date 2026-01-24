@@ -37,8 +37,7 @@ fn test_cat_dim1() -> Result<()> {
 #[test]
 fn test_cat_3d_dim1() -> Result<()> {
     // Two 2x2x3 tensors concatenated along dim 1 -> 2x4x3
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), &())?;
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), &())?;
     let b: CpuTensor<f32> =
         Tensor::from_vec((13..=24).map(|x| x as f32).collect(), (2, 2, 3), &())?;
 
@@ -63,10 +62,7 @@ fn test_reshape() -> Result<()> {
     // Reshape to 3x2
     let b = a.reshape((3, 2))?;
     assert_eq!(b.dims(), &[3, 2]);
-    assert_eq!(
-        b.storage().data(b.elem_count())?.as_ref(),
-        &[1., 2., 3., 4., 5., 6.]
-    );
+    assert_eq!(b.storage().data(b.elem_count())?.as_ref(), &[1., 2., 3., 4., 5., 6.]);
 
     // Reshape to 6
     let c = a.reshape((6,))?;
@@ -101,11 +97,8 @@ fn test_reshape_with_hole() -> Result<()> {
 #[test]
 fn test_index_select_dim0() -> Result<()> {
     // Select rows from a 4x3 tensor
-    let a: CpuTensor<f32> = Tensor::from_vec(
-        vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.],
-        (4, 3),
-        &(),
-    )?;
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (4, 3), &())?;
 
     // Select rows 0, 2, 3
     let b = a.index_select(&[0, 2, 3], 0)?;
@@ -118,35 +111,27 @@ fn test_index_select_dim0() -> Result<()> {
     // Select with repetition
     let c = a.index_select(&[1, 1, 0], 0)?;
     assert_eq!(c.dims(), &[3, 3]);
-    assert_eq!(
-        c.storage().data(c.elem_count())?.as_ref(),
-        &[4., 5., 6., 4., 5., 6., 1., 2., 3.]
-    );
+    assert_eq!(c.storage().data(c.elem_count())?.as_ref(), &[4., 5., 6., 4., 5., 6., 1., 2., 3.]);
     Ok(())
 }
 
 #[test]
 fn test_index_select_dim1() -> Result<()> {
     // Select columns from a 2x4 tensor
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], (2, 4), &())?;
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], (2, 4), &())?;
 
     // Select columns 0, 2
     let b = a.index_select(&[0, 2], 1)?;
     assert_eq!(b.dims(), &[2, 2]);
     // Row 0: [1, 3], Row 1: [5, 7]
-    assert_eq!(
-        b.storage().data(b.elem_count())?.as_ref(),
-        &[1., 3., 5., 7.]
-    );
+    assert_eq!(b.storage().data(b.elem_count())?.as_ref(), &[1., 3., 5., 7.]);
     Ok(())
 }
 
 #[test]
 fn test_index_select_3d() -> Result<()> {
     // 2x3x2 tensor
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &())?;
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &())?;
     // Data layout:
     // Batch 0: [[1,2], [3,4], [5,6]]
     // Batch 1: [[7,8], [9,10], [11,12]]
@@ -156,9 +141,6 @@ fn test_index_select_3d() -> Result<()> {
     assert_eq!(b.dims(), &[2, 2, 2]);
     // Batch 0: [[1,2], [5,6]]
     // Batch 1: [[7,8], [11,12]]
-    assert_eq!(
-        b.storage().data(b.elem_count())?.as_ref(),
-        &[1., 2., 5., 6., 7., 8., 11., 12.]
-    );
+    assert_eq!(b.storage().data(b.elem_count())?.as_ref(), &[1., 2., 5., 6., 7., 8., 11., 12.]);
     Ok(())
 }
