@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     // Load model
     println!("\nLoading model weights...");
     let vb = VB::load(&[model_path], dev)?;
-    let config = Config::v0_1(Some(args.codebooks));
+    let config = Config::v0_1_no_weight_norm(Some(args.codebooks));
     println!("Config: sample_rate={}, frame_rate={}", config.sample_rate, config.frame_rate);
 
     let mut model: Mimi<f32, ()> = Mimi::load(&vb.root(), config, &dev)?;

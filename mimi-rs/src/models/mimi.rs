@@ -558,7 +558,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetResnetBlock<T, B> {
             let in_c = if i == 0 { dim } else { hidden };
             let out_c = if i == k_sizes_and_dilations.len() - 1 { dim } else { hidden };
 
-            let conv_vb = vb_b.pp(2 * i + 1).pp("conv");
+            let conv_vb = vb_b.pp(2 * i + 1).pp("conv").pp("conv");
             let inner = match norm {
                 Some(Norm::WeightNorm) => Conv1d::load_weight_norm(
                     &conv_vb, in_c, out_c, k_size, 1, 0, dilation, 1, true,
@@ -572,7 +572,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetResnetBlock<T, B> {
         let shortcut = if true_skip {
             None
         } else {
-            let conv_vb = vb.pp("shortcut").pp("conv");
+            let conv_vb = vb.pp("shortcut").pp("conv").pp("conv");
             let inner = match norm {
                 Some(Norm::WeightNorm) => {
                     Conv1d::load_weight_norm(&conv_vb, dim, dim, 1, 1, 0, 1, 1, true)?
@@ -668,7 +668,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetEncoder<T, B> {
 
         // Initial convolution
         let init_norm = if cfg.disable_norm_outer_blocks >= 1 { None } else { Some(cfg.norm) };
-        let init_conv_vb = vb.pp(layer_idx).pp("conv");
+        let init_conv_vb = vb.pp(layer_idx).pp("conv").pp("conv");
         let init_inner = match init_norm {
             Some(Norm::WeightNorm) => Conv1d::load_weight_norm(
                 &init_conv_vb,
@@ -723,7 +723,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetEncoder<T, B> {
 
             // Downsample
             let k_size = ratio * 2;
-            let down_conv_vb = vb.pp(layer_idx + 1).pp("conv");
+            let down_conv_vb = vb.pp(layer_idx + 1).pp("conv").pp("conv");
             let down_inner = match norm {
                 Some(Norm::WeightNorm) => Conv1d::load_weight_norm(
                     &down_conv_vb,
@@ -759,7 +759,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetEncoder<T, B> {
         // Final convolution
         let final_norm =
             if cfg.disable_norm_outer_blocks >= n_blocks { None } else { Some(cfg.norm) };
-        let final_conv_vb = vb.pp(layer_idx + 1).pp("conv");
+        let final_conv_vb = vb.pp(layer_idx + 1).pp("conv").pp("conv");
         let final_inner = match final_norm {
             Some(Norm::WeightNorm) => Conv1d::load_weight_norm(
                 &final_conv_vb,
@@ -871,7 +871,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetDecoder<T, B> {
         // Initial convolution
         let init_norm =
             if cfg.disable_norm_outer_blocks == n_blocks { None } else { Some(cfg.norm) };
-        let init_conv_vb = vb.pp(layer_idx).pp("conv");
+        let init_conv_vb = vb.pp(layer_idx).pp("conv").pp("conv");
         let init_inner = match init_norm {
             Some(Norm::WeightNorm) => Conv1d::load_weight_norm(
                 &init_conv_vb,
@@ -911,7 +911,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetDecoder<T, B> {
 
             // Upsample
             let k_size = ratio * 2;
-            let up_conv_vb = vb.pp(layer_idx + 1).pp("convtr");
+            let up_conv_vb = vb.pp(layer_idx + 1).pp("convtr").pp("convtr");
             let up_inner = ConvTranspose1d::load(
                 &up_conv_vb,
                 mult * cfg.n_filters,
@@ -951,7 +951,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetDecoder<T, B> {
 
         // Final convolution
         let final_norm = if cfg.disable_norm_outer_blocks >= 1 { None } else { Some(cfg.norm) };
-        let final_conv_vb = vb.pp(layer_idx + 1).pp("conv");
+        let final_conv_vb = vb.pp(layer_idx + 1).pp("conv").pp("conv");
         let final_inner = match final_norm {
             Some(Norm::WeightNorm) => Conv1d::load_weight_norm(
                 &final_conv_vb,
@@ -1346,13 +1346,13 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
         let output_dim = output_dim.unwrap_or(dim);
 
         let input_proj = if input_dim != dim || force_projection {
-            Some(vb.pp("input_proj").tensor("weight", (dim, input_dim))?)
+            Some(vb.pp("input_proj").tensor("weight", (dim, input_dim, 1))?)
         } else {
             None
         };
 
         let output_proj = if output_dim != dim || force_projection {
-            Some(vb.pp("output_proj").tensor("weight", (output_dim, dim))?)
+            Some(vb.pp("output_proj").tensor("weight", (output_dim, dim, 1))?)
         } else {
             None
         };
@@ -1477,6 +1477,16 @@ pub struct Config {
 impl Config {
     /// Default configuration for Mimi v0.1.
     pub fn v0_1(num_codebooks: Option<usize>) -> Self {
+        Self::v0_1_inner(num_codebooks, Norm::WeightNorm)
+    }
+
+    /// Configuration for Mimi v0.1 without weight normalization.
+    /// Use this for models that have regular conv weights instead of weight_g/weight_v.
+    pub fn v0_1_no_weight_norm(num_codebooks: Option<usize>) -> Self {
+        Self::v0_1_inner(num_codebooks, Norm::TimeGroupNorm)
+    }
+
+    fn v0_1_inner(num_codebooks: Option<usize>, norm: Norm) -> Self {
         let seanet_cfg = SeaNetConfig {
             dimension: 512,
             channels: 1,
@@ -1492,7 +1502,7 @@ impl Config {
             residual_kernel_size: 3,
             last_kernel_size: 3,
             lstm: 0,
-            norm: Norm::WeightNorm,
+            norm,
             pad_mode: PadMode::Constant,
             ratios: vec![8, 6, 5, 4],
             true_skip: true,
