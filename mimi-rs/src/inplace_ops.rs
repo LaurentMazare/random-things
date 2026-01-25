@@ -307,4 +307,31 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         B::sigmoid(&mut self.data, &src.data, len)?;
         Ok(())
     }
+
+    pub fn reduce_max_(&mut self, src: &Self, dim: usize) -> Result<()> {
+        let src_dims = src.dims();
+        let dim_size = src_dims[dim];
+        let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        B::reduce_max(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        Ok(())
+    }
+
+    pub fn reduce_min_(&mut self, src: &Self, dim: usize) -> Result<()> {
+        let src_dims = src.dims();
+        let dim_size = src_dims[dim];
+        let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        B::reduce_min(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        Ok(())
+    }
+
+    pub fn reduce_argmin_(&mut self, src: &Self, dim: usize) -> Result<()> {
+        let src_dims = src.dims();
+        let dim_size = src_dims[dim];
+        let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        B::reduce_argmin(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        Ok(())
+    }
 }

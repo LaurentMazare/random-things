@@ -239,20 +239,44 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Maximum value along dimension.
-    pub fn max(&self, _dim: impl Dim) -> Result<Self> {
-        todo!("max")
+    pub fn max<D: Dim>(&self, dim: D) -> Result<Self> {
+        let dim = dim.to_index(self.shape(), "max dim")?;
+        let mut out_dims: Vec<usize> = self.dims().to_vec();
+        out_dims.remove(dim);
+        if out_dims.is_empty() {
+            out_dims.push(1);
+        }
+        let mut result = unsafe { Tensor::alloc_uninit(out_dims.into(), self.device()) }?;
+        result.reduce_max_(self, dim)?;
+        Ok(result)
     }
 
     /// Minimum value along dimension.
-    pub fn min(&self, _dim: impl Dim) -> Result<Self> {
-        todo!("min")
+    pub fn min<D: Dim>(&self, dim: D) -> Result<Self> {
+        let dim = dim.to_index(self.shape(), "min dim")?;
+        let mut out_dims: Vec<usize> = self.dims().to_vec();
+        out_dims.remove(dim);
+        if out_dims.is_empty() {
+            out_dims.push(1);
+        }
+        let mut result = unsafe { Tensor::alloc_uninit(out_dims.into(), self.device()) }?;
+        result.reduce_min_(self, dim)?;
+        Ok(result)
     }
 
     /// Argmin along dimension.
     /// Note: Returns indices encoded as the same type T for simplicity.
     /// A proper implementation would return integer indices.
-    pub fn argmin(&self, _dim: impl Dim) -> Result<Self> {
-        todo!("argmin")
+    pub fn argmin<D: Dim>(&self, dim: D) -> Result<Self> {
+        let dim = dim.to_index(self.shape(), "argmin dim")?;
+        let mut out_dims: Vec<usize> = self.dims().to_vec();
+        out_dims.remove(dim);
+        if out_dims.is_empty() {
+            out_dims.push(1);
+        }
+        let mut result = unsafe { Tensor::alloc_uninit(out_dims.into(), self.device()) }?;
+        result.reduce_argmin_(self, dim)?;
+        Ok(result)
     }
 
     /// Broadcast multiplication.

@@ -230,4 +230,36 @@ pub trait Backend: Sized + Clone + 'static {
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
+    /// Reduce max along a dimension.
+    /// dst has shape with the reduced dimension removed.
+    /// dim_size is the size of the dimension being reduced.
+    /// outer_size is the product of dimensions before the reduced dim.
+    /// inner_size is the product of dimensions after the reduced dim.
+    fn reduce_max<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()>;
+
+    /// Reduce min along a dimension.
+    fn reduce_min<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()>;
+
+    /// Reduce argmin along a dimension.
+    /// Returns indices encoded as the same type T for simplicity.
+    fn reduce_argmin<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()>;
 }

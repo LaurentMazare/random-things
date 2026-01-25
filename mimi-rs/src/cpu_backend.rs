@@ -478,6 +478,73 @@ impl crate::Backend for () {
         }
         Ok(())
     }
+
+    fn reduce_max<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()> {
+        for outer in 0..outer_size {
+            for inner in 0..inner_size {
+                let mut max_val = T::neg_infinity();
+                for d in 0..dim_size {
+                    let src_idx = outer * dim_size * inner_size + d * inner_size + inner;
+                    max_val = T::max(max_val, src[src_idx]);
+                }
+                let dst_idx = outer * inner_size + inner;
+                dst[dst_idx] = max_val;
+            }
+        }
+        Ok(())
+    }
+
+    fn reduce_min<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()> {
+        for outer in 0..outer_size {
+            for inner in 0..inner_size {
+                let mut min_val = T::infinity();
+                for d in 0..dim_size {
+                    let src_idx = outer * dim_size * inner_size + d * inner_size + inner;
+                    min_val = T::min(min_val, src[src_idx]);
+                }
+                let dst_idx = outer * inner_size + inner;
+                dst[dst_idx] = min_val;
+            }
+        }
+        Ok(())
+    }
+
+    fn reduce_argmin<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()> {
+        for outer in 0..outer_size {
+            for inner in 0..inner_size {
+                let mut min_val = T::infinity();
+                let mut min_idx: usize = 0;
+                for d in 0..dim_size {
+                    let src_idx = outer * dim_size * inner_size + d * inner_size + inner;
+                    if src[src_idx].to_f32() < min_val.to_f32() {
+                        min_val = src[src_idx];
+                        min_idx = d;
+                    }
+                }
+                let dst_idx = outer * inner_size + inner;
+                dst[dst_idx] = T::from_f32(min_idx as f32);
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn get_num_threads() -> usize {

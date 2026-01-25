@@ -133,3 +133,108 @@ fn test_index_select_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 2., 5., 6., 7., 8., 11., 12.]);
     Ok(())
 }
+
+#[test]
+fn test_max_dim0() -> Result<()> {
+    // 3x4 tensor, max along dim 0 -> 4
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &())?;
+    // Column-wise max:
+    // col 0: max(1, 8, 9) = 9
+    // col 1: max(5, 2, 0) = 5
+    // col 2: max(3, 7, 1) = 7
+    // col 3: max(4, 6, 2) = 6
+    let b = a.max(0)?;
+    assert_eq!(b.dims(), &[4]);
+    assert_eq!(b.to_vec()?, vec![9., 5., 7., 6.]);
+    Ok(())
+}
+
+#[test]
+fn test_max_dim1() -> Result<()> {
+    // 3x4 tensor, max along dim 1 -> 3
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &())?;
+    // Row-wise max:
+    // row 0: max(1, 5, 3, 4) = 5
+    // row 1: max(8, 2, 7, 6) = 8
+    // row 2: max(9, 0, 1, 2) = 9
+    let b = a.max(1)?;
+    assert_eq!(b.dims(), &[3]);
+    assert_eq!(b.to_vec()?, vec![5., 8., 9.]);
+    Ok(())
+}
+
+#[test]
+fn test_min_dim0() -> Result<()> {
+    // 3x4 tensor, min along dim 0 -> 4
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &())?;
+    // Column-wise min:
+    // col 0: min(1, 8, 9) = 1
+    // col 1: min(5, 2, 0) = 0
+    // col 2: min(3, 7, 1) = 1
+    // col 3: min(4, 6, 2) = 2
+    let b = a.min(0)?;
+    assert_eq!(b.dims(), &[4]);
+    assert_eq!(b.to_vec()?, vec![1., 0., 1., 2.]);
+    Ok(())
+}
+
+#[test]
+fn test_min_dim1() -> Result<()> {
+    // 3x4 tensor, min along dim 1 -> 3
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &())?;
+    // Row-wise min:
+    // row 0: min(1, 5, 3, 4) = 1
+    // row 1: min(8, 2, 7, 6) = 2
+    // row 2: min(9, 0, 1, 2) = 0
+    let b = a.min(1)?;
+    assert_eq!(b.dims(), &[3]);
+    assert_eq!(b.to_vec()?, vec![1., 2., 0.]);
+    Ok(())
+}
+
+#[test]
+fn test_argmin_dim0() -> Result<()> {
+    // 3x4 tensor, argmin along dim 0 -> 4
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &())?;
+    // Column-wise argmin:
+    // col 0: argmin(1, 8, 9) = 0
+    // col 1: argmin(5, 2, 0) = 2
+    // col 2: argmin(3, 7, 1) = 2
+    // col 3: argmin(4, 6, 2) = 2
+    let b = a.argmin(0)?;
+    assert_eq!(b.dims(), &[4]);
+    assert_eq!(b.to_vec()?, vec![0., 2., 2., 2.]);
+    Ok(())
+}
+
+#[test]
+fn test_argmin_dim1() -> Result<()> {
+    // 3x4 tensor, argmin along dim 1 -> 3
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &())?;
+    // Row-wise argmin:
+    // row 0: argmin(1, 5, 3, 4) = 0
+    // row 1: argmin(8, 2, 7, 6) = 1
+    // row 2: argmin(9, 0, 1, 2) = 1
+    let b = a.argmin(1)?;
+    assert_eq!(b.dims(), &[3]);
+    assert_eq!(b.to_vec()?, vec![0., 1., 1.]);
+    Ok(())
+}
+
+#[test]
+fn test_max_3d() -> Result<()> {
+    // 2x3x2 tensor, max along dim 1 -> 2x2
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &())?;
+    // Batch 0: [[1,2], [3,4], [5,6]] -> max along rows: [5, 6]
+    // Batch 1: [[7,8], [9,10], [11,12]] -> max along rows: [11, 12]
+    let b = a.max(1)?;
+    assert_eq!(b.dims(), &[2, 2]);
+    assert_eq!(b.to_vec()?, vec![5., 6., 11., 12.]);
+    Ok(())
+}
