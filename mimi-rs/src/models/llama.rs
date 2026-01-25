@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 use crate::nn::{Linear, RmsNorm};
 use crate::{Backend, Result, Tensor, WithDTypeF};
 
@@ -207,7 +208,7 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         // Repeat each KV head num_kv_groups times using index_select
         // indices: [0, 0, ..., 1, 1, ..., 2, 2, ...] with num_kv_groups repetitions each
         let indices: Vec<u32> = (0..self.num_kv_heads as u32)
-            .flat_map(|i| std::iter::repeat(i).take(self.num_kv_groups))
+            .flat_map(|i| std::iter::repeat_n(i, self.num_kv_groups))
             .collect();
         x.index_select(&indices, 1)
     }

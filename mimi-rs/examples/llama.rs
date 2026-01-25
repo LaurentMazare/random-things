@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use mimi::llama::{Attention, Config, KvCache, Llama, Mlp, TransformerBlock, precompute_freqs_cis};
+use mimi::models::llama::{
+    precompute_freqs_cis, Attention, Config, KvCache, Llama, Mlp, TransformerBlock,
+};
 use mimi::nn::{Linear, RmsNorm};
 use mimi::{Backend, Tensor, WithDType, WithDTypeF};
 use rand::Rng;
@@ -317,7 +319,7 @@ struct ModelFiles {
 }
 
 fn download_model(repo_id: &str) -> Result<ModelFiles> {
-    use hf_hub::{Repo, RepoType, api::sync::Api};
+    use hf_hub::{api::sync::Api, Repo, RepoType};
     println!("Downloading model from {repo_id}...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
