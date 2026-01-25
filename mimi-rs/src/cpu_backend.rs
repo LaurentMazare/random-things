@@ -716,35 +716,65 @@ impl crate::Backend for () {
         // Initialize output to zero
         dst.iter_mut().for_each(|v| *v = T::zero());
 
-        // Transposed convolution: scatter values from input to output
-        // For each input position, we add weighted contributions to output positions
+        // Reorder input from [B, C, L] to [B, L, C] for contiguous memory access
+        let mut src_reordered = vec![T::zero(); batch * length * in_channels];
         for b in 0..batch {
-            for g in 0..groups {
-                for ic in 0..in_c_per_group {
-                    let in_c = g * in_c_per_group + ic;
+            for l in 0..length {
+                for c in 0..in_channels {
+                    let src_idx = b * in_channels * length + c * length + l;
+                    let dst_idx = b * length * in_channels + l * in_channels + c;
+                    src_reordered[dst_idx] = src[src_idx];
+                }
+            }
+        }
+
+        // Process each kernel offset
+        for k_offset in 0..kernel_size {
+            // Parallelize over output channels
+            (0..out_channels).into_par_iter().for_each(|out_c| {
+                let g = out_c / out_c_per_group;
+                let oc_in_group = out_c % out_c_per_group;
+                let in_c_start = g * in_c_per_group;
+
+                // Gather kernel weights for this output channel and kernel offset
+                // Kernel layout: [in_channels, out_channels/groups, kernel_size]
+                let k_cont: Vec<T> = (0..in_c_per_group)
+                    .map(|ic| {
+                        let in_c = in_c_start + ic;
+                        let k_idx = in_c * out_c_per_group * kernel_size
+                            + oc_in_group * kernel_size
+                            + k_offset;
+                        kernel[k_idx]
+                    })
+                    .collect();
+
+                for b in 0..batch {
                     for il in 0..length {
-                        let src_val = src[b * in_channels * length + in_c * length + il];
-                        for oc in 0..out_c_per_group {
-                            let out_c = g * out_c_per_group + oc;
-                            for k in 0..kernel_size {
-                                // Output position (before accounting for padding)
-                                let out_pos_raw = il * stride + k;
-                                // Account for padding
-                                if out_pos_raw >= padding && out_pos_raw < out_length + padding {
-                                    let out_pos = out_pos_raw - padding;
-                                    // Kernel index: (in_channels, out_channels/groups, kernel_size)
-                                    let kernel_idx =
-                                        in_c * out_c_per_group * kernel_size + oc * kernel_size + k;
-                                    let dst_idx = b * out_channels * out_length
-                                        + out_c * out_length
-                                        + out_pos;
-                                    dst[dst_idx] += src_val * kernel[kernel_idx];
-                                }
-                            }
+                        let out_pos_raw = il * stride + k_offset;
+
+                        // Check padding bounds
+                        if out_pos_raw < padding || out_pos_raw >= out_length + padding {
+                            continue;
+                        }
+                        let out_pos = out_pos_raw - padding;
+
+                        // Compute dot product over input channels
+                        let src_base = b * length * in_channels + il * in_channels + in_c_start;
+                        let mut d = T::zero();
+                        for ic in 0..in_c_per_group {
+                            d += src_reordered[src_base + ic] * k_cont[ic];
+                        }
+
+                        // Accumulate into output
+                        // Safety: each out_c is processed by a different thread, so no races
+                        let dst_idx = b * out_channels * out_length + out_c * out_length + out_pos;
+                        unsafe {
+                            let ptr = dst.as_ptr().add(dst_idx) as *mut T;
+                            *ptr += d;
                         }
                     }
                 }
-            }
+            });
         }
         Ok(())
     }
