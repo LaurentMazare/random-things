@@ -545,6 +545,84 @@ impl crate::Backend for () {
         }
         Ok(())
     }
+
+    fn broadcast_add<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()> {
+        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a + b)
+    }
+
+    fn broadcast_sub<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()> {
+        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a - b)
+    }
+
+    fn broadcast_mul<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()> {
+        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a * b)
+    }
+
+    fn broadcast_div<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()> {
+        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a / b)
+    }
+}
+
+/// Helper function for broadcast binary operations.
+fn broadcast_binary_op<T: WithDTypeF>(
+    dst: &mut Vec<T>,
+    lhs: &[T],
+    rhs: &[T],
+    dst_shape: &[usize],
+    lhs_strides: &[usize],
+    rhs_strides: &[usize],
+    op: impl Fn(T, T) -> T,
+) -> Result<()> {
+    let total_elems: usize = dst_shape.iter().product();
+    let rank = dst_shape.len();
+
+    for dst_idx in 0..total_elems {
+        // Convert linear index to multi-dimensional indices
+        let mut remaining = dst_idx;
+        let mut lhs_idx = 0usize;
+        let mut rhs_idx = 0usize;
+
+        for d in 0..rank {
+            let stride: usize = dst_shape[d + 1..].iter().product::<usize>().max(1);
+            let coord = remaining / stride;
+            remaining %= stride;
+
+            lhs_idx += coord * lhs_strides[d];
+            rhs_idx += coord * rhs_strides[d];
+        }
+
+        dst[dst_idx] = op(lhs[lhs_idx], rhs[rhs_idx]);
+    }
+
+    Ok(())
 }
 
 pub(crate) fn get_num_threads() -> usize {

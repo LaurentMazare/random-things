@@ -1,5 +1,28 @@
 use crate::{Backend, Dim, Error, Result, Tensor, WithDType, WithDTypeF};
 
+/// Compute the broadcast output shape for two input shapes.
+fn broadcast_shape(lhs: &[usize], rhs: &[usize]) -> Result<Vec<usize>> {
+    let out_rank = lhs.len().max(rhs.len());
+    let mut out_shape = vec![0usize; out_rank];
+
+    for i in 0..out_rank {
+        let lhs_dim = if i < out_rank - lhs.len() { 1 } else { lhs[i - (out_rank - lhs.len())] };
+        let rhs_dim = if i < out_rank - rhs.len() { 1 } else { rhs[i - (out_rank - rhs.len())] };
+
+        if lhs_dim == rhs_dim {
+            out_shape[i] = lhs_dim;
+        } else if lhs_dim == 1 {
+            out_shape[i] = rhs_dim;
+        } else if rhs_dim == 1 {
+            out_shape[i] = lhs_dim;
+        } else {
+            crate::bail!("broadcast shape mismatch at dim {}: lhs={}, rhs={}", i, lhs_dim, rhs_dim);
+        }
+    }
+
+    Ok(out_shape)
+}
+
 fn check_same_shape<T: WithDType, B: Backend>(
     a: &Tensor<T, B>,
     b: &Tensor<T, B>,
@@ -280,23 +303,35 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Broadcast multiplication.
-    pub fn broadcast_mul(&self, _other: &Self) -> Result<Self> {
-        todo!("broadcast_mul")
+    pub fn broadcast_mul(&self, other: &Self) -> Result<Self> {
+        let out_shape = broadcast_shape(self.dims(), other.dims())?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        result.broadcast_mul_(self, other)?;
+        Ok(result)
     }
 
     /// Broadcast division.
-    pub fn broadcast_div(&self, _other: &Self) -> Result<Self> {
-        todo!("broadcast_div")
+    pub fn broadcast_div(&self, other: &Self) -> Result<Self> {
+        let out_shape = broadcast_shape(self.dims(), other.dims())?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        result.broadcast_div_(self, other)?;
+        Ok(result)
     }
 
     /// Broadcast addition.
-    pub fn broadcast_add(&self, _other: &Self) -> Result<Self> {
-        todo!("broadcast_add")
+    pub fn broadcast_add(&self, other: &Self) -> Result<Self> {
+        let out_shape = broadcast_shape(self.dims(), other.dims())?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        result.broadcast_add_(self, other)?;
+        Ok(result)
     }
 
     /// Broadcast subtraction.
-    pub fn broadcast_sub(&self, _other: &Self) -> Result<Self> {
-        todo!("broadcast_sub")
+    pub fn broadcast_sub(&self, other: &Self) -> Result<Self> {
+        let out_shape = broadcast_shape(self.dims(), other.dims())?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        result.broadcast_sub_(self, other)?;
+        Ok(result)
     }
 
     /// Flatten all dimensions into a single dimension.

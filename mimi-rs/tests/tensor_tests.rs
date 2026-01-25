@@ -238,3 +238,80 @@ fn test_max_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![5., 6., 11., 12.]);
     Ok(())
 }
+
+#[test]
+fn test_broadcast_add_same_shape() -> Result<()> {
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), &())?;
+    let b: CpuTensor<f32> = Tensor::from_vec(vec![10., 20., 30., 40.], (2, 2), &())?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 2]);
+    assert_eq!(c.to_vec()?, vec![11., 22., 33., 44.]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_add_1d_to_2d() -> Result<()> {
+    // [2, 3] + [3] -> [2, 3]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &())?;
+    let b: CpuTensor<f32> = Tensor::from_vec(vec![10., 20., 30.], (3,), &())?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    // Row 0: [1+10, 2+20, 3+30] = [11, 22, 33]
+    // Row 1: [4+10, 5+20, 6+30] = [14, 25, 36]
+    assert_eq!(c.to_vec()?, vec![11., 22., 33., 14., 25., 36.]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_mul_column() -> Result<()> {
+    // [2, 3] * [2, 1] -> [2, 3]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &())?;
+    let b: CpuTensor<f32> = Tensor::from_vec(vec![2., 3.], (2, 1), &())?;
+    let c = a.broadcast_mul(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    // Row 0: [1*2, 2*2, 3*2] = [2, 4, 6]
+    // Row 1: [4*3, 5*3, 6*3] = [12, 15, 18]
+    assert_eq!(c.to_vec()?, vec![2., 4., 6., 12., 15., 18.]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_sub() -> Result<()> {
+    // [2, 3] - [3] -> [2, 3]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![10., 20., 30., 40., 50., 60.], (2, 3), &())?;
+    let b: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (3,), &())?;
+    let c = a.broadcast_sub(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![9., 18., 27., 39., 48., 57.]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_div() -> Result<()> {
+    // [2, 3] / [2, 1] -> [2, 3]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![2., 4., 6., 9., 12., 15.], (2, 3), &())?;
+    let b: CpuTensor<f32> = Tensor::from_vec(vec![2., 3.], (2, 1), &())?;
+    let c = a.broadcast_div(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    // Row 0: [2/2, 4/2, 6/2] = [1, 2, 3]
+    // Row 1: [9/3, 12/3, 15/3] = [3, 4, 5]
+    assert_eq!(c.to_vec()?, vec![1., 2., 3., 3., 4., 5.]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_3d() -> Result<()> {
+    // [2, 3, 4] + [4] -> [2, 3, 4]
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=24).map(|x| x as f32).collect(), (2, 3, 4), &())?;
+    let b: CpuTensor<f32> = Tensor::from_vec(vec![100., 200., 300., 400.], (4,), &())?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 3, 4]);
+    let c_vec = c.to_vec()?;
+    // First element: 1 + 100 = 101
+    assert_eq!(c_vec[0], 101.);
+    // Second element: 2 + 200 = 202
+    assert_eq!(c_vec[1], 202.);
+    // Fifth element: 5 + 100 = 105
+    assert_eq!(c_vec[4], 105.);
+    Ok(())
+}

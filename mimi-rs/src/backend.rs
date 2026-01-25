@@ -262,4 +262,45 @@ pub trait Backend: Sized + Clone + 'static {
         outer_size: usize,
         inner_size: usize,
     ) -> Result<()>;
+
+    /// Broadcast binary operation: addition.
+    /// lhs_strides and rhs_strides have 0 for broadcast dimensions.
+    fn broadcast_add<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()>;
+
+    /// Broadcast binary operation: subtraction.
+    fn broadcast_sub<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()>;
+
+    /// Broadcast binary operation: multiplication.
+    fn broadcast_mul<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()>;
+
+    /// Broadcast binary operation: division.
+    fn broadcast_div<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        dst_shape: &[usize],
+        lhs_strides: &[usize],
+        rhs_strides: &[usize],
+    ) -> Result<()>;
 }

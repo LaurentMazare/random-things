@@ -334,4 +334,121 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         B::reduce_argmin(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
         Ok(())
     }
+
+    pub fn broadcast_add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+        let dst_shape = self.dims().to_vec();
+        let (lhs_strides, rhs_strides) =
+            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        B::broadcast_add(
+            &mut self.data,
+            &lhs.data,
+            &rhs.data,
+            &dst_shape,
+            &lhs_strides,
+            &rhs_strides,
+        )?;
+        Ok(())
+    }
+
+    pub fn broadcast_sub_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+        let dst_shape = self.dims().to_vec();
+        let (lhs_strides, rhs_strides) =
+            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        B::broadcast_sub(
+            &mut self.data,
+            &lhs.data,
+            &rhs.data,
+            &dst_shape,
+            &lhs_strides,
+            &rhs_strides,
+        )?;
+        Ok(())
+    }
+
+    pub fn broadcast_mul_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+        let dst_shape = self.dims().to_vec();
+        let (lhs_strides, rhs_strides) =
+            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        B::broadcast_mul(
+            &mut self.data,
+            &lhs.data,
+            &rhs.data,
+            &dst_shape,
+            &lhs_strides,
+            &rhs_strides,
+        )?;
+        Ok(())
+    }
+
+    pub fn broadcast_div_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+        let dst_shape = self.dims().to_vec();
+        let (lhs_strides, rhs_strides) =
+            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        B::broadcast_div(
+            &mut self.data,
+            &lhs.data,
+            &rhs.data,
+            &dst_shape,
+            &lhs_strides,
+            &rhs_strides,
+        )?;
+        Ok(())
+    }
+}
+
+/// Compute broadcast strides for lhs and rhs given the output shape.
+/// Returns (lhs_strides, rhs_strides) where stride is 0 for broadcast dimensions.
+fn compute_broadcast_strides(
+    out_shape: &[usize],
+    lhs_shape: &[usize],
+    rhs_shape: &[usize],
+) -> crate::Result<(Vec<usize>, Vec<usize>)> {
+    let out_rank = out_shape.len();
+    let lhs_rank = lhs_shape.len();
+    let rhs_rank = rhs_shape.len();
+
+    let mut lhs_strides = vec![0usize; out_rank];
+    let mut rhs_strides = vec![0usize; out_rank];
+
+    // Compute strides for lhs (right-aligned)
+    let lhs_offset = out_rank - lhs_rank;
+    let mut lhs_stride = 1usize;
+    for i in (0..lhs_rank).rev() {
+        let out_idx = i + lhs_offset;
+        if lhs_shape[i] == out_shape[out_idx] {
+            lhs_strides[out_idx] = lhs_stride;
+            lhs_stride *= lhs_shape[i];
+        } else if lhs_shape[i] == 1 {
+            lhs_strides[out_idx] = 0; // broadcast dimension
+        } else {
+            crate::bail!(
+                "broadcast shape mismatch: lhs dim {} is {} but output is {}",
+                i,
+                lhs_shape[i],
+                out_shape[out_idx]
+            );
+        }
+    }
+
+    // Compute strides for rhs (right-aligned)
+    let rhs_offset = out_rank - rhs_rank;
+    let mut rhs_stride = 1usize;
+    for i in (0..rhs_rank).rev() {
+        let out_idx = i + rhs_offset;
+        if rhs_shape[i] == out_shape[out_idx] {
+            rhs_strides[out_idx] = rhs_stride;
+            rhs_stride *= rhs_shape[i];
+        } else if rhs_shape[i] == 1 {
+            rhs_strides[out_idx] = 0; // broadcast dimension
+        } else {
+            crate::bail!(
+                "broadcast shape mismatch: rhs dim {} is {} but output is {}",
+                i,
+                rhs_shape[i],
+                out_shape[out_idx]
+            );
+        }
+    }
+
+    Ok((lhs_strides, rhs_strides))
 }
