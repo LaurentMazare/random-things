@@ -597,7 +597,66 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Pad by replicating boundary values.
-    pub fn pad_with_same(&self, _dim: impl Dim, _left: usize, _right: usize) -> Result<Self> {
-        todo!("pad_with_same")
+    pub fn pad_with_same<D: Dim>(&self, dim: D, left: usize, right: usize) -> Result<Self> {
+        let dim = dim.to_index(self.shape(), "pad_with_same")?;
+        let dims = self.dims();
+        let dim_size = dims[dim];
+
+        if dim_size == 0 {
+            crate::bail!("cannot pad_with_same on dimension with size 0");
+        }
+
+        // Compute new shape
+        let mut new_dims = dims.to_vec();
+        new_dims[dim] = dim_size + left + right;
+        let new_shape = crate::Shape::from(new_dims);
+
+        let mut result = unsafe { Self::alloc_uninit(new_shape, self.device()) }?;
+
+        let outer_size: usize = dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
+        let new_dim_size = dim_size + left + right;
+
+        // Copy original data to the center position
+        B::copy2d(
+            &mut result.data,
+            &self.data,
+            outer_size,                // d1: number of outer blocks
+            dim_size * inner_size,     // d2: elements per block
+            new_dim_size * inner_size, // dst_s: stride in output
+            dim_size * inner_size,     // src_s: stride in source
+            left * inner_size,         // dst_o: offset to skip left padding
+            0,                         // src_o: start from beginning of source
+        )?;
+
+        // Replicate first slice for left padding
+        for l in 0..left {
+            B::copy2d(
+                &mut result.data,
+                &self.data,
+                outer_size,                // d1: number of outer blocks
+                inner_size,                // d2: one slice
+                new_dim_size * inner_size, // dst_s: stride in output
+                dim_size * inner_size,     // src_s: stride in source
+                l * inner_size,            // dst_o: position l in left padding
+                0,                         // src_o: first slice of source
+            )?;
+        }
+
+        // Replicate last slice for right padding
+        for r in 0..right {
+            B::copy2d(
+                &mut result.data,
+                &self.data,
+                outer_size,                             // d1: number of outer blocks
+                inner_size,                             // d2: one slice
+                new_dim_size * inner_size,              // dst_s: stride in output
+                dim_size * inner_size,                  // src_s: stride in source
+                (left + dim_size + r) * inner_size,    // dst_o: position after original data
+                (dim_size - 1) * inner_size,           // src_o: last slice of source
+            )?;
+        }
+
+        Ok(result)
     }
 }

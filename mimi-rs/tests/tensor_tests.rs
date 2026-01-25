@@ -547,3 +547,57 @@ fn test_conv_transpose1d_with_bias() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![6., 8., 7.]);
     Ok(())
 }
+
+#[test]
+fn test_pad_with_same_1d() -> Result<()> {
+    // [1, 2, 3, 4] -> pad_with_same(0, 2, 3) -> [1, 1, 1, 2, 3, 4, 4, 4, 4]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), &())?;
+    let b = a.pad_with_same(0, 2, 3)?;
+    assert_eq!(b.dims(), &[9]);
+    assert_eq!(b.to_vec()?, vec![1., 1., 1., 2., 3., 4., 4., 4., 4.]);
+    Ok(())
+}
+
+#[test]
+fn test_pad_with_same_2d_dim0() -> Result<()> {
+    // [2, 3] -> pad_with_same(0, 1, 1) -> [4, 3]
+    // Replicates first and last rows
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &())?;
+    let b = a.pad_with_same(0, 1, 1)?;
+    assert_eq!(b.dims(), &[4, 3]);
+    // Row 0: copy of row 0 = [1,2,3]
+    // Row 1: original row 0 = [1,2,3]
+    // Row 2: original row 1 = [4,5,6]
+    // Row 3: copy of row 1 = [4,5,6]
+    assert_eq!(b.to_vec()?, vec![1., 2., 3., 1., 2., 3., 4., 5., 6., 4., 5., 6.]);
+    Ok(())
+}
+
+#[test]
+fn test_pad_with_same_2d_dim1() -> Result<()> {
+    // [2, 3] -> pad_with_same(1, 1, 2) -> [2, 6]
+    // Replicates first and last columns
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &())?;
+    let b = a.pad_with_same(1, 1, 2)?;
+    assert_eq!(b.dims(), &[2, 6]);
+    // Row 0: [1, 1, 2, 3, 3, 3]
+    // Row 1: [4, 4, 5, 6, 6, 6]
+    assert_eq!(b.to_vec()?, vec![1., 1., 2., 3., 3., 3., 4., 4., 5., 6., 6., 6.]);
+    Ok(())
+}
+
+#[test]
+fn test_pad_with_same_3d() -> Result<()> {
+    // [2, 2, 2] -> pad_with_same(1, 1, 1) -> [2, 4, 2]
+    let data: Vec<f32> = (1..=8).map(|x| x as f32).collect();
+    let a: CpuTensor<f32> = Tensor::from_vec(data, (2, 2, 2), &())?;
+    let b = a.pad_with_same(1, 1, 1)?;
+    assert_eq!(b.dims(), &[2, 4, 2]);
+    // First batch [2,2]: [[1,2], [3,4]] -> [[1,2], [1,2], [3,4], [3,4]]
+    // Second batch [2,2]: [[5,6], [7,8]] -> [[5,6], [5,6], [7,8], [7,8]]
+    assert_eq!(
+        b.to_vec()?,
+        vec![1., 2., 1., 2., 3., 4., 3., 4., 5., 6., 5., 6., 7., 8., 7., 8.]
+    );
+    Ok(())
+}
