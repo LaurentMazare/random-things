@@ -558,7 +558,7 @@ impl crate::Backend for () {
                 let mut sum = T::zero();
                 for d in 0..dim_size {
                     let src_idx = outer * dim_size * inner_size + d * inner_size + inner;
-                    sum = sum + src[src_idx];
+                    sum += src[src_idx];
                 }
                 let dst_idx = outer * inner_size + inner;
                 dst[dst_idx] = sum;
@@ -650,7 +650,7 @@ impl crate::Backend for () {
                                     let src_idx = b * in_channels * length + in_c * length + in_idx;
                                     let kernel_idx =
                                         out_c * in_c_per_group * kernel_size + ic * kernel_size + k;
-                                    sum = sum + src[src_idx] * kernel[kernel_idx];
+                                    sum += src[src_idx] * kernel[kernel_idx];
                                 }
                             }
                         }
@@ -707,7 +707,7 @@ impl crate::Backend for () {
                                     let dst_idx = b * out_channels * out_length
                                         + out_c * out_length
                                         + out_pos;
-                                    dst[dst_idx] = dst[dst_idx] + src_val * kernel[kernel_idx];
+                                    dst[dst_idx] += src_val * kernel[kernel_idx];
                                 }
                             }
                         }

@@ -283,10 +283,10 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let out_channels = kernel_dims[0];
         let kernel_size = kernel_dims[2];
 
-        if in_channels % groups != 0 {
+        if !in_channels.is_multiple_of(groups) {
             crate::bail!("in_channels ({}) must be divisible by groups ({})", in_channels, groups);
         }
-        if out_channels % groups != 0 {
+        if !out_channels.is_multiple_of(groups) {
             crate::bail!(
                 "out_channels ({}) must be divisible by groups ({})",
                 out_channels,
@@ -361,7 +361,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let out_channels = out_channels_per_group * groups;
         let kernel_size = kernel_dims[2];
 
-        if in_channels % groups != 0 {
+        if !in_channels.is_multiple_of(groups) {
             crate::bail!("in_channels ({}) must be divisible by groups ({})", in_channels, groups);
         }
         if kernel_dims[0] != in_channels {
