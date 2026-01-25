@@ -186,6 +186,11 @@ impl<B: Backend> Path<B> {
         self.path.join(".")
     }
 
+    /// Check if a tensor with the given name exists.
+    pub fn contains(&self, name: &str) -> bool {
+        self.get_tensor(name).is_some()
+    }
+
     fn path(&self, tensor_name: &str) -> String {
         if self.path.is_empty() {
             tensor_name.to_string()

@@ -1050,7 +1050,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetDecoder<T, B> {
 }
 
 // ============================================================================
-// Transformer (simplified - leaving detailed implementation as todo)
+// Transformer
 // ============================================================================
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1090,15 +1090,404 @@ pub struct TransformerConfig {
     pub max_seq_len: usize,
 }
 
+// KV Cache for streaming attention
+struct KvCache<T: WithDTypeF, B: Backend> {
+    k: Option<Tensor<T, B>>,
+    v: Option<Tensor<T, B>>,
+    max_seq_len: usize,
+}
+
+impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
+    fn new(max_seq_len: usize) -> Self {
+        Self { k: None, v: None, max_seq_len }
+    }
+
+    fn reset(&mut self) {
+        self.k = None;
+        self.v = None;
+    }
+
+    fn current_seq_len(&self) -> usize {
+        match &self.k {
+            Some(k) => k.dims()[2], // k shape: [b, h, seq, d]
+            None => 0,
+        }
+    }
+
+    fn append(
+        &mut self,
+        new_k: &Tensor<T, B>,
+        new_v: &Tensor<T, B>,
+    ) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
+        let (k, v) = match (&self.k, &self.v) {
+            (Some(prev_k), Some(prev_v)) => {
+                // Concatenate along sequence dimension (dim 2)
+                let k = Tensor::cat(&[prev_k, new_k], 2)?;
+                let v = Tensor::cat(&[prev_v, new_v], 2)?;
+                (k, v)
+            }
+            _ => (new_k.copy()?, new_v.copy()?),
+        };
+
+        // Trim if exceeds max_seq_len
+        let seq_len = k.dims()[2];
+        let (k, v) = if seq_len > self.max_seq_len {
+            let trim = seq_len - self.max_seq_len;
+            (k.narrow(2, trim, self.max_seq_len)?, v.narrow(2, trim, self.max_seq_len)?)
+        } else {
+            (k, v)
+        };
+
+        self.k = Some(k.copy()?);
+        self.v = Some(v.copy()?);
+        Ok((k, v))
+    }
+}
+
+// Rotary position embeddings
+struct RotaryEmbedding<T: WithDTypeF, B: Backend> {
+    cos: Tensor<T, B>,
+    sin: Tensor<T, B>,
+}
+
+impl<T: WithDTypeF, B: Backend> RotaryEmbedding<T, B> {
+    fn new(head_dim: usize, max_seq_len: usize, theta: f32, device: &B) -> Result<Self> {
+        let half_dim = head_dim / 2;
+        let mut inv_freq = Vec::with_capacity(half_dim);
+        for i in 0..half_dim {
+            inv_freq.push(1.0f32 / theta.powf(i as f32 / half_dim as f32));
+        }
+
+        // Precompute cos/sin for all positions up to max_seq_len
+        let mut cos_data = Vec::with_capacity(max_seq_len * half_dim);
+        let mut sin_data = Vec::with_capacity(max_seq_len * half_dim);
+        for pos in 0..max_seq_len {
+            for &freq in &inv_freq {
+                let angle = pos as f32 * freq;
+                cos_data.push(T::from_f32(angle.cos()));
+                sin_data.push(T::from_f32(angle.sin()));
+            }
+        }
+
+        let cos = Tensor::from_vec(cos_data, (max_seq_len, half_dim), device)?;
+        let sin = Tensor::from_vec(sin_data, (max_seq_len, half_dim), device)?;
+
+        Ok(Self { cos, sin })
+    }
+}
+
+// Layer scale (multiply by learned scale)
+struct LayerScale<T: WithDTypeF, B: Backend> {
+    scale: Tensor<T, B>,
+}
+
+impl<T: WithDTypeF, B: Backend> LayerScale<T, B> {
+    fn load(vb: &Path<B>, d_model: usize) -> Result<Self> {
+        let scale = vb.tensor("scale", (d_model,))?;
+        Ok(Self { scale })
+    }
+
+    fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        xs.broadcast_mul(&self.scale)
+    }
+}
+
+// Normalization layer (supports both LayerNorm and RmsNorm)
+enum TransformerNorm<T: WithDTypeF, B: Backend> {
+    LayerNorm { weight: Tensor<T, B>, bias: Tensor<T, B>, eps: f32 },
+    RmsNorm { alpha: Tensor<T, B>, eps: f32 },
+}
+
+impl<T: WithDTypeF, B: Backend> TransformerNorm<T, B> {
+    fn load(vb: &Path<B>, d_model: usize, norm_type: NormType) -> Result<Self> {
+        match norm_type {
+            NormType::LayerNorm => {
+                let weight = if vb.contains("alpha") {
+                    vb.tensor("alpha", (1, 1, d_model))?.reshape((d_model,))?
+                } else {
+                    vb.tensor("weight", (d_model,))?
+                };
+                let bias = vb.tensor("bias", (d_model,))?;
+                Ok(Self::LayerNorm { weight, bias, eps: 1e-5 })
+            }
+            NormType::RmsNorm => {
+                let alpha = vb.tensor("alpha", (1, 1, d_model))?.reshape((d_model,))?;
+                Ok(Self::RmsNorm { alpha, eps: 1e-8 })
+            }
+        }
+    }
+
+    fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        match self {
+            Self::LayerNorm { weight, bias, eps } => xs.layer_norm(weight, bias, *eps),
+            Self::RmsNorm { alpha, eps } => xs.rms_norm(alpha, *eps),
+        }
+    }
+}
+
+// MLP (feed-forward network)
+struct Mlp<T: WithDTypeF, B: Backend> {
+    linear1_weight: Tensor<T, B>,
+    linear1_bias: Option<Tensor<T, B>>,
+    linear2_weight: Tensor<T, B>,
+    linear2_bias: Option<Tensor<T, B>>,
+}
+
+impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
+    fn load(vb: &Path<B>, d_model: usize, dim_feedforward: usize, bias: bool) -> Result<Self> {
+        let linear1_weight = vb.pp("linear1").tensor("weight", (dim_feedforward, d_model))?;
+        let linear1_bias =
+            if bias { Some(vb.pp("linear1").tensor("bias", (dim_feedforward,))?) } else { None };
+        let linear2_weight = vb.pp("linear2").tensor("weight", (d_model, dim_feedforward))?;
+        let linear2_bias =
+            if bias { Some(vb.pp("linear2").tensor("bias", (d_model,))?) } else { None };
+        Ok(Self { linear1_weight, linear1_bias, linear2_weight, linear2_bias })
+    }
+
+    fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        // xs: [b, t, d_model]
+        let mut xs = xs.matmul_t(&self.linear1_weight)?;
+        if let Some(bias) = &self.linear1_bias {
+            xs = xs.broadcast_add(bias)?;
+        }
+        xs = xs.gelu_erf()?;
+        xs = xs.matmul_t(&self.linear2_weight)?;
+        if let Some(bias) = &self.linear2_bias {
+            xs = xs.broadcast_add(bias)?;
+        }
+        Ok(xs)
+    }
+}
+
+// Streaming multi-head self-attention
+struct StreamingMultiheadAttention<T: WithDTypeF, B: Backend> {
+    in_proj_weight: Tensor<T, B>,
+    in_proj_bias: Option<Tensor<T, B>>,
+    out_proj_weight: Tensor<T, B>,
+    out_proj_bias: Option<Tensor<T, B>>,
+    num_heads: usize,
+    head_dim: usize,
+    kv_cache: KvCache<T, B>,
+}
+
+impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
+    fn load(vb: &Path<B>, cfg: &TransformerConfig) -> Result<Self> {
+        let d_model = cfg.d_model;
+        let num_heads = cfg.num_heads;
+        let head_dim = d_model / num_heads;
+        let num_kv = num_heads / cfg.kv_repeat;
+        let out_dim = d_model + 2 * num_kv * head_dim;
+
+        let in_proj_weight = vb.pp("self_attn").tensor("in_proj_weight", (out_dim, d_model))?;
+        let in_proj_bias = if cfg.bias_attn {
+            Some(vb.pp("self_attn").tensor("in_proj_bias", (out_dim,))?)
+        } else {
+            None
+        };
+
+        let out_proj_weight =
+            vb.pp("self_attn").pp("out_proj").tensor("weight", (d_model, d_model))?;
+        let out_proj_bias = if cfg.bias_attn {
+            Some(vb.pp("self_attn").pp("out_proj").tensor("bias", (d_model,))?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            in_proj_weight,
+            in_proj_bias,
+            out_proj_weight,
+            out_proj_bias,
+            num_heads,
+            head_dim,
+            kv_cache: KvCache::new(cfg.context + cfg.max_seq_len),
+        })
+    }
+
+    fn forward(
+        &mut self,
+        xs: &Tensor<T, B>,
+        rope: Option<&RotaryEmbedding<T, B>>,
+        offset: usize,
+    ) -> Result<Tensor<T, B>> {
+        let (b, t, _hd) = xs.dims3()?;
+
+        // Project to QKV
+        let mut qkv = xs.matmul_t(&self.in_proj_weight)?;
+        if let Some(bias) = &self.in_proj_bias {
+            qkv = qkv.broadcast_add(bias)?;
+        }
+
+        // Split into Q, K, V
+        // qkv shape: [b, t, 3 * num_heads * head_dim]
+        let d_model = self.num_heads * self.head_dim;
+        let q = qkv.narrow(2, 0, d_model)?;
+        let k = qkv.narrow(2, d_model, d_model)?;
+        let v = qkv.narrow(2, 2 * d_model, d_model)?;
+
+        // Reshape to [b, t, num_heads, head_dim] then transpose to [b, num_heads, t, head_dim]
+        let q = q.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
+        let k = k.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
+        let v = v.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
+
+        // Apply rotary embeddings
+        let (q, k) = if let Some(rope) = rope {
+            let q = q.rope_i(&rope.cos, &rope.sin, offset)?;
+            let k = k.rope_i(&rope.cos, &rope.sin, offset)?;
+            (q, k)
+        } else {
+            (q, k)
+        };
+
+        // Append to KV cache and get full K, V
+        let (k, v) = self.kv_cache.append(&k, &v)?;
+
+        // Attention: Q @ K^T / sqrt(head_dim)
+        let scale = T::from_f32(1.0 / (self.head_dim as f32).sqrt());
+        let attn_weights = q.matmul(&k.t()?)?.scale(scale)?;
+
+        // Apply causal mask
+        let attn_weights = attn_weights.apply_causality_mask(offset)?;
+
+        // Softmax
+        let attn_weights = attn_weights.softmax()?;
+
+        // Attention output: weights @ V
+        let attn_output = attn_weights.matmul(&v)?;
+
+        // Reshape back: [b, num_heads, t, head_dim] -> [b, t, num_heads, head_dim] -> [b, t, d_model]
+        let attn_output =
+            attn_output.transpose(1, 2)?.reshape((b, t, self.num_heads * self.head_dim))?;
+
+        // Output projection
+        let mut out = attn_output.matmul_t(&self.out_proj_weight)?;
+        if let Some(bias) = &self.out_proj_bias {
+            out = out.broadcast_add(bias)?;
+        }
+
+        Ok(out)
+    }
+
+    fn reset_kv_cache(&mut self) {
+        self.kv_cache.reset();
+    }
+}
+
+// Streaming transformer layer
+struct StreamingTransformerLayer<T: WithDTypeF, B: Backend> {
+    self_attn: StreamingMultiheadAttention<T, B>,
+    mlp: Mlp<T, B>,
+    norm1: TransformerNorm<T, B>,
+    norm2: TransformerNorm<T, B>,
+    layer_scale_1: Option<LayerScale<T, B>>,
+    layer_scale_2: Option<LayerScale<T, B>>,
+}
+
+impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
+    fn load(vb: &Path<B>, cfg: &TransformerConfig) -> Result<Self> {
+        let self_attn = StreamingMultiheadAttention::load(vb, cfg)?;
+        let mlp = Mlp::load(vb, cfg.d_model, cfg.dim_feedforward, cfg.bias_ff)?;
+        let norm1 = TransformerNorm::load(&vb.pp("norm1"), cfg.d_model, cfg.norm)?;
+        let norm2 = TransformerNorm::load(&vb.pp("norm2"), cfg.d_model, cfg.norm)?;
+
+        let layer_scale_1 = if cfg.layer_scale.is_some() {
+            Some(LayerScale::load(&vb.pp("layer_scale_1"), cfg.d_model)?)
+        } else {
+            None
+        };
+
+        let layer_scale_2 = if cfg.layer_scale.is_some() {
+            Some(LayerScale::load(&vb.pp("layer_scale_2"), cfg.d_model)?)
+        } else {
+            None
+        };
+
+        Ok(Self { self_attn, mlp, norm1, norm2, layer_scale_1, layer_scale_2 })
+    }
+
+    fn forward(
+        &mut self,
+        xs: &Tensor<T, B>,
+        rope: Option<&RotaryEmbedding<T, B>>,
+        offset: usize,
+    ) -> Result<Tensor<T, B>> {
+        // Pre-norm architecture (norm_first = true)
+        // xs + layer_scale_1(self_attn(norm1(xs)))
+        let norm1_out = self.norm1.forward(xs)?;
+        let mut attn_out = self.self_attn.forward(&norm1_out, rope, offset)?;
+        if let Some(ls) = &self.layer_scale_1 {
+            attn_out = ls.forward(&attn_out)?;
+        }
+        let xs = xs.add(&attn_out)?;
+
+        // xs + layer_scale_2(mlp(norm2(xs)))
+        let norm2_out = self.norm2.forward(&xs)?;
+        let mut mlp_out = self.mlp.forward(&norm2_out)?;
+        if let Some(ls) = &self.layer_scale_2 {
+            mlp_out = ls.forward(&mlp_out)?;
+        }
+        xs.add(&mlp_out)
+    }
+
+    fn reset_kv_cache(&mut self) {
+        self.self_attn.reset_kv_cache();
+    }
+}
+
+// Streaming transformer (stack of layers)
+struct StreamingTransformer<T: WithDTypeF, B: Backend> {
+    layers: Vec<StreamingTransformerLayer<T, B>>,
+    rope: Option<RotaryEmbedding<T, B>>,
+}
+
+impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
+    fn load(vb: &Path<B>, cfg: &TransformerConfig, device: &B) -> Result<Self> {
+        let vb_layers = vb.pp("layers");
+        let mut layers = Vec::with_capacity(cfg.num_layers);
+        for i in 0..cfg.num_layers {
+            layers.push(StreamingTransformerLayer::load(&vb_layers.pp(i), cfg)?);
+        }
+
+        let rope = if cfg.positional_embedding == PositionalEmbedding::Rope {
+            let head_dim = cfg.d_model / cfg.num_heads;
+            Some(RotaryEmbedding::new(head_dim, cfg.max_seq_len, cfg.max_period as f32, device)?)
+        } else {
+            None
+        };
+
+        Ok(Self { layers, rope })
+    }
+
+    fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        let offset = self.current_seq_len();
+        let mut xs = xs.copy()?;
+        for layer in &mut self.layers {
+            xs = layer.forward(&xs, self.rope.as_ref(), offset)?;
+        }
+        Ok(xs)
+    }
+
+    fn current_seq_len(&self) -> usize {
+        if self.layers.is_empty() {
+            0
+        } else {
+            self.layers[0].self_attn.kv_cache.current_seq_len()
+        }
+    }
+
+    fn reset_state(&mut self) {
+        for layer in &mut self.layers {
+            layer.reset_kv_cache();
+        }
+    }
+}
+
 /// Projected transformer with input/output projections.
 pub struct Transformer<T: WithDTypeF, B: Backend> {
     input_proj: Option<Tensor<T, B>>,
     output_proj: Option<Tensor<T, B>>,
-    // Transformer layers would go here - simplified for now
-    #[allow(dead_code)]
-    cfg: TransformerConfig,
+    transformer: StreamingTransformer<T, B>,
     conv_layout: bool,
-    _marker: std::marker::PhantomData<(T, B)>,
 }
 
 impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
@@ -1106,7 +1495,7 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
         vb: &Path<B>,
         input_dim: usize,
         cfg: &TransformerConfig,
-        _device: &B,
+        device: &B,
     ) -> Result<Self> {
         let input_proj = if input_dim != cfg.d_model {
             Some(vb.pp("input_proj").tensor("weight", (cfg.d_model, input_dim))?)
@@ -1120,29 +1509,23 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
             None
         };
 
-        // Note: Full transformer layer loading would go here
-        // For now we just load the projections
+        let transformer = StreamingTransformer::load(&vb.pp("transformer"), cfg, device)?;
 
-        Ok(Self {
-            input_proj,
-            output_proj,
-            cfg: cfg.clone(),
-            conv_layout: cfg.conv_layout,
-            _marker: std::marker::PhantomData,
-        })
+        Ok(Self { input_proj, output_proj, transformer, conv_layout: cfg.conv_layout })
     }
 
     pub fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Vec<Tensor<T, B>>> {
-        // Apply input projection if needed
+        // Apply conv_layout transpose if needed
         let xs = if self.conv_layout { xs.transpose(1, 2)? } else { xs.copy()? };
 
+        // Apply input projection
         let xs = match &self.input_proj {
             Some(proj) => xs.matmul_t(proj)?,
             None => xs,
         };
 
-        // Transformer layers would process xs here
-        // For now, pass through
+        // Transformer layers
+        let xs = self.transformer.forward(&xs)?;
 
         // Apply output projection
         let ys = match &self.output_proj {
@@ -1150,13 +1533,14 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
             None => xs,
         };
 
+        // Transpose back if conv_layout
         let ys = if self.conv_layout { ys.transpose(1, 2)? } else { ys };
 
         Ok(vec![ys])
     }
 
     pub fn reset_state(&mut self) {
-        // Reset KV cache in transformer layers
+        self.transformer.reset_state();
     }
 }
 

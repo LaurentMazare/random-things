@@ -183,6 +183,12 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    pub fn layer_norm(&self, weight: &Self, bias: &Self, eps: f32) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.layer_norm_(self, weight, bias, eps)?;
+        Ok(result)
+    }
+
     pub fn rope(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_(self, cos, sin, pos)?;

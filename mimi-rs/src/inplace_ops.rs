@@ -104,11 +104,19 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Apply causality mask in-place.
-    /// Shape: (batch * heads, seq_q, seq_kv)
+    /// Shape: (batch * heads, seq_q, seq_kv) or (batch, heads, seq_q, seq_kv)
     /// Masks positions where key position > query position + offset (sets to -inf).
     /// offset: starting position of the first query token (for KV cache generation).
     pub fn apply_causality_mask_(&mut self, offset: usize) -> Result<()> {
-        let (bh, t1, t2) = self.dims3()?;
+        let dims = self.dims();
+        let (bh, t1, t2) = match dims.len() {
+            3 => (dims[0], dims[1], dims[2]),
+            4 => (dims[0] * dims[1], dims[2], dims[3]),
+            _ => crate::bail!(
+                "apply_causality_mask expects 3D or 4D tensor, got shape {:?}",
+                self.shape()
+            ),
+        };
         B::apply_causality_mask(&mut self.data, bh, t1, t2, offset)?;
         Ok(())
     }
@@ -123,6 +131,20 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let expected_shape_alpha = dim_m1.into();
         check_same_shape(&alpha.shape, &expected_shape_alpha, "rms_norm_ alpha")?;
         B::rms_norm(&mut self.data, &src.data, &alpha.data, dim_m1, d, eps)?;
+        Ok(())
+    }
+
+    pub fn layer_norm_(&mut self, src: &Self, weight: &Self, bias: &Self, eps: f32) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "layer_norm_ src")?;
+        if eps <= 0.0 {
+            crate::bail!("layer_norm_ eps must be positive");
+        }
+        let dim_m1 = self.shape.dims().last().copied().unwrap_or(1);
+        let d = self.elem_count() / dim_m1;
+        let expected_shape = dim_m1.into();
+        check_same_shape(&weight.shape, &expected_shape, "layer_norm_ weight")?;
+        check_same_shape(&bias.shape, &expected_shape, "layer_norm_ bias")?;
+        B::layer_norm(&mut self.data, &src.data, &weight.data, &bias.data, dim_m1, d, eps)?;
         Ok(())
     }
 

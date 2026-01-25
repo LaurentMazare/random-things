@@ -196,6 +196,19 @@ pub trait Backend: Sized + Clone + 'static {
         eps: f32,
     ) -> Result<()>;
 
+    /// Layer normalization.
+    /// Normalizes over the last dimension using mean and variance.
+    /// y = (x - mean) / sqrt(variance + eps) * weight + bias
+    fn layer_norm<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        weight: &Self::Storage<T>,
+        bias: &Self::Storage<T>,
+        dim_m1: usize,
+        d: usize,
+        eps: f32,
+    ) -> Result<()>;
+
     fn sqr<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

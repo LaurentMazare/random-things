@@ -409,6 +409,41 @@ impl crate::Backend for () {
         Ok(())
     }
 
+    fn layer_norm<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        weight: &Self::Storage<T>,
+        bias: &Self::Storage<T>,
+        dim_m1: usize,
+        d: usize,
+        eps: f32,
+    ) -> Result<()> {
+        let src = &src[..d * dim_m1];
+        let dst = &mut dst[..d * dim_m1];
+        let weight = &weight[..dim_m1];
+        let bias = &bias[..dim_m1];
+        src.par_chunks(dim_m1).zip(dst.par_chunks_mut(dim_m1)).for_each(|(src, dst)| {
+            // Compute mean
+            let sum: f32 = src.iter().map(|&v| v.to_f32()).sum();
+            let mean = sum / dim_m1 as f32;
+
+            // Compute variance
+            let var: f32 = src.iter().map(|&v| {
+                let diff = v.to_f32() - mean;
+                diff * diff
+            }).sum::<f32>() / dim_m1 as f32;
+
+            let inv_std = 1.0 / (var + eps).sqrt();
+
+            // Normalize and apply weight/bias
+            for i in 0..dim_m1 {
+                let normalized = (src[i].to_f32() - mean) * inv_std;
+                dst[i] = T::from_f32(normalized * weight[i].to_f32() + bias[i].to_f32());
+            }
+        });
+        Ok(())
+    }
+
     fn sqr<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
