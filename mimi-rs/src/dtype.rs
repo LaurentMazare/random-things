@@ -136,6 +136,9 @@ impl WithDTypeF for f32 {
     }
 }
 
+// TODO(laurent): Instead of doing the conversions here, it would be better and simpler to handle
+// it on device, so to have in the backend trait a cast method and only allow tensors to be created
+// in their native dtype.
 /// Convert bytes from a source dtype to Vec<T> where T: WithDTypeF.
 /// This handles conversion through f32 as an intermediate type.
 pub fn convert_bytes_to_vec<T: WithDTypeF>(src: &[u8], src_dtype: DType) -> Vec<T> {
