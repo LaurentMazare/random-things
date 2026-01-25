@@ -135,3 +135,37 @@ impl WithDTypeF for f32 {
         v
     }
 }
+
+/// Convert bytes from a source dtype to Vec<T> where T: WithDTypeF.
+/// This handles conversion through f32 as an intermediate type.
+pub fn convert_bytes_to_vec<T: WithDTypeF>(src: &[u8], src_dtype: DType) -> Vec<T> {
+    match src_dtype {
+        DType::F32 => {
+            let f32_vec = f32::vec_from_le_bytes(src);
+            if T::DTYPE == DType::F32 {
+                // SAFETY: T is f32, we can transmute Vec<f32> to Vec<T>
+                unsafe { std::mem::transmute::<Vec<f32>, Vec<T>>(f32_vec) }
+            } else {
+                f32_vec.into_iter().map(T::from_f32).collect()
+            }
+        }
+        DType::F16 => {
+            let f16_vec = f16::vec_from_le_bytes(src);
+            if T::DTYPE == DType::F16 {
+                // SAFETY: T is f16, we can transmute Vec<f16> to Vec<T>
+                unsafe { std::mem::transmute::<Vec<f16>, Vec<T>>(f16_vec) }
+            } else {
+                f16_vec.into_iter().map(|v| T::from_f32(v.to_f32())).collect()
+            }
+        }
+        DType::BF16 => {
+            let bf16_vec = bf16::vec_from_le_bytes(src);
+            if T::DTYPE == DType::BF16 {
+                // SAFETY: T is bf16, we can transmute Vec<bf16> to Vec<T>
+                unsafe { std::mem::transmute::<Vec<bf16>, Vec<T>>(bf16_vec) }
+            } else {
+                bf16_vec.into_iter().map(|v| T::from_f32(v.to_f32())).collect()
+            }
+        }
+    }
+}

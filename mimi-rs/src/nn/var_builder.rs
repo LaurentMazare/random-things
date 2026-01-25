@@ -1,4 +1,4 @@
-use crate::{Backend, Result, Shape, Tensor, WithDType};
+use crate::{Backend, Result, Shape, Tensor, WithDTypeF};
 use std::sync::Arc;
 
 pub struct MmapedFiles {
@@ -66,7 +66,7 @@ impl<'a, B: Backend> VarBuilder<'a, B> {
         &self.device
     }
 
-    pub fn tensor<T: WithDType>(
+    pub fn tensor<T: WithDTypeF>(
         &self,
         name: &str,
         shape: impl Into<Shape>,
@@ -76,7 +76,7 @@ impl<'a, B: Backend> VarBuilder<'a, B> {
     }
 }
 
-fn make_tensor<T: WithDType, B: Backend>(
+fn make_tensor<T: WithDTypeF, B: Backend>(
     td: Option<&TensorData<'_>>,
     name: &str,
     shape: impl Into<Shape>,
@@ -86,13 +86,6 @@ fn make_tensor<T: WithDType, B: Backend>(
         Some(t) => t,
         None => crate::bail!("tensor '{name}' not found"),
     };
-    if td.dtype != T::DTYPE {
-        crate::bail!(
-            "dtype mismatch for tensor '{name}': expected {:?}, found {:?}",
-            T::DTYPE,
-            td.dtype
-        );
-    }
     let shape = shape.into();
     if td.shape != shape {
         crate::bail!(
@@ -100,7 +93,7 @@ fn make_tensor<T: WithDType, B: Backend>(
             td.shape
         );
     }
-    let data = T::vec_from_le_bytes(td.data);
+    let data = crate::dtype::convert_bytes_to_vec::<T>(td.data, td.dtype);
     let tensor = Tensor::from_vec(data, shape, device)?;
     Ok(tensor)
 }
@@ -136,7 +129,7 @@ impl<B: Backend> VB<B> {
         &self.device
     }
 
-    pub fn tensor<T: WithDType>(
+    pub fn tensor<T: WithDTypeF>(
         &self,
         name: &str,
         shape: impl Into<Shape>,
@@ -166,7 +159,7 @@ impl<B: Backend> Path<B> {
         self.vb.device()
     }
 
-    pub fn tensor<T: WithDType>(
+    pub fn tensor<T: WithDTypeF>(
         &self,
         name: &str,
         shape: impl Into<Shape>,

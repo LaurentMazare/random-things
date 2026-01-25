@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+use crate::nn::var_builder::Path;
 use crate::nn::{Linear, RmsNorm};
 use crate::{Backend, Result, Tensor, WithDTypeF};
 
@@ -126,6 +127,20 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         Self { q_proj, k_proj, v_proj, o_proj, num_heads, num_kv_heads, head_dim, num_kv_groups }
     }
 
+    pub fn load(vb: &Path<B>, config: &Config) -> Result<Self> {
+        let hidden_size = config.hidden_size;
+        let num_heads = config.num_attention_heads;
+        let num_kv_heads = config.num_key_value_heads;
+        let head_dim = config.head_dim;
+
+        let q_proj = Linear::load(&vb.pp("q_proj"), hidden_size, num_heads * head_dim)?;
+        let k_proj = Linear::load(&vb.pp("k_proj"), hidden_size, num_kv_heads * head_dim)?;
+        let v_proj = Linear::load(&vb.pp("v_proj"), hidden_size, num_kv_heads * head_dim)?;
+        let o_proj = Linear::load(&vb.pp("o_proj"), num_heads * head_dim, hidden_size)?;
+
+        Ok(Self::new(q_proj, k_proj, v_proj, o_proj, num_heads, num_kv_heads, head_dim))
+    }
+
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -225,6 +240,17 @@ impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
         Self { gate_proj, up_proj, down_proj }
     }
 
+    pub fn load(vb: &Path<B>, config: &Config) -> Result<Self> {
+        let hidden_size = config.hidden_size;
+        let intermediate_size = config.intermediate_size;
+
+        let gate_proj = Linear::load(&vb.pp("gate_proj"), hidden_size, intermediate_size)?;
+        let up_proj = Linear::load(&vb.pp("up_proj"), hidden_size, intermediate_size)?;
+        let down_proj = Linear::load(&vb.pp("down_proj"), intermediate_size, hidden_size)?;
+
+        Ok(Self::new(gate_proj, up_proj, down_proj))
+    }
+
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // SwiGLU: down_proj(silu(gate_proj(x)) * up_proj(x))
         let gate = self.gate_proj.forward(x)?;
@@ -250,6 +276,20 @@ impl<T: WithDTypeF, B: Backend> TransformerBlock<T, B> {
         post_attention_layernorm: RmsNorm<T, B>,
     ) -> Self {
         Self { attn, mlp, input_layernorm, post_attention_layernorm }
+    }
+
+    pub fn load(vb: &Path<B>, config: &Config) -> Result<Self> {
+        let attn = Attention::load(&vb.pp("self_attn"), config)?;
+        let mlp = Mlp::load(&vb.pp("mlp"), config)?;
+        let input_layernorm =
+            RmsNorm::load(&vb.pp("input_layernorm"), config.hidden_size, config.rms_norm_eps)?;
+        let post_attention_layernorm = RmsNorm::load(
+            &vb.pp("post_attention_layernorm"),
+            config.hidden_size,
+            config.rms_norm_eps,
+        )?;
+
+        Ok(Self::new(attn, mlp, input_layernorm, post_attention_layernorm))
     }
 
     pub fn forward(
@@ -298,6 +338,35 @@ impl<T: WithDTypeF, B: Backend> Llama<T, B> {
         sin_cache: Tensor<T, B>,
     ) -> Self {
         Self { embed_tokens, layers, norm, lm_head, cos_cache, sin_cache }
+    }
+
+    pub fn load(vb: &Path<B>, config: &Config) -> Result<Self> {
+        let model = vb.pp("model");
+
+        let embed_tokens =
+            model.tensor("embed_tokens.weight", (config.vocab_size, config.hidden_size))?;
+
+        let mut layers = Vec::with_capacity(config.num_hidden_layers);
+        for i in 0..config.num_hidden_layers {
+            layers.push(TransformerBlock::load(&model.pp(format!("layers.{i}")), config)?);
+        }
+
+        let norm = RmsNorm::load(&model.pp("norm"), config.hidden_size, config.rms_norm_eps)?;
+
+        // lm_head might be tied to embed_tokens in some models
+        let lm_head = match vb.get_tensor("lm_head.weight") {
+            Some(_) => Linear::load(&vb.pp("lm_head"), config.hidden_size, config.vocab_size)?,
+            None => Linear::new(embed_tokens.copy()?),
+        };
+
+        let (cos_cache, sin_cache) = precompute_freqs_cis(
+            config.head_dim,
+            config.max_position_embeddings,
+            config.rope_theta,
+            vb.device(),
+        )?;
+
+        Ok(Self::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
     }
 
     pub fn forward(

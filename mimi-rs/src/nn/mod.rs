@@ -1,6 +1,7 @@
 use crate::{Backend, Result, Tensor, WithDTypeF};
 
 pub mod var_builder;
+use var_builder::Path;
 pub use var_builder::VB;
 
 pub struct RmsNorm<T: WithDTypeF, B: Backend> {
@@ -11,6 +12,11 @@ pub struct RmsNorm<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> RmsNorm<T, B> {
     pub fn new(weight: Tensor<T, B>, eps: f32) -> Self {
         Self { weight, eps }
+    }
+
+    pub fn load(vb: &Path<B>, dim: usize, eps: f32) -> Result<Self> {
+        let weight = vb.tensor("weight", (dim,))?;
+        Ok(Self::new(weight, eps))
     }
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
@@ -25,6 +31,11 @@ pub struct Linear<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> Linear<T, B> {
     pub fn new(weight: Tensor<T, B>) -> Self {
         Self { weight }
+    }
+
+    pub fn load(vb: &Path<B>, in_features: usize, out_features: usize) -> Result<Self> {
+        let weight = vb.tensor("weight", (out_features, in_features))?;
+        Ok(Self::new(weight))
     }
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {

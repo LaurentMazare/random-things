@@ -1,12 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use mimi::models::llama::{
-    Attention, Config, KvCache, Llama, Mlp, TransformerBlock, precompute_freqs_cis,
-};
-use mimi::nn::{Linear, RmsNorm};
-use mimi::{Backend, Tensor, WithDType, WithDTypeF};
+use mimi::models::llama::{Config, KvCache, Llama};
+use mimi::nn::VB;
+use mimi::{Backend, Tensor};
 use rand::Rng;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ModelSize {
@@ -67,250 +64,6 @@ struct Args {
     /// Verbose output (show tensor loading)
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
-}
-
-/// Load a tensor from safetensors data, converting to f32
-fn load_tensor<B: Backend>(
-    tensors: &safetensors::SafeTensors,
-    name: &str,
-    dev: &B,
-) -> Result<Tensor<f32, B>> {
-    let view = tensors.tensor(name).with_context(|| format!("tensor {name} not found"))?;
-    let shape: Vec<usize> = view.shape().to_vec();
-
-    let data: Vec<f32> = match view.dtype() {
-        safetensors::Dtype::F32 => {
-            let bytes = view.data();
-            bytes
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect()
-        }
-        safetensors::Dtype::F16 => {
-            let bytes = view.data();
-            bytes
-                .chunks_exact(2)
-                .map(|chunk| {
-                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-                    half::f16::from_bits(bits).to_f32()
-                })
-                .collect()
-        }
-        safetensors::Dtype::BF16 => {
-            let bytes = view.data();
-            bytes
-                .chunks_exact(2)
-                .map(|chunk| {
-                    let bits = u16::from_le_bytes([chunk[0], chunk[1]]);
-                    half::bf16::from_bits(bits).to_f32()
-                })
-                .collect()
-        }
-        dtype => anyhow::bail!("unsupported dtype: {:?}", dtype),
-    };
-    let data = Tensor::from_vec(data, shape, dev)?;
-    Ok(data)
-}
-
-/// Container for memory-mapped safetensor files
-struct SafeTensorFiles {
-    // Keep mmaps alive while SafeTensors references them
-    _mmaps: Vec<memmap2::Mmap>,
-    data: Vec<&'static [u8]>,
-}
-
-impl SafeTensorFiles {
-    fn new(paths: Vec<std::path::PathBuf>) -> Result<Self> {
-        let mut mmaps = Vec::new();
-        let mut data = Vec::new();
-
-        for path in paths {
-            let file = std::fs::File::open(&path)
-                .with_context(|| format!("failed to open {}", path.display()))?;
-            let mmap = unsafe { memmap2::Mmap::map(&file)? };
-            // SAFETY: We keep the mmap alive in self._mmaps
-            let static_slice: &'static [u8] =
-                unsafe { std::slice::from_raw_parts(mmap.as_ptr(), mmap.len()) };
-            mmaps.push(mmap);
-            data.push(static_slice);
-        }
-
-        Ok(Self { _mmaps: mmaps, data })
-    }
-}
-
-/// Load all tensors from safetensor files into a hashmap
-fn load_all_tensors<B: Backend>(
-    files: &SafeTensorFiles,
-    verbose: bool,
-    dev: &B,
-) -> Result<HashMap<String, Tensor<f32, B>>> {
-    let mut all_tensors = HashMap::new();
-
-    for data in &files.data {
-        let tensors = safetensors::SafeTensors::deserialize(data)?;
-        for name in tensors.names() {
-            let tensor = load_tensor(&tensors, name, dev)?;
-            if verbose {
-                println!("  Tensor {}: {:?}", name, tensor.shape());
-            }
-            all_tensors.insert(name.to_string(), tensor);
-        }
-    }
-
-    Ok(all_tensors)
-}
-
-fn get_tensor<T: WithDType, B: Backend>(
-    tensors: &HashMap<String, Tensor<T, B>>,
-    name: &str,
-) -> Result<Tensor<T, B>> {
-    match tensors.get(name) {
-        None => anyhow::bail!("missing tensor: {name}"),
-        Some(tensor) => Ok(tensor.copy()?),
-    }
-}
-
-fn create_attention_from_weights<T: WithDTypeF, B: Backend>(
-    tensors: &HashMap<String, Tensor<T, B>>,
-    prefix: &str,
-    config: &Config,
-) -> Result<Attention<T, B>> {
-    let q_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.q_proj.weight"))?);
-    let k_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.k_proj.weight"))?);
-    let v_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.v_proj.weight"))?);
-    let o_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.o_proj.weight"))?);
-
-    Ok(Attention::new(
-        q_proj,
-        k_proj,
-        v_proj,
-        o_proj,
-        config.num_attention_heads,
-        config.num_key_value_heads,
-        config.head_dim,
-    ))
-}
-
-fn create_mlp_from_weights<T: WithDTypeF, B: Backend>(
-    tensors: &HashMap<String, Tensor<T, B>>,
-    prefix: &str,
-) -> Result<Mlp<T, B>> {
-    let gate_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.gate_proj.weight"))?);
-    let up_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.up_proj.weight"))?);
-    let down_proj = Linear::new(get_tensor(tensors, &format!("{prefix}.down_proj.weight"))?);
-
-    Ok(Mlp::new(gate_proj, up_proj, down_proj))
-}
-
-fn create_transformer_block_from_weights<T: WithDTypeF, B: Backend>(
-    tensors: &HashMap<String, Tensor<T, B>>,
-    layer_idx: usize,
-    config: &Config,
-) -> Result<TransformerBlock<T, B>> {
-    let prefix = format!("model.layers.{layer_idx}");
-
-    let attn = create_attention_from_weights(tensors, &format!("{prefix}.self_attn"), config)?;
-    let mlp = create_mlp_from_weights(tensors, &format!("{prefix}.mlp"))?;
-
-    let input_layernorm = RmsNorm::new(
-        get_tensor(tensors, &format!("{prefix}.input_layernorm.weight"))?,
-        config.rms_norm_eps,
-    );
-    let post_attention_layernorm = RmsNorm::new(
-        get_tensor(tensors, &format!("{prefix}.post_attention_layernorm.weight"))?,
-        config.rms_norm_eps,
-    );
-
-    Ok(TransformerBlock::new(attn, mlp, input_layernorm, post_attention_layernorm))
-}
-
-fn load_llama_from_weights<T: WithDTypeF, B: Backend>(
-    tensors: &HashMap<String, Tensor<T, B>>,
-    config: &Config,
-    dev: &B,
-) -> Result<Llama<T, B>> {
-    println!("  Loading embed_tokens...");
-    let embed_tokens = get_tensor(tensors, "model.embed_tokens.weight")?;
-
-    println!("  Loading {} transformer layers...", config.num_hidden_layers);
-    let mut layers = Vec::with_capacity(config.num_hidden_layers);
-    for i in 0..config.num_hidden_layers {
-        if i % 5 == 0 {
-            println!("    Layer {}/{}...", i, config.num_hidden_layers);
-        }
-        layers.push(create_transformer_block_from_weights(tensors, i, config)?);
-    }
-
-    println!("  Loading final norm and lm_head...");
-    let norm = RmsNorm::new(get_tensor(tensors, "model.norm.weight")?, config.rms_norm_eps);
-
-    // lm_head might be tied to embed_tokens in some models
-    let lm_head_weight = match tensors.get("lm_head.weight") {
-        Some(tensor) => tensor.copy()?,
-        None => embed_tokens.copy()?,
-    };
-    let lm_head = Linear::new(lm_head_weight);
-
-    println!("  Computing RoPE frequencies...");
-    let (cos_cache, sin_cache) = precompute_freqs_cis(
-        config.head_dim,
-        config.max_position_embeddings,
-        config.rope_theta,
-        dev,
-    )?;
-
-    Ok(Llama::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
-}
-
-fn create_llama_zeros<T: WithDTypeF, B: Backend>(config: &Config, dev: &B) -> Result<Llama<T, B>> {
-    let embed_tokens = Tensor::zeros((config.vocab_size, config.hidden_size), dev)?;
-
-    let layers: Vec<TransformerBlock<T, B>> = (0..config.num_hidden_layers)
-        .map(|_| {
-            let hidden_size = config.hidden_size;
-            let num_heads = config.num_attention_heads;
-            let num_kv_heads = config.num_key_value_heads;
-            let head_dim = config.head_dim;
-            let intermediate_size = config.intermediate_size;
-
-            let q_proj = Linear::new(Tensor::zeros((num_heads * head_dim, hidden_size), dev)?);
-            let k_proj = Linear::new(Tensor::zeros((num_kv_heads * head_dim, hidden_size), dev)?);
-            let v_proj = Linear::new(Tensor::zeros((num_kv_heads * head_dim, hidden_size), dev)?);
-            let o_proj = Linear::new(Tensor::zeros((hidden_size, num_heads * head_dim), dev)?);
-            let attn =
-                Attention::new(q_proj, k_proj, v_proj, o_proj, num_heads, num_kv_heads, head_dim);
-
-            let gate_proj = Linear::new(Tensor::zeros((intermediate_size, hidden_size), dev)?);
-            let up_proj = Linear::new(Tensor::zeros((intermediate_size, hidden_size), dev)?);
-            let down_proj = Linear::new(Tensor::zeros((hidden_size, intermediate_size), dev)?);
-            let mlp = Mlp::new(gate_proj, up_proj, down_proj);
-
-            let input_layernorm =
-                RmsNorm::new(Tensor::zeros((hidden_size,), dev)?, config.rms_norm_eps);
-            let post_attention_layernorm =
-                RmsNorm::new(Tensor::zeros((hidden_size,), dev)?, config.rms_norm_eps);
-
-            Ok::<_, anyhow::Error>(TransformerBlock::<T, B>::new(
-                attn,
-                mlp,
-                input_layernorm,
-                post_attention_layernorm,
-            ))
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    let norm = RmsNorm::new(Tensor::zeros((config.hidden_size,), dev)?, config.rms_norm_eps);
-    let lm_head = Linear::new(Tensor::zeros((config.vocab_size, config.hidden_size), dev)?);
-
-    let (cos_cache, sin_cache) = precompute_freqs_cis(
-        config.head_dim,
-        config.max_position_embeddings,
-        config.rope_theta,
-        dev,
-    )?;
-
-    Ok(Llama::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
 }
 
 struct ModelFiles {
@@ -434,7 +187,7 @@ fn main() -> Result<()> {
     // CPU Device
     let dev = ();
 
-    let (model, tokenizer) = if let Some(repo_id) = args.model_size.hf_repo() {
+    let (model, tokenizer): (Llama<f32, ()>, _) = if let Some(repo_id) = args.model_size.hf_repo() {
         let model_files = download_model(repo_id)?;
 
         println!("Loading tokenizer...");
@@ -442,15 +195,12 @@ fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
         println!("Loading weights...");
-        let files = SafeTensorFiles::new(model_files.safetensor_paths)?;
-        let tensors = load_all_tensors(&files, args.verbose, &dev)?;
-        println!("  Loaded {} tensors", tensors.len());
-        let model = load_llama_from_weights(&tensors, &config, &dev)?;
+        let vb = VB::load(&model_files.safetensor_paths, dev)?;
+        let model = Llama::load(&vb.root(), &config)?;
 
         (model, Some(tokenizer))
     } else {
-        println!("Using zero-initialized weights (test mode)");
-        (create_llama_zeros(&config, &dev)?, None)
+        anyhow::bail!("Test mode not supported without weights");
     };
 
     // Tokenize the prompt
