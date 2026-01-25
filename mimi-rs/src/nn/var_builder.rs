@@ -1,4 +1,5 @@
 use crate::{Backend, Result, Shape, Tensor, WithDType};
+use std::sync::Arc;
 
 pub struct MmapedFiles {
     mmaps: Vec<(std::path::PathBuf, memmap2::Mmap)>,
@@ -142,5 +143,61 @@ impl<B: Backend> VB<B> {
     ) -> Result<Tensor<T, B>> {
         let td = self.yoke.get().tensor_data.get(name);
         make_tensor(td, name, shape, &self.device)
+    }
+
+    pub fn root(self) -> Path<B> {
+        Path { vb: self.into(), path: vec![] }
+    }
+}
+
+#[derive(Clone)]
+pub struct Path<B: Backend> {
+    path: Vec<String>,
+    vb: Arc<VB<B>>,
+}
+
+impl<B: Backend> Path<B> {
+    pub fn get_tensor(&self, name: &str) -> Option<&TensorData<'_>> {
+        let name = self.path(name);
+        self.vb.get_tensor(&name)
+    }
+
+    pub fn device(&self) -> &B {
+        self.vb.device()
+    }
+
+    pub fn tensor<T: WithDType>(
+        &self,
+        name: &str,
+        shape: impl Into<Shape>,
+    ) -> Result<Tensor<T, B>> {
+        let name = self.path(name);
+        self.vb.tensor(&name, shape)
+    }
+
+    /// Return a new `VarBuilder` adding `s` to the current prefix. This can be think of as `cd`
+    /// into a directory.
+    pub fn push_prefix<S: ToString>(&self, s: S) -> Self {
+        let mut path = self.path.clone();
+        path.push(s.to_string());
+        Self { vb: self.vb.clone(), path }
+    }
+
+    /// Short alias for `push_prefix`.
+    pub fn pp<S: ToString>(&self, s: S) -> Self {
+        self.push_prefix(s)
+    }
+
+    /// Returns the prefix of the `VarBuilder`.
+    pub fn prefix(&self) -> String {
+        self.path.join(".")
+    }
+
+    fn path(&self, tensor_name: &str) -> String {
+        if self.path.is_empty() {
+            tensor_name.to_string()
+        } else {
+            [&self.path.join("."), tensor_name].join(".")
+        }
     }
 }
