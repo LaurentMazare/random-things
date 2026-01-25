@@ -63,6 +63,20 @@ pub trait Backend: Sized + Clone + 'static {
         len: usize,
     ) -> Result<()>;
 
+    fn maximum<T: crate::WithDType>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn minimum<T: crate::WithDType>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
     fn scale<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

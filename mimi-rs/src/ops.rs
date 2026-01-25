@@ -54,6 +54,22 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    /// Element-wise maximum of two tensors.
+    pub fn maximum(&self, other: &Self) -> Result<Self> {
+        check_same_shape(self, other, "maximum")?;
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.maximum_(self, other)?;
+        Ok(result)
+    }
+
+    /// Element-wise minimum of two tensors.
+    pub fn minimum(&self, other: &Self) -> Result<Self> {
+        check_same_shape(self, other, "minimum")?;
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.minimum_(self, other)?;
+        Ok(result)
+    }
+
     pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Self> {
         let dim1 = dim1.to_index(self.shape(), "transpose dim1")?;
         let dim2 = dim2.to_index(self.shape(), "transpose dim2")?;

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use mimi::Tensor;
-use mimi::models::mimi::{Config, Mimi};
+use mimi::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
 use mimi::nn::VB;
 
 #[derive(Parser, Debug)]
@@ -95,6 +95,10 @@ fn main() -> Result<()> {
         chunk_size
     );
 
+    // Reset state once before processing consecutive chunks
+    model.reset_state();
+    let mask = StreamMask::empty();
+
     let encode_start = std::time::Instant::now();
     let mut all_codes: Vec<Tensor<i64, ()>> = Vec::with_capacity(num_chunks);
 
@@ -110,18 +114,22 @@ fn main() -> Result<()> {
 
         // Create tensor: shape [batch=1, channels=1, time=1920]
         let audio: Tensor<f32, ()> = Tensor::from_vec(chunk_data, (1, 1, chunk_size), &dev)?;
+        let audio_stream = StreamTensor::from_tensor(audio);
 
-        // Encode the audio to codes
-        let mut codes = model.encode(&audio)?;
-        // Ensure codes have 3 dimensions [B, n_q, T] - unsqueeze if T=1 was collapsed
-        if codes.rank() == 2 {
-            codes = codes.unsqueeze(2)?;
-        }
-        all_codes.push(codes);
+        // Encode the audio to codes using streaming API
+        let codes_stream = model.encode_step(&audio_stream, &mask)?;
+        if let Some(codes) = codes_stream.as_option() {
+            let mut codes = codes.copy()?;
+            // Ensure codes have 3 dimensions [B, n_q, T] - unsqueeze if T=1 was collapsed
+            if codes.rank() == 2 {
+                codes = codes.unsqueeze(2)?;
+            }
+            all_codes.push(codes);
 
-        if chunk_idx == 0 {
-            let code_dims = all_codes[0].dims();
-            println!("  First chunk codes shape: {:?}", code_dims);
+            if all_codes.len() == 1 {
+                let code_dims = all_codes[0].dims();
+                println!("  First chunk codes shape: {:?}", code_dims);
+            }
         }
 
         if (chunk_idx + 1) % 50 == 0 || chunk_idx == num_chunks - 1 {
@@ -140,21 +148,41 @@ fn main() -> Result<()> {
     println!("\nConcatenating codes...");
     let code_refs: Vec<&Tensor<i64, ()>> = all_codes.iter().collect();
     let all_codes = Tensor::cat(&code_refs, 2)?; // dim 2 is time
+    let total_code_frames = all_codes.dims()[2];
     println!("  Total codes shape: {:?}", all_codes.dims());
 
-    // Decode all codes back to audio
-    println!("\nDecoding codes to audio...");
+    // Decode all codes back to audio using streaming API
+    println!("\nDecoding codes to audio ({} frames)...", total_code_frames);
+    model.reset_state();
     let decode_start = std::time::Instant::now();
-    let decoded_audio = model.decode(&all_codes)?;
-    let decode_elapsed = decode_start.elapsed();
+    let mut all_decoded: Vec<Tensor<f32, ()>> = Vec::with_capacity(total_code_frames);
 
-    let decoded_dims = decoded_audio.dims();
-    println!("  Decoded shape: {:?}", decoded_dims);
+    for frame_idx in 0..total_code_frames {
+        // Extract single frame: [B, n_q, 1]
+        let codes_frame = all_codes.narrow(2, frame_idx, 1)?;
+        let codes_stream: StreamTensor<i64, ()> = StreamTensor::from_tensor(codes_frame);
+
+        let decoded_stream = model.decode_step(&codes_stream, &mask)?;
+        if let Some(decoded) = decoded_stream.as_option() {
+            all_decoded.push(decoded.copy()?);
+        }
+
+        if (frame_idx + 1) % 50 == 0 || frame_idx == total_code_frames - 1 {
+            println!("  Decoded frame {}/{}", frame_idx + 1, total_code_frames);
+        }
+    }
+
+    let decode_elapsed = decode_start.elapsed();
     println!(
         "  Decoding completed in {:.2}s ({:.2}x realtime)",
         decode_elapsed.as_secs_f64(),
         pcm_data.len() as f64 / target_sample_rate as f64 / decode_elapsed.as_secs_f64()
     );
+
+    // Concatenate all decoded audio
+    let decoded_refs: Vec<&Tensor<f32, ()>> = all_decoded.iter().collect();
+    let decoded_audio = Tensor::cat(&decoded_refs, 2)?; // dim 2 is time
+    println!("  Decoded shape: {:?}", decoded_audio.dims());
 
     // Extract PCM data from decoded tensor
     let decoded_pcm = decoded_audio.to_vec()?;

@@ -1194,11 +1194,9 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         let embedding_sum = vb.tensor("embedding_sum", (codebook_size, dim))?;
 
         // embedding = embedding_sum / max(cluster_usage, epsilon)
-        let cluster_usage = cluster_usage.broadcast_add(&Tensor::full(
-            T::from_f32(epsilon as f32),
-            (codebook_size,),
-            cluster_usage.device(),
-        )?)?;
+        let epsilon_t =
+            Tensor::full(T::from_f32(epsilon as f32), (codebook_size,), cluster_usage.device())?;
+        let cluster_usage = cluster_usage.maximum(&epsilon_t)?;
         let cluster_usage = cluster_usage.unsqueeze(1)?;
         let embedding = embedding_sum.broadcast_div(&cluster_usage)?;
 
@@ -1624,6 +1622,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     /// Encode audio to codes (non-streaming).
     pub fn encode(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let xs = self.encoder.forward(xs)?;
+        self.encoder_transformer.reset_state();
         let xs = self.encoder_transformer.forward(&xs)?;
         let xs = &xs[0];
         let xs = self.downsample.forward(xs)?;
@@ -1634,6 +1633,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     pub fn decode(&mut self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         let emb = self.quantizer.decode(codes)?;
         let emb = self.upsample.forward(&emb)?;
+        self.decoder_transformer.reset_state();
         let outs = self.decoder_transformer.forward(&emb)?;
         self.decoder.forward(&outs[0])
     }

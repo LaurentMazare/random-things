@@ -74,6 +74,30 @@ impl crate::Backend for () {
         Ok(())
     }
 
+    fn maximum<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for ((d, l), r) in dst[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
+            *d = if *l > *r { *l } else { *r }
+        }
+        Ok(())
+    }
+
+    fn minimum<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for ((d, l), r) in dst[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
+            *d = if *l < *r { *l } else { *r }
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn copy2d<T: WithDType>(
         dst: &mut Self::Storage<T>,

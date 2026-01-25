@@ -10,7 +10,7 @@ pub enum DType {
 }
 
 pub trait WithDType:
-    Sized + Copy + num_traits::NumAssign + 'static + Clone + Send + Sync + std::fmt::Debug
+    Sized + Copy + num_traits::NumAssign + PartialOrd + 'static + Clone + Send + Sync + std::fmt::Debug
 {
     const DTYPE: DType;
     const BYTE_SIZE: usize;

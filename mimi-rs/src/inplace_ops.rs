@@ -25,6 +25,22 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
+    pub fn maximum_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+        check_same_shape(&lhs.shape, &rhs.shape, "maximum_")?;
+        check_same_shape(&self.shape, &lhs.shape, "maximum_ (output)")?;
+        let len = self.elem_count();
+        B::maximum(&mut self.data, &lhs.data, &rhs.data, len)?;
+        Ok(())
+    }
+
+    pub fn minimum_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+        check_same_shape(&lhs.shape, &rhs.shape, "minimum_")?;
+        check_same_shape(&self.shape, &lhs.shape, "minimum_ (output)")?;
+        let len = self.elem_count();
+        B::minimum(&mut self.data, &lhs.data, &rhs.data, len)?;
+        Ok(())
+    }
+
     pub fn transpose_(&mut self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
         let dims = src.dims();
         let len = self.elem_count();
