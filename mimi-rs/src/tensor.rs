@@ -1,4 +1,4 @@
-use crate::{shape::Dim, Backend, DType, Result, Shape, WithDType};
+use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
 
 #[derive(Clone)]
 pub struct Tensor<T: WithDType, B: Backend> {
