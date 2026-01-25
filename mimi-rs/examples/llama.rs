@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use mimi::llama::{Attention, Config, KvCache, Llama, Mlp, TransformerBlock, precompute_freqs_cis};
 use mimi::nn::{Linear, RmsNorm};
-use mimi::{Backend, BackendF, Tensor, WithDType, WithDTypeF};
+use mimi::{Backend, Tensor, WithDType, WithDTypeF};
 use rand::Rng;
 use std::collections::HashMap;
 
@@ -68,10 +68,10 @@ struct Args {
 }
 
 /// Load a tensor from safetensors data, converting to f32
-fn load_tensor<B: Backend<f32>>(
+fn load_tensor<B: Backend>(
     tensors: &safetensors::SafeTensors,
     name: &str,
-    dev: &B::Device,
+    dev: &B,
 ) -> Result<Tensor<f32, B>> {
     let view = tensors.tensor(name).with_context(|| format!("tensor {name} not found"))?;
     let shape: Vec<usize> = view.shape().to_vec();
@@ -138,10 +138,10 @@ impl SafeTensorFiles {
 }
 
 /// Load all tensors from safetensor files into a hashmap
-fn load_all_tensors<B: Backend<f32>>(
+fn load_all_tensors<B: Backend>(
     files: &SafeTensorFiles,
     verbose: bool,
-    dev: &B::Device,
+    dev: &B,
 ) -> Result<HashMap<String, Tensor<f32, B>>> {
     let mut all_tensors = HashMap::new();
 
@@ -159,7 +159,7 @@ fn load_all_tensors<B: Backend<f32>>(
     Ok(all_tensors)
 }
 
-fn get_tensor<T: WithDType, B: Backend<T>>(
+fn get_tensor<T: WithDType, B: Backend>(
     tensors: &HashMap<String, Tensor<T, B>>,
     name: &str,
 ) -> Result<Tensor<T, B>> {
@@ -169,7 +169,7 @@ fn get_tensor<T: WithDType, B: Backend<T>>(
     }
 }
 
-fn create_attention_from_weights<T: WithDTypeF, B: BackendF<T>>(
+fn create_attention_from_weights<T: WithDTypeF, B: Backend>(
     tensors: &HashMap<String, Tensor<T, B>>,
     prefix: &str,
     config: &Config,
@@ -190,7 +190,7 @@ fn create_attention_from_weights<T: WithDTypeF, B: BackendF<T>>(
     ))
 }
 
-fn create_mlp_from_weights<T: WithDTypeF, B: BackendF<T>>(
+fn create_mlp_from_weights<T: WithDTypeF, B: Backend>(
     tensors: &HashMap<String, Tensor<T, B>>,
     prefix: &str,
 ) -> Result<Mlp<T, B>> {
@@ -201,7 +201,7 @@ fn create_mlp_from_weights<T: WithDTypeF, B: BackendF<T>>(
     Ok(Mlp::new(gate_proj, up_proj, down_proj))
 }
 
-fn create_transformer_block_from_weights<T: WithDTypeF, B: BackendF<T>>(
+fn create_transformer_block_from_weights<T: WithDTypeF, B: Backend>(
     tensors: &HashMap<String, Tensor<T, B>>,
     layer_idx: usize,
     config: &Config,
@@ -223,10 +223,10 @@ fn create_transformer_block_from_weights<T: WithDTypeF, B: BackendF<T>>(
     Ok(TransformerBlock::new(attn, mlp, input_layernorm, post_attention_layernorm))
 }
 
-fn load_llama_from_weights<T: WithDTypeF, B: BackendF<T>>(
+fn load_llama_from_weights<T: WithDTypeF, B: Backend>(
     tensors: &HashMap<String, Tensor<T, B>>,
     config: &Config,
-    dev: &B::Device,
+    dev: &B,
 ) -> Result<Llama<T, B>> {
     println!("  Loading embed_tokens...");
     let embed_tokens = get_tensor(tensors, "model.embed_tokens.weight")?;
@@ -261,10 +261,7 @@ fn load_llama_from_weights<T: WithDTypeF, B: BackendF<T>>(
     Ok(Llama::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
 }
 
-fn create_llama_zeros<T: WithDTypeF, B: BackendF<T>>(
-    config: &Config,
-    dev: &B::Device,
-) -> Result<Llama<T, B>> {
+fn create_llama_zeros<T: WithDTypeF, B: Backend>(config: &Config, dev: &B) -> Result<Llama<T, B>> {
     let embed_tokens = Tensor::zeros((config.vocab_size, config.hidden_size), dev)?;
 
     let layers: Vec<TransformerBlock<T, B>> = (0..config.num_hidden_layers)
@@ -359,7 +356,7 @@ fn download_model(repo_id: &str) -> Result<ModelFiles> {
     Ok(ModelFiles { safetensor_paths, tokenizer_path })
 }
 
-fn sample_token<B: Backend<f32>>(
+fn sample_token<B: Backend>(
     logits: &Tensor<f32, B>,
     temperature: f32,
     rng: &mut impl Rng,
@@ -477,7 +474,7 @@ fn main() -> Result<()> {
 
     // Autoregressive generation loop
     let mut rng = rand::rng();
-    let mut kv_cache: Option<KvCache<f32, Vec<f32>>> = None;
+    let mut kv_cache: Option<KvCache<f32, ()>> = None;
     let mut pos = 0;
     let mut generated_tokens = Vec::new();
     let mut autoregressive_start: Option<std::time::Instant> = None;

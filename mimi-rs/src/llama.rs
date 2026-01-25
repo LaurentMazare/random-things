@@ -1,5 +1,5 @@
 use crate::nn::{Linear, RmsNorm};
-use crate::{BackendF, Result, Tensor, WithDTypeF};
+use crate::{Backend, Result, Tensor, WithDTypeF};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -100,7 +100,7 @@ impl Config {
     }
 }
 
-pub struct Attention<T: WithDTypeF, B: BackendF<T>> {
+pub struct Attention<T: WithDTypeF, B: Backend> {
     q_proj: Linear<T, B>,
     k_proj: Linear<T, B>,
     v_proj: Linear<T, B>,
@@ -111,7 +111,7 @@ pub struct Attention<T: WithDTypeF, B: BackendF<T>> {
     num_kv_groups: usize,
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> Attention<T, B> {
+impl<T: WithDTypeF, B: Backend> Attention<T, B> {
     pub fn new(
         q_proj: Linear<T, B>,
         k_proj: Linear<T, B>,
@@ -213,13 +213,13 @@ impl<T: WithDTypeF, B: BackendF<T>> Attention<T, B> {
     }
 }
 
-pub struct Mlp<T: WithDTypeF, B: BackendF<T>> {
+pub struct Mlp<T: WithDTypeF, B: Backend> {
     gate_proj: Linear<T, B>,
     up_proj: Linear<T, B>,
     down_proj: Linear<T, B>,
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> Mlp<T, B> {
+impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
     pub fn new(gate_proj: Linear<T, B>, up_proj: Linear<T, B>, down_proj: Linear<T, B>) -> Self {
         Self { gate_proj, up_proj, down_proj }
     }
@@ -234,14 +234,14 @@ impl<T: WithDTypeF, B: BackendF<T>> Mlp<T, B> {
     }
 }
 
-pub struct TransformerBlock<T: WithDTypeF, B: BackendF<T>> {
+pub struct TransformerBlock<T: WithDTypeF, B: Backend> {
     attn: Attention<T, B>,
     mlp: Mlp<T, B>,
     input_layernorm: RmsNorm<T, B>,
     post_attention_layernorm: RmsNorm<T, B>,
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> TransformerBlock<T, B> {
+impl<T: WithDTypeF, B: Backend> TransformerBlock<T, B> {
     pub fn new(
         attn: Attention<T, B>,
         mlp: Mlp<T, B>,
@@ -274,7 +274,7 @@ impl<T: WithDTypeF, B: BackendF<T>> TransformerBlock<T, B> {
     }
 }
 
-pub struct Llama<T: WithDTypeF, B: BackendF<T>> {
+pub struct Llama<T: WithDTypeF, B: Backend> {
     embed_tokens: Tensor<T, B>,
     layers: Vec<TransformerBlock<T, B>>,
     norm: RmsNorm<T, B>,
@@ -283,11 +283,11 @@ pub struct Llama<T: WithDTypeF, B: BackendF<T>> {
     sin_cache: Tensor<T, B>,
 }
 
-pub struct KvCache<T: WithDTypeF, B: BackendF<T>> {
+pub struct KvCache<T: WithDTypeF, B: Backend> {
     kvs: Vec<(Tensor<T, B>, Tensor<T, B>)>,
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> Llama<T, B> {
+impl<T: WithDTypeF, B: Backend> Llama<T, B> {
     pub fn new(
         embed_tokens: Tensor<T, B>,
         layers: Vec<TransformerBlock<T, B>>,
@@ -329,11 +329,11 @@ impl<T: WithDTypeF, B: BackendF<T>> Llama<T, B> {
     }
 }
 
-pub fn precompute_freqs_cis<T: WithDTypeF, B: BackendF<T>>(
+pub fn precompute_freqs_cis<T: WithDTypeF, B: Backend>(
     head_dim: usize,
     max_seq_len: usize,
     theta: f32,
-    dev: &B::Device,
+    dev: &B,
 ) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
     let half_dim = head_dim / 2;
     let mut freqs = Vec::with_capacity(half_dim);

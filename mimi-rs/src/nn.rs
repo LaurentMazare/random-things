@@ -1,11 +1,11 @@
-use crate::{BackendF, Result, Tensor, WithDTypeF};
+use crate::{Backend, Result, Tensor, WithDTypeF};
 
-pub struct RmsNorm<T: WithDTypeF, B: BackendF<T>> {
+pub struct RmsNorm<T: WithDTypeF, B: Backend> {
     weight: Tensor<T, B>,
     eps: f32,
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> RmsNorm<T, B> {
+impl<T: WithDTypeF, B: Backend> RmsNorm<T, B> {
     pub fn new(weight: Tensor<T, B>, eps: f32) -> Self {
         Self { weight, eps }
     }
@@ -15,11 +15,11 @@ impl<T: WithDTypeF, B: BackendF<T>> RmsNorm<T, B> {
     }
 }
 
-pub struct Linear<T: WithDTypeF, B: BackendF<T>> {
+pub struct Linear<T: WithDTypeF, B: Backend> {
     weight: Tensor<T, B>,
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> Linear<T, B> {
+impl<T: WithDTypeF, B: Backend> Linear<T, B> {
     pub fn new(weight: Tensor<T, B>) -> Self {
         Self { weight }
     }

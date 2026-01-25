@@ -1,13 +1,14 @@
-use crate::{shape::Dim, Backend, DType, Result, Shape, WithDType};
+use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
 
 #[derive(Clone)]
-pub struct Tensor<T: WithDType, B: Backend<T>> {
-    pub(crate) data: B,
+pub struct Tensor<T: WithDType, B: Backend> {
+    pub(crate) data: B::Storage<T>,
     pub(crate) shape: Shape,
+    pub(crate) device: B,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
+impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub fn dtype(&self) -> DType {
         T::DTYPE
     }
@@ -32,34 +33,34 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
         self.shape.dim(index)
     }
 
-    pub fn device(&self) -> &B::Device {
-        self.data.device()
+    pub fn device(&self) -> &B {
+        &self.device
     }
 
-    pub fn storage(&self) -> &B {
+    pub fn storage(&self) -> &B::Storage<T> {
         &self.data
     }
 
-    pub fn storage_mut(&mut self) -> &mut B {
+    pub fn storage_mut(&mut self) -> &mut B::Storage<T> {
         &mut self.data
     }
 
-    pub fn zeros(shape: impl Into<Shape>, device: &B::Device) -> Result<Self> {
+    pub fn zeros(shape: impl Into<Shape>, device: &B) -> Result<Self> {
         Self::full(T::zero(), shape, device)
     }
 
     pub fn to_vec(&self) -> Result<Vec<T>> {
         let len = self.elem_count();
-        let data_cow = self.data.data(len)?;
+        let data_cow = B::data(&self.data, len)?;
         Ok(data_cow.into_owned())
     }
 
-    pub fn full(value: T, shape: impl Into<Shape>, device: &B::Device) -> Result<Self> {
+    pub fn full(value: T, shape: impl Into<Shape>, device: &B) -> Result<Self> {
         let shape: Shape = shape.into();
         let size = shape.elem_count();
         let mut data = unsafe { B::alloc_uninit(size, device)? };
-        data.fill(value, size)?;
-        Ok(Tensor { data, shape, _marker: std::marker::PhantomData })
+        B::fill(&mut data, value, size)?;
+        Ok(Tensor { data, shape, device: device.clone(), _marker: std::marker::PhantomData })
     }
 
     /// Reshape the tensor to a new shape with the same number of elements.
@@ -76,7 +77,7 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
         let elem_count = shape.elem_count();
         let mut res = unsafe { Self::alloc_uninit(shape, self.device())? };
         // TODO(laurent): avoid copying data if possible.
-        res.data.copy(&self.data, elem_count)?;
+        B::copy(&mut res.data, &self.data, elem_count)?;
         Ok(res)
     }
 
@@ -87,10 +88,10 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
 
     /// # Safety
     /// The returned tensor's data is uninitialized.
-    pub unsafe fn alloc_uninit(shape: Shape, dev: &B::Device) -> Result<Self> {
+    pub unsafe fn alloc_uninit(shape: Shape, dev: &B) -> Result<Self> {
         let size = shape.elem_count();
         let data = unsafe { B::alloc_uninit(size, dev)? };
-        Ok(Tensor { data, shape, _marker: std::marker::PhantomData })
+        Ok(Tensor { data, shape, device: dev.clone(), _marker: std::marker::PhantomData })
     }
 
     pub fn index_select(&self, indices: &[u32], dim: impl Dim) -> Result<Self> {
@@ -112,11 +113,11 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
         // Allocate output
         let dev = self.device();
         let mut out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
-        out.data.index_select(&self.data, indices, dim, self.dims())?;
+        B::index_select(&mut out.data, &self.data, indices, dim, self.dims())?;
         Ok(out)
     }
 
-    pub fn from_vec<S: Into<Shape>>(data: Vec<T>, shape: S, dev: &B::Device) -> Result<Self> {
+    pub fn from_vec<S: Into<Shape>>(data: Vec<T>, shape: S, dev: &B) -> Result<Self> {
         let shape = shape.into();
         if data.len() != shape.elem_count() {
             crate::bail!(
@@ -127,7 +128,7 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
             );
         }
         let data = B::from_vec(data, dev)?;
-        Ok(Tensor { data, shape, _marker: std::marker::PhantomData })
+        Ok(Tensor { data, shape, device: dev.clone(), _marker: std::marker::PhantomData })
     }
 
     /// Concatenate tensors along a given dimension.
@@ -174,7 +175,8 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
         for tensor in tensors {
             let t_cat_size = tensor.dims()[dim];
             // Copy using copy2d: outer_size rows of (t_cat_size * inner_size) elements
-            out.data.copy2d(
+            B::copy2d(
+                &mut out.data,
                 &tensor.data,
                 outer_size,                // d1: number of outer blocks
                 t_cat_size * inner_size,   // d2: elements per block from this tensor

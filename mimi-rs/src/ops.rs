@@ -1,6 +1,6 @@
-use crate::{Backend, BackendF, Dim, Error, Result, Tensor, WithDType, WithDTypeF};
+use crate::{Backend, Dim, Error, Result, Tensor, WithDType, WithDTypeF};
 
-fn check_same_shape<T: WithDType, B: Backend<T>>(
+fn check_same_shape<T: WithDType, B: Backend>(
     a: &Tensor<T, B>,
     b: &Tensor<T, B>,
     op: &'static str,
@@ -16,7 +16,7 @@ fn check_same_shape<T: WithDType, B: Backend<T>>(
     Ok(())
 }
 
-impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
+impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub fn add(&self, other: &Self) -> Result<Self> {
         check_same_shape(self, other, "add")?;
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
@@ -60,7 +60,7 @@ impl<T: WithDType, B: Backend<T>> Tensor<T, B> {
     }
 }
 
-impl<T: WithDTypeF, B: BackendF<T>> Tensor<T, B> {
+impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     pub fn cos(&self) -> Result<Self> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.cos_(self)?;
