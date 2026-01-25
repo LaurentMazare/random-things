@@ -29,7 +29,9 @@ pub struct VarBuilder<'a, B: Backend> {
     device: B,
 }
 
-fn load_tensor_data(mmaps: &MmapedFiles) -> Result<std::collections::HashMap<String, TensorData<'_>>> {
+fn load_tensor_data(
+    mmaps: &MmapedFiles,
+) -> Result<std::collections::HashMap<String, TensorData<'_>>> {
     let mut tensor_data = std::collections::HashMap::new();
     for (_path, mmap) in mmaps.mmaps.iter() {
         let tensors = safetensors::SafeTensors::deserialize(mmap)?;
@@ -133,7 +135,11 @@ impl<B: Backend> VB<B> {
         &self.device
     }
 
-    pub fn tensor<T: WithDType>(&self, name: &str, shape: impl Into<Shape>) -> Result<Tensor<T, B>> {
+    pub fn tensor<T: WithDType>(
+        &self,
+        name: &str,
+        shape: impl Into<Shape>,
+    ) -> Result<Tensor<T, B>> {
         let td = self.yoke.get().tensor_data.get(name);
         make_tensor(td, name, shape, &self.device)
     }
