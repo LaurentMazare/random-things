@@ -5,6 +5,8 @@ pub enum DType {
     F16,
     BF16,
     F32,
+    I64,
+    U8,
 }
 
 pub trait WithDType:
@@ -12,7 +14,6 @@ pub trait WithDType:
 {
     const DTYPE: DType;
     const BYTE_SIZE: usize;
-    fn from_be_bytes(dst: &mut [Self], src: &[u8]);
     /// Convert a little-endian byte slice to a Vec of Self.
     /// This handles alignment safely by reading bytes individually.
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self>;
@@ -26,12 +27,6 @@ pub trait WithDTypeF: WithDType + num_traits::Float {
 impl WithDType for f16 {
     const DTYPE: DType = DType::F16;
     const BYTE_SIZE: usize = 2;
-
-    fn from_be_bytes(dst: &mut [Self], src: &[u8]) {
-        for (i, v) in dst.iter_mut().enumerate() {
-            *v = f16::from_bits(u16::from_be_bytes([src[2 * i + 1], src[2 * i]]))
-        }
-    }
 
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
@@ -63,12 +58,6 @@ impl WithDType for bf16 {
     const DTYPE: DType = DType::BF16;
     const BYTE_SIZE: usize = 2;
 
-    fn from_be_bytes(dst: &mut [Self], src: &[u8]) {
-        for (i, v) in dst.iter_mut().enumerate() {
-            *v = bf16::from_bits(u16::from_be_bytes([src[2 * i + 1], src[2 * i]]))
-        }
-    }
-
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
         let mut dst: Vec<Self> = Vec::with_capacity(len);
@@ -99,17 +88,6 @@ impl WithDType for f32 {
     const DTYPE: DType = DType::F32;
     const BYTE_SIZE: usize = 4;
 
-    fn from_be_bytes(dst: &mut [Self], src: &[u8]) {
-        for (i, v) in dst.iter_mut().enumerate() {
-            *v = f32::from_bits(u32::from_be_bytes([
-                src[4 * i + 3],
-                src[4 * i + 2],
-                src[4 * i + 1],
-                src[4 * i],
-            ]))
-        }
-    }
-
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
         let mut dst: Vec<Self> = Vec::with_capacity(len);
@@ -133,6 +111,35 @@ impl WithDTypeF for f32 {
 
     fn from_f32(v: f32) -> Self {
         v
+    }
+}
+
+impl WithDType for u8 {
+    const DTYPE: DType = DType::U8;
+    const BYTE_SIZE: usize = 1;
+
+    fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
+        src.to_vec()
+    }
+}
+
+impl WithDType for i64 {
+    const DTYPE: DType = DType::I64;
+    const BYTE_SIZE: usize = 8;
+
+    fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
+        let len = src.len() / Self::BYTE_SIZE;
+        let mut dst: Vec<Self> = Vec::with_capacity(len);
+        // SAFETY: We allocate `len` elements, initialize all bytes via copy, then set length.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                src.as_ptr(),
+                dst.spare_capacity_mut().as_mut_ptr().cast::<u8>(),
+                len * Self::BYTE_SIZE,
+            );
+            dst.set_len(len);
+        }
+        dst
     }
 }
 
@@ -169,6 +176,14 @@ pub fn convert_bytes_to_vec<T: WithDTypeF>(src: &[u8], src_dtype: DType) -> Vec<
             } else {
                 bf16_vec.into_iter().map(|v| T::from_f32(v.to_f32())).collect()
             }
+        }
+        DType::I64 => {
+            let i64_vec = i64::vec_from_le_bytes(src);
+            i64_vec.into_iter().map(|v| T::from_f32(v as f32)).collect()
+        }
+        DType::U8 => {
+            let u8_vec = u8::vec_from_le_bytes(src);
+            u8_vec.into_iter().map(|v| T::from_f32(v as f32)).collect()
         }
     }
 }
