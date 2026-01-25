@@ -106,8 +106,8 @@ fn main() -> Result<()> {
 
     // Also test decode on a simple code tensor
     println!("\nTesting decode...");
-    let test_codes: Vec<f32> = vec![0.0; args.codebooks * 2]; // 2 time frames
-    let test_codes: Tensor<f32, ()> = Tensor::from_vec(test_codes, (1, args.codebooks, 2), &dev)?;
+    let test_codes: Vec<i64> = vec![0; args.codebooks * 2]; // 2 time frames
+    let test_codes: Tensor<i64, ()> = Tensor::from_vec(test_codes, (1, args.codebooks, 2), &dev)?;
     let decoded = model.decode(&test_codes)?;
     println!("  Decoded shape: {:?}", decoded.dims());
 

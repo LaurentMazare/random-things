@@ -208,7 +208,7 @@ fn test_argmin_dim0() -> Result<()> {
     // col 3: argmin(4, 6, 2) = 2
     let b = a.argmin(0)?;
     assert_eq!(b.dims(), &[4]);
-    assert_eq!(b.to_vec()?, vec![0., 2., 2., 2.]);
+    assert_eq!(b.to_vec()?, vec![0i64, 2, 2, 2]);
     Ok(())
 }
 
@@ -223,7 +223,7 @@ fn test_argmin_dim1() -> Result<()> {
     // row 2: argmin(9, 0, 1, 2) = 1
     let b = a.argmin(1)?;
     assert_eq!(b.dims(), &[3]);
-    assert_eq!(b.to_vec()?, vec![0., 1., 1.]);
+    assert_eq!(b.to_vec()?, vec![0i64, 1, 1]);
     Ok(())
 }
 

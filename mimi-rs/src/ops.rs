@@ -81,6 +81,49 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         result.scale_(self, m)?;
         Ok(result)
     }
+
+    /// Flatten all dimensions into a single dimension.
+    pub fn flatten_all(&self) -> Result<Self> {
+        self.reshape(vec![self.elem_count()])
+    }
+
+    /// Flatten dimensions from start to end (inclusive) into a single dimension.
+    pub fn flatten<D: Dim>(&self, start_dim: D, end_dim: D) -> Result<Self> {
+        let start_dim = start_dim.to_index(self.shape(), "flatten start_dim")?;
+        let end_dim = end_dim.to_index(self.shape(), "flatten end_dim")?;
+        let dims = self.dims();
+        if start_dim > end_dim {
+            crate::bail!("flatten: start_dim {start_dim} > end_dim {end_dim}");
+        }
+        let flat_size: usize = dims[start_dim..=end_dim].iter().product();
+        let mut new_dims = Vec::with_capacity(dims.len() - (end_dim - start_dim));
+        new_dims.extend_from_slice(&dims[..start_dim]);
+        new_dims.push(flat_size);
+        new_dims.extend_from_slice(&dims[end_dim + 1..]);
+        self.reshape(new_dims)
+    }
+
+    /// Create a tensor of zeros with the same shape.
+    pub fn zeros_like(&self) -> Result<Self> {
+        Self::zeros(self.shape().clone(), self.device())
+    }
+
+    /// Transpose (swap last two dimensions).
+    pub fn t(&self) -> Result<Self> {
+        let rank = self.rank();
+        if rank < 2 {
+            crate::bail!("t requires at least 2 dimensions");
+        }
+        self.transpose(rank - 2, rank - 1)
+    }
+
+    /// Unsqueeze: add a dimension of size 1 at the given position.
+    pub fn unsqueeze<D: Dim>(&self, dim: D) -> Result<Self> {
+        let dim = dim.to_index_plus_one(self.shape(), "unsqueeze")?;
+        let mut new_dims = self.dims().to_vec();
+        new_dims.insert(dim, 1);
+        self.reshape(new_dims)
+    }
 }
 
 impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
@@ -444,17 +487,16 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Argmin along dimension.
-    /// Note: Returns indices encoded as the same type T for simplicity.
-    /// A proper implementation would return integer indices.
-    pub fn argmin<D: Dim>(&self, dim: D) -> Result<Self> {
+    /// Returns i64 indices.
+    pub fn argmin<D: Dim>(&self, dim: D) -> Result<Tensor<i64, B>> {
         let dim = dim.to_index(self.shape(), "argmin dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
         out_dims.remove(dim);
         if out_dims.is_empty() {
             out_dims.push(1);
         }
-        let mut result = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
-        result.reduce_argmin_(self, dim)?;
+        let mut result: Tensor<i64, B> = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
+        Self::reduce_argmin_(&mut result, self, dim)?;
         Ok(result)
     }
 
@@ -488,27 +530,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_sub_(self, other)?;
         Ok(result)
-    }
-
-    /// Flatten all dimensions into a single dimension.
-    pub fn flatten_all(&self) -> Result<Self> {
-        self.reshape(vec![self.elem_count()])
-    }
-
-    /// Flatten dimensions from start to end (inclusive) into a single dimension.
-    pub fn flatten<D: Dim>(&self, start_dim: D, end_dim: D) -> Result<Self> {
-        let start_dim = start_dim.to_index(self.shape(), "flatten start_dim")?;
-        let end_dim = end_dim.to_index(self.shape(), "flatten end_dim")?;
-        let dims = self.dims();
-        if start_dim > end_dim {
-            crate::bail!("flatten: start_dim {start_dim} > end_dim {end_dim}");
-        }
-        let flat_size: usize = dims[start_dim..=end_dim].iter().product();
-        let mut new_dims = Vec::with_capacity(dims.len() - (end_dim - start_dim));
-        new_dims.extend_from_slice(&dims[..start_dim]);
-        new_dims.push(flat_size);
-        new_dims.extend_from_slice(&dims[end_dim + 1..]);
-        self.reshape(new_dims)
     }
 
     /// GELU activation with erf.
@@ -566,28 +587,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// select from self, and zero values select from other.
     pub fn where_cond(&self, _condition: &Self, _other: &Self) -> Result<Self> {
         todo!("where_cond")
-    }
-
-    /// Create a tensor of zeros with the same shape.
-    pub fn zeros_like(&self) -> Result<Self> {
-        Self::zeros(self.shape().clone(), self.device())
-    }
-
-    /// Transpose (swap last two dimensions).
-    pub fn t(&self) -> Result<Self> {
-        let rank = self.rank();
-        if rank < 2 {
-            crate::bail!("t requires at least 2 dimensions");
-        }
-        self.transpose(rank - 2, rank - 1)
-    }
-
-    /// Unsqueeze: add a dimension of size 1 at the given position.
-    pub fn unsqueeze<D: Dim>(&self, dim: D) -> Result<Self> {
-        let dim = dim.to_index_plus_one(self.shape(), "unsqueeze")?;
-        let mut new_dims = self.dims().to_vec();
-        new_dims.insert(dim, 1);
-        self.reshape(new_dims)
     }
 
     /// Pad with zeros along a dimension.

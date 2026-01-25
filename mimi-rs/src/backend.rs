@@ -254,9 +254,9 @@ pub trait Backend: Sized + Clone + 'static {
     ) -> Result<()>;
 
     /// Reduce argmin along a dimension.
-    /// Returns indices encoded as the same type T for simplicity.
+    /// Returns i64 indices.
     fn reduce_argmin<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
+        dst: &mut Self::Storage<i64>,
         src: &Self::Storage<T>,
         dim_size: usize,
         outer_size: usize,

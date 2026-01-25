@@ -5,16 +5,16 @@
 // Mimi audio tokenizer model - compatible with the candle implementation.
 
 use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 
 // ============================================================================
 // Streaming primitives
 // ============================================================================
 
 /// A tensor that may be empty, used in streaming contexts.
-pub struct StreamTensor<T: WithDTypeF, B: Backend>(Option<Tensor<T, B>>);
+pub struct StreamTensor<T: WithDType, B: Backend>(Option<Tensor<T, B>>);
 
-impl<T: WithDTypeF, B: Backend> StreamTensor<T, B> {
+impl<T: WithDType, B: Backend> StreamTensor<T, B> {
     pub fn empty() -> Self {
         Self(None)
     }
@@ -36,13 +36,13 @@ impl<T: WithDTypeF, B: Backend> StreamTensor<T, B> {
     }
 }
 
-impl<T: WithDTypeF, B: Backend> Default for StreamTensor<T, B> {
+impl<T: WithDType, B: Backend> Default for StreamTensor<T, B> {
     fn default() -> Self {
         Self::empty()
     }
 }
 
-impl<T: WithDTypeF, B: Backend> From<()> for StreamTensor<T, B> {
+impl<T: WithDType, B: Backend> From<()> for StreamTensor<T, B> {
     fn from(_: ()) -> Self {
         Self::empty()
     }
@@ -1209,7 +1209,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         Ok(Self { embedding, c2, dim })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         // Save target shape (all dims except the last)
         let mut target_shape: Vec<usize> = xs.dims().to_vec();
         target_shape.pop();
@@ -1228,7 +1228,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         if target_shape.is_empty() { Ok(codes) } else { codes.reshape(target_shape) }
     }
 
-    pub fn decode(&self, indices: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, indices: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         // Save final dims: indices.dims() + [dim]
         let mut final_dims = indices.dims().to_vec();
         final_dims.push(self.dim);
@@ -1236,9 +1236,9 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         // Flatten indices
         let flat_indices = indices.flatten(0, indices.rank().saturating_sub(1))?;
 
-        // Convert float indices to u32 and index into embedding
+        // Convert i64 indices to u32 and index into embedding
         let indices_vec = flat_indices.to_vec()?;
-        let indices_u32: Vec<u32> = indices_vec.iter().map(|&x| x.to_f32() as u32).collect();
+        let indices_u32: Vec<u32> = indices_vec.iter().map(|&x| x as u32).collect();
         let values = self.embedding.index_select(&indices_u32, 0)?;
 
         // Reshape to final_dims
@@ -1273,8 +1273,8 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
         Ok(Self { project_in, project_out, codebook })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        let xs = xs.t()?; // [B, T, dim] -> [B, dim, T] -> transpose
+    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+        let xs = xs.t()?; // [B, C, T] -> [B, T, C]
         let xs = match &self.project_in {
             Some(proj) => xs.matmul_t(proj)?,
             None => xs,
@@ -1282,7 +1282,7 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
         self.codebook.encode(&xs)
     }
 
-    pub fn decode(&self, codes: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         let quantized = self.codebook.decode(codes)?;
         let quantized = match &self.project_out {
             Some(proj) => quantized.matmul_t(proj)?,
@@ -1315,7 +1315,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
         Ok(Self { layers })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let mut codes = Vec::with_capacity(self.layers.len());
         let mut residual = xs.copy()?;
         for layer in &self.layers {
@@ -1325,11 +1325,11 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
             codes.push(indices);
         }
         // Stack codes: [n_q, B, T]
-        let codes_refs: Vec<&Tensor<T, B>> = codes.iter().collect();
+        let codes_refs: Vec<&Tensor<i64, B>> = codes.iter().collect();
         Tensor::cat(&codes_refs, 0)
     }
 
-    pub fn decode(&self, codes: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         if self.layers.is_empty() {
             crate::bail!("empty layers in ResidualVectorQuantization");
         }
@@ -1381,7 +1381,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
         Ok(Self { vq, input_proj, output_proj })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         // xs: [B, C, T]
         let xs = match &self.input_proj {
             Some(proj) => {
@@ -1394,7 +1394,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
         codes.transpose(0, 1) // [n_q, B, T] -> [B, n_q, T]
     }
 
-    pub fn decode(&self, codes: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         let codes = codes.transpose(0, 1)?; // [B, n_q, T] -> [n_q, B, T]
         let quantized = self.vq.decode(&codes)?;
         match &self.output_proj {
@@ -1444,7 +1444,7 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
         Ok(Self { rvq_first, rvq_rest, n_q })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let codes = self.rvq_first.encode(xs)?;
         if self.n_q > 1 {
             // Encode again (not residual - semantic + acoustic split)
@@ -1455,7 +1455,7 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
         }
     }
 
-    pub fn decode(&self, codes: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         let first_codes = codes.narrow(1, 0, 1)?;
         let quantized = self.rvq_first.decode(&first_codes)?;
         if self.n_q > 1 {
@@ -1621,7 +1621,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     }
 
     /// Encode audio to codes (non-streaming).
-    pub fn encode(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn encode(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let xs = self.encoder.forward(xs)?;
         let xs = self.encoder_transformer.forward(&xs)?;
         let xs = &xs[0];
@@ -1630,7 +1630,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     }
 
     /// Decode codes to audio (non-streaming).
-    pub fn decode(&mut self, codes: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&mut self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         let emb = self.quantizer.decode(codes)?;
         let emb = self.upsample.forward(&emb)?;
         let outs = self.decoder_transformer.forward(&emb)?;
@@ -1642,7 +1642,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
         &mut self,
         xs: &StreamTensor<T, B>,
         mask: &StreamMask,
-    ) -> Result<StreamTensor<T, B>> {
+    ) -> Result<StreamTensor<i64, B>> {
         let xs = self.encoder.step(xs, mask)?;
         let xs = self.encoder_transformer.step(&xs, mask)?;
         let xs = self.downsample.step(&xs, mask)?;
@@ -1655,10 +1655,10 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     /// Decode codes step (streaming).
     pub fn decode_step(
         &mut self,
-        codes: &StreamTensor<T, B>,
+        codes: &StreamTensor<i64, B>,
         mask: &StreamMask,
     ) -> Result<StreamTensor<T, B>> {
-        let emb = match codes.as_option() {
+        let emb: StreamTensor<T, B> = match codes.as_option() {
             Some(codes) => StreamTensor::from_tensor(self.quantizer.decode(codes)?),
             None => StreamTensor::empty(),
         };

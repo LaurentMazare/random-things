@@ -522,7 +522,7 @@ impl crate::Backend for () {
     }
 
     fn reduce_argmin<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
+        dst: &mut Self::Storage<i64>,
         src: &Self::Storage<T>,
         dim_size: usize,
         outer_size: usize,
@@ -540,7 +540,7 @@ impl crate::Backend for () {
                     }
                 }
                 let dst_idx = outer * inner_size + inner;
-                dst[dst_idx] = T::from_f32(min_idx as f32);
+                dst[dst_idx] = min_idx as i64;
             }
         }
         Ok(())

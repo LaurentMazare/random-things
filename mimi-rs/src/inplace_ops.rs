@@ -326,12 +326,16 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn reduce_argmin_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_argmin_<U: crate::WithDTypeF>(
+        dst: &mut Tensor<i64, B>,
+        src: &Tensor<U, B>,
+        dim: usize,
+    ) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_argmin(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        B::reduce_argmin(&mut dst.data, &src.data, dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
