@@ -589,6 +589,113 @@ impl crate::Backend for () {
     ) -> Result<()> {
         broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a / b)
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn conv1d<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        kernel: &Self::Storage<T>,
+        batch: usize,
+        in_channels: usize,
+        out_channels: usize,
+        length: usize,
+        out_length: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Result<()> {
+        let in_c_per_group = in_channels / groups;
+        let out_c_per_group = out_channels / groups;
+
+        // Initialize output to zero
+        dst.iter_mut().for_each(|v| *v = T::zero());
+
+        for b in 0..batch {
+            for g in 0..groups {
+                for oc in 0..out_c_per_group {
+                    let out_c = g * out_c_per_group + oc;
+                    for ol in 0..out_length {
+                        let mut sum = T::zero();
+                        for ic in 0..in_c_per_group {
+                            let in_c = g * in_c_per_group + ic;
+                            for k in 0..kernel_size {
+                                // Position in input (with dilation)
+                                let in_pos = ol * stride + k * dilation;
+                                // Account for padding
+                                if in_pos >= padding && in_pos < length + padding {
+                                    let in_idx = in_pos - padding;
+                                    let src_idx = b * in_channels * length + in_c * length + in_idx;
+                                    let kernel_idx =
+                                        out_c * in_c_per_group * kernel_size + ic * kernel_size + k;
+                                    sum = sum + src[src_idx] * kernel[kernel_idx];
+                                }
+                            }
+                        }
+                        let dst_idx = b * out_channels * out_length + out_c * out_length + ol;
+                        dst[dst_idx] = sum;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn conv_transpose1d<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        kernel: &Self::Storage<T>,
+        batch: usize,
+        in_channels: usize,
+        out_channels: usize,
+        length: usize,
+        out_length: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+        _output_padding: usize,
+        groups: usize,
+    ) -> Result<()> {
+        let in_c_per_group = in_channels / groups;
+        let out_c_per_group = out_channels / groups;
+
+        // Initialize output to zero
+        dst.iter_mut().for_each(|v| *v = T::zero());
+
+        // Transposed convolution: scatter values from input to output
+        // For each input position, we add weighted contributions to output positions
+        for b in 0..batch {
+            for g in 0..groups {
+                for ic in 0..in_c_per_group {
+                    let in_c = g * in_c_per_group + ic;
+                    for il in 0..length {
+                        let src_val = src[b * in_channels * length + in_c * length + il];
+                        for oc in 0..out_c_per_group {
+                            let out_c = g * out_c_per_group + oc;
+                            for k in 0..kernel_size {
+                                // Output position (before accounting for padding)
+                                let out_pos_raw = il * stride + k;
+                                // Account for padding
+                                if out_pos_raw >= padding && out_pos_raw < out_length + padding {
+                                    let out_pos = out_pos_raw - padding;
+                                    // Kernel index: (in_channels, out_channels/groups, kernel_size)
+                                    let kernel_idx =
+                                        in_c * out_c_per_group * kernel_size + oc * kernel_size + k;
+                                    let dst_idx = b * out_channels * out_length
+                                        + out_c * out_length
+                                        + out_pos;
+                                    dst[dst_idx] = dst[dst_idx] + src_val * kernel[kernel_idx];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Helper function for broadcast binary operations.

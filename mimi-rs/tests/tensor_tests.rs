@@ -407,3 +407,143 @@ fn test_pad_with_zeros_3d() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn test_conv1d_simple() -> Result<()> {
+    // Input: (batch=1, in_channels=1, length=5)
+    // Kernel: (out_channels=1, in_channels=1, kernel_size=3)
+    // No padding, stride=1, groups=1
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (1, 1, 5), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 0., -1.], (1, 1, 3), &())?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // output[i] = input[i]*1 + input[i+1]*0 + input[i+2]*(-1)
+    // output[0] = 1 - 3 = -2
+    // output[1] = 2 - 4 = -2
+    // output[2] = 3 - 5 = -2
+    assert_eq!(output.to_vec()?, vec![-2., -2., -2.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_with_padding() -> Result<()> {
+    // Input: (batch=1, in_channels=1, length=4)
+    // Kernel: (out_channels=1, in_channels=1, kernel_size=3)
+    // Padding=1, stride=1
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (1, 1, 4), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), &())?;
+
+    let output = input.conv1d(&kernel, None, 1, 1, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 4]);
+    // With padding=1, we have [0, 1, 2, 3, 4, 0] as effective input
+    // output[0] = 0 + 1 + 2 = 3
+    // output[1] = 1 + 2 + 3 = 6
+    // output[2] = 2 + 3 + 4 = 9
+    // output[3] = 3 + 4 + 0 = 7
+    assert_eq!(output.to_vec()?, vec![3., 6., 9., 7.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_with_stride() -> Result<()> {
+    // Input: (batch=1, in_channels=1, length=6)
+    // Kernel: (out_channels=1, in_channels=1, kernel_size=2)
+    // Stride=2
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (1, 1, 6), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), &())?;
+
+    let output = input.conv1d(&kernel, None, 2, 0, 1, 1)?;
+    // out_length = (6 - 2) / 2 + 1 = 3
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // output[0] = 1 + 2 = 3
+    // output[1] = 3 + 4 = 7
+    // output[2] = 5 + 6 = 11
+    assert_eq!(output.to_vec()?, vec![3., 7., 11.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_with_bias() -> Result<()> {
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (1, 1, 5), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), &())?;
+    let bias: CpuTensor<f32> = Tensor::from_vec(vec![10.], (1,), &())?;
+
+    let output = input.conv1d(&kernel, Some(&bias), 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // Without bias: [6, 9, 12], with bias: [16, 19, 22]
+    assert_eq!(output.to_vec()?, vec![16., 19., 22.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_multi_channel() -> Result<()> {
+    // Input: (batch=1, in_channels=2, length=3)
+    // Kernel: (out_channels=2, in_channels=2, kernel_size=2)
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (1, 2, 3), &())?;
+    // kernel[0] for out_channel 0: [[1,1], [0,0]] - only uses in_channel 0
+    // kernel[1] for out_channel 1: [[0,0], [1,1]] - only uses in_channel 1
+    let kernel: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 1., 0., 0., 0., 0., 1., 1.], (2, 2, 2), &())?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 2, 2]);
+    // out[0,0] = 1+2 = 3, out[0,1] = 2+3 = 5
+    // out[1,0] = 4+5 = 9, out[1,1] = 5+6 = 11
+    assert_eq!(output.to_vec()?, vec![3., 5., 9., 11.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_simple() -> Result<()> {
+    // Input: (batch=1, in_channels=1, length=3)
+    // Kernel: (in_channels=1, out_channels=1, kernel_size=3)
+    // stride=1, no padding
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (1, 1, 3), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), &())?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    // out_length = (3-1)*1 + 3 + 0 - 0 = 5
+    assert_eq!(output.dims(), &[1, 1, 5]);
+    // Each input value contributes to 3 consecutive output positions
+    // output[0] = 1*1 = 1
+    // output[1] = 1*1 + 2*1 = 3
+    // output[2] = 1*1 + 2*1 + 3*1 = 6
+    // output[3] = 2*1 + 3*1 = 5
+    // output[4] = 3*1 = 3
+    assert_eq!(output.to_vec()?, vec![1., 3., 6., 5., 3.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_with_stride() -> Result<()> {
+    // Input: (batch=1, in_channels=1, length=3)
+    // Kernel: (in_channels=1, out_channels=1, kernel_size=2)
+    // stride=2
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (1, 1, 3), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), &())?;
+
+    let output = input.conv_transpose1d(&kernel, None, 2, 0, 0, 1)?;
+    // out_length = (3-1)*2 + 2 + 0 - 0 = 6
+    assert_eq!(output.dims(), &[1, 1, 6]);
+    // Input at position i contributes to output positions i*stride + k
+    // input[0]=1 -> output[0], output[1]
+    // input[1]=2 -> output[2], output[3]
+    // input[2]=3 -> output[4], output[5]
+    assert_eq!(output.to_vec()?, vec![1., 1., 2., 2., 3., 3.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_with_bias() -> Result<()> {
+    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2.], (1, 1, 2), &())?;
+    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), &())?;
+    let bias: CpuTensor<f32> = Tensor::from_vec(vec![5.], (1,), &())?;
+
+    let output = input.conv_transpose1d(&kernel, Some(&bias), 1, 0, 0, 1)?;
+    // out_length = (2-1)*1 + 2 = 3
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // Without bias: [1, 3, 2], with bias: [6, 8, 7]
+    assert_eq!(output.to_vec()?, vec![6., 8., 7.]);
+    Ok(())
+}

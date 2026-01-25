@@ -394,6 +394,127 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         )?;
         Ok(())
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv1d_(
+        &mut self,
+        src: &Self,
+        kernel: &Self,
+        stride: usize,
+        padding: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Result<()> {
+        let src_dims = src.dims();
+        let kernel_dims = kernel.dims();
+        if src_dims.len() != 3 {
+            crate::bail!(
+                "conv1d input must be 3D (batch, in_channels, length), got {:?}",
+                src.shape()
+            );
+        }
+        if kernel_dims.len() != 3 {
+            crate::bail!(
+                "conv1d kernel must be 3D (out_channels, in_channels/groups, kernel_size), got {:?}",
+                kernel.shape()
+            );
+        }
+
+        let batch = src_dims[0];
+        let in_channels = src_dims[1];
+        let length = src_dims[2];
+        let out_channels = kernel_dims[0];
+        let kernel_size = kernel_dims[2];
+
+        // Compute output length
+        let out_length = (length + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1;
+
+        let dst_dims = self.dims();
+        if dst_dims != [batch, out_channels, out_length] {
+            crate::bail!(
+                "conv1d output shape mismatch: expected {:?}, got {:?}",
+                [batch, out_channels, out_length],
+                dst_dims
+            );
+        }
+
+        B::conv1d(
+            &mut self.data,
+            &src.data,
+            &kernel.data,
+            batch,
+            in_channels,
+            out_channels,
+            length,
+            out_length,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            groups,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_transpose1d_(
+        &mut self,
+        src: &Self,
+        kernel: &Self,
+        stride: usize,
+        padding: usize,
+        output_padding: usize,
+        groups: usize,
+    ) -> Result<()> {
+        let src_dims = src.dims();
+        let kernel_dims = kernel.dims();
+        if src_dims.len() != 3 {
+            crate::bail!(
+                "conv_transpose1d input must be 3D (batch, in_channels, length), got {:?}",
+                src.shape()
+            );
+        }
+        if kernel_dims.len() != 3 {
+            crate::bail!(
+                "conv_transpose1d kernel must be 3D (in_channels, out_channels/groups, kernel_size), got {:?}",
+                kernel.shape()
+            );
+        }
+
+        let batch = src_dims[0];
+        let in_channels = src_dims[1];
+        let length = src_dims[2];
+        let out_channels = kernel_dims[1] * groups;
+        let kernel_size = kernel_dims[2];
+
+        // Compute output length for transposed convolution
+        // out_length = (length - 1) * stride - 2 * padding + kernel_size + output_padding
+        let out_length = (length - 1) * stride + kernel_size + output_padding - 2 * padding;
+
+        let dst_dims = self.dims();
+        if dst_dims != [batch, out_channels, out_length] {
+            crate::bail!(
+                "conv_transpose1d output shape mismatch: expected {:?}, got {:?}",
+                [batch, out_channels, out_length],
+                dst_dims
+            );
+        }
+
+        B::conv_transpose1d(
+            &mut self.data,
+            &src.data,
+            &kernel.data,
+            batch,
+            in_channels,
+            out_channels,
+            length,
+            out_length,
+            kernel_size,
+            stride,
+            padding,
+            output_padding,
+            groups,
+        )
+    }
 }
 
 /// Compute broadcast strides for lhs and rhs given the output shape.

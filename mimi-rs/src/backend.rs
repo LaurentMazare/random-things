@@ -303,4 +303,46 @@ pub trait Backend: Sized + Clone + 'static {
         lhs_strides: &[usize],
         rhs_strides: &[usize],
     ) -> Result<()>;
+
+    /// 1D convolution.
+    /// src: (batch, in_channels, length)
+    /// kernel: (out_channels, in_channels/groups, kernel_size)
+    /// dst: (batch, out_channels, out_length)
+    #[allow(clippy::too_many_arguments)]
+    fn conv1d<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        kernel: &Self::Storage<T>,
+        batch: usize,
+        in_channels: usize,
+        out_channels: usize,
+        length: usize,
+        out_length: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Result<()>;
+
+    /// 1D transposed convolution.
+    /// src: (batch, in_channels, length)
+    /// kernel: (in_channels, out_channels/groups, kernel_size)
+    /// dst: (batch, out_channels, out_length)
+    #[allow(clippy::too_many_arguments)]
+    fn conv_transpose1d<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        kernel: &Self::Storage<T>,
+        batch: usize,
+        in_channels: usize,
+        out_channels: usize,
+        length: usize,
+        out_length: usize,
+        kernel_size: usize,
+        stride: usize,
+        padding: usize,
+        output_padding: usize,
+        groups: usize,
+    ) -> Result<()>;
 }

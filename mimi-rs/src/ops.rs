@@ -206,29 +206,154 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     // ========================================================================
 
     /// 1D convolution.
+    /// Input: (batch, in_channels, length)
+    /// Kernel: (out_channels, in_channels/groups, kernel_size)
+    /// Output: (batch, out_channels, out_length)
     pub fn conv1d(
         &self,
-        _kernel: &Self,
-        _bias: Option<&Self>,
-        _stride: usize,
-        _padding: usize,
-        _dilation: usize,
-        _groups: usize,
+        kernel: &Self,
+        bias: Option<&Self>,
+        stride: usize,
+        padding: usize,
+        dilation: usize,
+        groups: usize,
     ) -> Result<Self> {
-        todo!("conv1d")
+        let src_dims = self.dims();
+        let kernel_dims = kernel.dims();
+
+        if src_dims.len() != 3 {
+            crate::bail!(
+                "conv1d input must be 3D (batch, in_channels, length), got {:?}",
+                self.shape()
+            );
+        }
+        if kernel_dims.len() != 3 {
+            crate::bail!(
+                "conv1d kernel must be 3D (out_channels, in_channels/groups, kernel_size), got {:?}",
+                kernel.shape()
+            );
+        }
+
+        let batch = src_dims[0];
+        let in_channels = src_dims[1];
+        let length = src_dims[2];
+        let out_channels = kernel_dims[0];
+        let kernel_size = kernel_dims[2];
+
+        if in_channels % groups != 0 {
+            crate::bail!("in_channels ({}) must be divisible by groups ({})", in_channels, groups);
+        }
+        if out_channels % groups != 0 {
+            crate::bail!(
+                "out_channels ({}) must be divisible by groups ({})",
+                out_channels,
+                groups
+            );
+        }
+        if kernel_dims[1] != in_channels / groups {
+            crate::bail!(
+                "kernel in_channels/groups mismatch: expected {}, got {}",
+                in_channels / groups,
+                kernel_dims[1]
+            );
+        }
+
+        // Compute output length
+        let out_length = (length + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1;
+
+        let mut result = unsafe {
+            Tensor::alloc_uninit((batch, out_channels, out_length).into(), self.device())
+        }?;
+        result.conv1d_(self, kernel, stride, padding, dilation, groups)?;
+
+        // Add bias if provided
+        if let Some(bias) = bias {
+            let bias_dims = bias.dims();
+            if bias_dims != [out_channels] {
+                crate::bail!(
+                    "bias shape mismatch: expected [{out_channels}], got {:?}",
+                    bias.shape()
+                );
+            }
+            // Reshape bias to (1, out_channels, 1) for broadcasting
+            let bias = bias.reshape((1, out_channels, 1))?;
+            result = result.broadcast_add(&bias)?;
+        }
+
+        Ok(result)
     }
 
     /// 1D transposed convolution.
+    /// Input: (batch, in_channels, length)
+    /// Kernel: (in_channels, out_channels/groups, kernel_size)
+    /// Output: (batch, out_channels, out_length)
     pub fn conv_transpose1d(
         &self,
-        _kernel: &Self,
-        _bias: Option<&Self>,
-        _stride: usize,
-        _padding: usize,
-        _output_padding: usize,
-        _groups: usize,
+        kernel: &Self,
+        bias: Option<&Self>,
+        stride: usize,
+        padding: usize,
+        output_padding: usize,
+        groups: usize,
     ) -> Result<Self> {
-        todo!("conv_transpose1d")
+        let src_dims = self.dims();
+        let kernel_dims = kernel.dims();
+
+        if src_dims.len() != 3 {
+            crate::bail!(
+                "conv_transpose1d input must be 3D (batch, in_channels, length), got {:?}",
+                self.shape()
+            );
+        }
+        if kernel_dims.len() != 3 {
+            crate::bail!(
+                "conv_transpose1d kernel must be 3D (in_channels, out_channels/groups, kernel_size), got {:?}",
+                kernel.shape()
+            );
+        }
+
+        let batch = src_dims[0];
+        let in_channels = src_dims[1];
+        let length = src_dims[2];
+        let out_channels_per_group = kernel_dims[1];
+        let out_channels = out_channels_per_group * groups;
+        let kernel_size = kernel_dims[2];
+
+        if in_channels % groups != 0 {
+            crate::bail!("in_channels ({}) must be divisible by groups ({})", in_channels, groups);
+        }
+        if kernel_dims[0] != in_channels {
+            crate::bail!(
+                "kernel in_channels mismatch: expected {}, got {}",
+                in_channels,
+                kernel_dims[0]
+            );
+        }
+
+        // Compute output length for transposed convolution
+        // out_length = (length - 1) * stride - 2 * padding + kernel_size + output_padding
+        let out_length = (length - 1) * stride + kernel_size + output_padding - 2 * padding;
+
+        let mut result = unsafe {
+            Tensor::alloc_uninit((batch, out_channels, out_length).into(), self.device())
+        }?;
+        result.conv_transpose1d_(self, kernel, stride, padding, output_padding, groups)?;
+
+        // Add bias if provided
+        if let Some(bias) = bias {
+            let bias_dims = bias.dims();
+            if bias_dims != [out_channels] {
+                crate::bail!(
+                    "bias shape mismatch: expected [{out_channels}], got {:?}",
+                    bias.shape()
+                );
+            }
+            // Reshape bias to (1, out_channels, 1) for broadcasting
+            let bias = bias.reshape((1, out_channels, 1))?;
+            result = result.broadcast_add(&bias)?;
+        }
+
+        Ok(result)
     }
 
     // ========================================================================
