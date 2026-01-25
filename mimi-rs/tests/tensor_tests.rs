@@ -358,3 +358,52 @@ fn test_unsqueeze_1d() -> Result<()> {
     assert_eq!(c.dims(), &[4, 1]);
     Ok(())
 }
+
+#[test]
+fn test_pad_with_zeros_1d() -> Result<()> {
+    // [4] -> pad_with_zeros(0, 2, 3) -> [9]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), &())?;
+    let b = a.pad_with_zeros(0, 2, 3)?;
+    assert_eq!(b.dims(), &[9]);
+    assert_eq!(b.to_vec()?, vec![0., 0., 1., 2., 3., 4., 0., 0., 0.]);
+    Ok(())
+}
+
+#[test]
+fn test_pad_with_zeros_2d_dim0() -> Result<()> {
+    // [2, 3] -> pad_with_zeros(0, 1, 1) -> [4, 3]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &())?;
+    let b = a.pad_with_zeros(0, 1, 1)?;
+    assert_eq!(b.dims(), &[4, 3]);
+    // Row 0: zeros, Row 1: [1,2,3], Row 2: [4,5,6], Row 3: zeros
+    assert_eq!(b.to_vec()?, vec![0., 0., 0., 1., 2., 3., 4., 5., 6., 0., 0., 0.]);
+    Ok(())
+}
+
+#[test]
+fn test_pad_with_zeros_2d_dim1() -> Result<()> {
+    // [2, 3] -> pad_with_zeros(1, 1, 2) -> [2, 6]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &())?;
+    let b = a.pad_with_zeros(1, 1, 2)?;
+    assert_eq!(b.dims(), &[2, 6]);
+    // Row 0: [0, 1, 2, 3, 0, 0]
+    // Row 1: [0, 4, 5, 6, 0, 0]
+    assert_eq!(b.to_vec()?, vec![0., 1., 2., 3., 0., 0., 0., 4., 5., 6., 0., 0.]);
+    Ok(())
+}
+
+#[test]
+fn test_pad_with_zeros_3d() -> Result<()> {
+    // [2, 2, 3] -> pad_with_zeros(1, 1, 0) -> [2, 3, 3]
+    let data: Vec<f32> = (1..=12).map(|x| x as f32).collect();
+    let a: CpuTensor<f32> = Tensor::from_vec(data, (2, 2, 3), &())?;
+    let b = a.pad_with_zeros(1, 1, 0)?;
+    assert_eq!(b.dims(), &[2, 3, 3]);
+    // First batch: [[0,0,0], [1,2,3], [4,5,6]]
+    // Second batch: [[0,0,0], [7,8,9], [10,11,12]]
+    assert_eq!(
+        b.to_vec()?,
+        vec![0., 0., 0., 1., 2., 3., 4., 5., 6., 0., 0., 0., 7., 8., 9., 10., 11., 12.]
+    );
+    Ok(())
+}

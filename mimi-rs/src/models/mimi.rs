@@ -444,7 +444,7 @@ pub struct ConvDownsample1d<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> ConvDownsample1d<T, B> {
     pub fn load(vb: &Path<B>, stride: usize, dim: usize, causal: bool) -> Result<Self> {
         let kernel_size = 2 * stride;
-        let conv_vb = vb.pp("conv").pp("conv");
+        let conv_vb = vb.pp("conv").pp("conv").pp("conv");
         let inner = Conv1d::load(&conv_vb, dim, dim, kernel_size, stride, 0, 1, 1, false)?;
         let conv = StreamableConv1d::new(inner, causal, PadMode::Replicate, kernel_size, stride, 1);
         Ok(Self { conv })
@@ -473,7 +473,7 @@ pub struct ConvTrUpsample1d<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> ConvTrUpsample1d<T, B> {
     pub fn load(vb: &Path<B>, stride: usize, dim: usize, causal: bool) -> Result<Self> {
         let kernel_size = 2 * stride;
-        let convtr_vb = vb.pp("convtr").pp("convtr");
+        let convtr_vb = vb.pp("convtr").pp("convtr").pp("convtr");
         let inner = ConvTranspose1d::load(
             &convtr_vb,
             dim,

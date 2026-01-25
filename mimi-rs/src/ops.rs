@@ -435,8 +435,40 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Pad with zeros along a dimension.
-    pub fn pad_with_zeros(&self, _dim: impl Dim, _left: usize, _right: usize) -> Result<Self> {
-        todo!("pad_with_zeros")
+    pub fn pad_with_zeros<D: Dim>(&self, dim: D, left: usize, right: usize) -> Result<Self> {
+        let dim = dim.to_index(self.shape(), "pad_with_zeros")?;
+        let dims = self.dims();
+        let dim_size = dims[dim];
+
+        // Compute new shape
+        let mut new_dims = dims.to_vec();
+        new_dims[dim] = dim_size + left + right;
+        let new_shape = crate::Shape::from(new_dims);
+
+        // Create output tensor filled with zeros
+        let mut result = Self::zeros(new_shape, self.device())?;
+
+        if dim_size == 0 || self.elem_count() == 0 {
+            return Ok(result);
+        }
+
+        // Copy original data to the padded position
+        let outer_size: usize = dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
+        let new_dim_size = dim_size + left + right;
+
+        B::copy2d(
+            &mut result.data,
+            &self.data,
+            outer_size,                // d1: number of outer blocks
+            dim_size * inner_size,     // d2: elements per block
+            new_dim_size * inner_size, // dst_s: stride in output
+            dim_size * inner_size,     // src_s: stride in source
+            left * inner_size,         // dst_o: offset to skip left padding
+            0,                         // src_o: start from beginning of source
+        )?;
+
+        Ok(result)
     }
 
     /// Pad by replicating boundary values.
