@@ -427,8 +427,11 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Unsqueeze: add a dimension of size 1 at the given position.
-    pub fn unsqueeze(&self, _dim: impl Dim) -> Result<Self> {
-        todo!("unsqueeze")
+    pub fn unsqueeze<D: Dim>(&self, dim: D) -> Result<Self> {
+        let dim = dim.to_index_plus_one(self.shape(), "unsqueeze")?;
+        let mut new_dims = self.dims().to_vec();
+        new_dims.insert(dim, 1);
+        self.reshape(new_dims)
     }
 
     /// Pad with zeros along a dimension.

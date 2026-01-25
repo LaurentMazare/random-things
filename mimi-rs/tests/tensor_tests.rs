@@ -315,3 +315,46 @@ fn test_broadcast_3d() -> Result<()> {
     assert_eq!(c_vec[4], 105.);
     Ok(())
 }
+
+#[test]
+fn test_unsqueeze_dim0() -> Result<()> {
+    // [3, 4] -> unsqueeze(0) -> [1, 3, 4]
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), &())?;
+    let b = a.unsqueeze(0)?;
+    assert_eq!(b.dims(), &[1, 3, 4]);
+    assert_eq!(b.to_vec()?, a.to_vec()?);
+    Ok(())
+}
+
+#[test]
+fn test_unsqueeze_dim1() -> Result<()> {
+    // [3, 4] -> unsqueeze(1) -> [3, 1, 4]
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), &())?;
+    let b = a.unsqueeze(1)?;
+    assert_eq!(b.dims(), &[3, 1, 4]);
+    assert_eq!(b.to_vec()?, a.to_vec()?);
+    Ok(())
+}
+
+#[test]
+fn test_unsqueeze_dim_last() -> Result<()> {
+    // [3, 4] -> unsqueeze(2) -> [3, 4, 1]
+    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), &())?;
+    let b = a.unsqueeze(2)?;
+    assert_eq!(b.dims(), &[3, 4, 1]);
+    assert_eq!(b.to_vec()?, a.to_vec()?);
+    Ok(())
+}
+
+#[test]
+fn test_unsqueeze_1d() -> Result<()> {
+    // [4] -> unsqueeze(0) -> [1, 4]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), &())?;
+    let b = a.unsqueeze(0)?;
+    assert_eq!(b.dims(), &[1, 4]);
+
+    // [4] -> unsqueeze(1) -> [4, 1]
+    let c = a.unsqueeze(1)?;
+    assert_eq!(c.dims(), &[4, 1]);
+    Ok(())
+}
