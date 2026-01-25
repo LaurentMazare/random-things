@@ -275,14 +275,25 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         todo!("broadcast_sub")
     }
 
-    /// Flatten all dimensions.
+    /// Flatten all dimensions into a single dimension.
     pub fn flatten_all(&self) -> Result<Self> {
-        todo!("flatten_all")
+        self.reshape(vec![self.elem_count()])
     }
 
-    /// Flatten dimensions from start to end (inclusive).
-    pub fn flatten(&self, _start_dim: usize, _end_dim: usize) -> Result<Self> {
-        todo!("flatten")
+    /// Flatten dimensions from start to end (inclusive) into a single dimension.
+    pub fn flatten<D: Dim>(&self, start_dim: D, end_dim: D) -> Result<Self> {
+        let start_dim = start_dim.to_index(self.shape(), "flatten start_dim")?;
+        let end_dim = end_dim.to_index(self.shape(), "flatten end_dim")?;
+        let dims = self.dims();
+        if start_dim > end_dim {
+            crate::bail!("flatten: start_dim {start_dim} > end_dim {end_dim}");
+        }
+        let flat_size: usize = dims[start_dim..=end_dim].iter().product();
+        let mut new_dims = Vec::with_capacity(dims.len() - (end_dim - start_dim));
+        new_dims.extend_from_slice(&dims[..start_dim]);
+        new_dims.push(flat_size);
+        new_dims.extend_from_slice(&dims[end_dim + 1..]);
+        self.reshape(new_dims)
     }
 
     /// GELU activation with erf.
