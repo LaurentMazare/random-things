@@ -721,7 +721,7 @@ impl crate::Backend for () {
 
 /// Helper function for broadcast binary operations.
 fn broadcast_binary_op<T: WithDTypeF>(
-    dst: &mut Vec<T>,
+    dst: &mut [T],
     lhs: &[T],
     rhs: &[T],
     dst_shape: &[usize],
@@ -732,7 +732,7 @@ fn broadcast_binary_op<T: WithDTypeF>(
     let total_elems: usize = dst_shape.iter().product();
     let rank = dst_shape.len();
 
-    for dst_idx in 0..total_elems {
+    for (dst_idx, dst) in dst.iter_mut().enumerate().take(total_elems) {
         // Convert linear index to multi-dimensional indices
         let mut remaining = dst_idx;
         let mut lhs_idx = 0usize;
@@ -747,7 +747,7 @@ fn broadcast_binary_op<T: WithDTypeF>(
             rhs_idx += coord * rhs_strides[d];
         }
 
-        dst[dst_idx] = op(lhs[lhs_idx], rhs[rhs_idx]);
+        *dst = op(lhs[lhs_idx], rhs[rhs_idx]);
     }
 
     Ok(())

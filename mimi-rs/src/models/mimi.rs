@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 // Copyright (c) Kyutai, all rights reserved.
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
@@ -1225,7 +1226,11 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
 
         // Argmin to get indices, then reshape to target_shape
         let codes = dists.argmin(1)?; // [N]
-        if target_shape.is_empty() { Ok(codes) } else { codes.reshape(target_shape) }
+        if target_shape.is_empty() {
+            Ok(codes)
+        } else {
+            codes.reshape(target_shape)
+        }
     }
 
     pub fn decode(&self, indices: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
