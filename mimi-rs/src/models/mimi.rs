@@ -1468,11 +1468,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
     }
 
     fn current_seq_len(&self) -> usize {
-        if self.layers.is_empty() {
-            0
-        } else {
-            self.layers[0].self_attn.kv_cache.current_seq_len()
-        }
+        if self.layers.is_empty() { 0 } else { self.layers[0].self_attn.kv_cache.current_seq_len() }
     }
 
     fn reset_state(&mut self) {

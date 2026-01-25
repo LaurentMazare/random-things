@@ -428,10 +428,14 @@ impl crate::Backend for () {
             let mean = sum / dim_m1 as f32;
 
             // Compute variance
-            let var: f32 = src.iter().map(|&v| {
-                let diff = v.to_f32() - mean;
-                diff * diff
-            }).sum::<f32>() / dim_m1 as f32;
+            let var: f32 = src
+                .iter()
+                .map(|&v| {
+                    let diff = v.to_f32() - mean;
+                    diff * diff
+                })
+                .sum::<f32>()
+                / dim_m1 as f32;
 
             let inv_std = 1.0 / (var + eps).sqrt();
 

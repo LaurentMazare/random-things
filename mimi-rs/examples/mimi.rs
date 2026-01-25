@@ -86,7 +86,7 @@ fn main() -> Result<()> {
 
     // Process audio in chunks of 1920 samples
     let chunk_size = 1920;
-    let num_chunks = (pcm_data.len() + chunk_size - 1) / chunk_size;
+    let num_chunks = pcm_data.len().div_ceil(chunk_size);
 
     println!(
         "\nEncoding {} samples ({} chunks of {} samples each)...",
