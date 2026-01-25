@@ -628,37 +628,68 @@ impl crate::Backend for () {
         groups: usize,
     ) -> Result<()> {
         let in_c_per_group = in_channels / groups;
-        let out_c_per_group = out_channels / groups;
 
         // Initialize output to zero
         dst.iter_mut().for_each(|v| *v = T::zero());
 
+        // Reorder input from [B, C, L] to [B, L, C] for better memory access in the inner loop
+        let mut src_reordered = vec![T::zero(); batch * length * in_channels];
         for b in 0..batch {
-            for g in 0..groups {
-                for oc in 0..out_c_per_group {
-                    let out_c = g * out_c_per_group + oc;
-                    for ol in 0..out_length {
-                        let mut sum = T::zero();
-                        for ic in 0..in_c_per_group {
-                            let in_c = g * in_c_per_group + ic;
-                            for k in 0..kernel_size {
-                                // Position in input (with dilation)
-                                let in_pos = ol * stride + k * dilation;
-                                // Account for padding
-                                if in_pos >= padding && in_pos < length + padding {
-                                    let in_idx = in_pos - padding;
-                                    let src_idx = b * in_channels * length + in_c * length + in_idx;
-                                    let kernel_idx =
-                                        out_c * in_c_per_group * kernel_size + ic * kernel_size + k;
-                                    sum += src[src_idx] * kernel[kernel_idx];
-                                }
-                            }
-                        }
-                        let dst_idx = b * out_channels * out_length + out_c * out_length + ol;
-                        dst[dst_idx] = sum;
-                    }
+            for l in 0..length {
+                for c in 0..in_channels {
+                    let src_idx = b * in_channels * length + c * length + l;
+                    let dst_idx = b * length * in_channels + l * in_channels + c;
+                    src_reordered[dst_idx] = src[src_idx];
                 }
             }
+        }
+
+        // Process each kernel offset
+        for k_offset in 0..kernel_size {
+            // Parallelize over output channels
+            (0..out_channels).into_par_iter().for_each(|out_c| {
+                let g = out_c / (out_channels / groups);
+                let in_c_start = g * in_c_per_group;
+
+                // Gather kernel weights for this output channel and kernel offset
+                // kernel layout: [out_channels, in_c_per_group, kernel_size]
+                let k_cont: Vec<T> = (0..in_c_per_group)
+                    .map(|ic| {
+                        let k_idx =
+                            out_c * in_c_per_group * kernel_size + ic * kernel_size + k_offset;
+                        kernel[k_idx]
+                    })
+                    .collect();
+
+                for b in 0..batch {
+                    let dst_base = b * out_channels * out_length + out_c * out_length;
+
+                    for ol in 0..out_length {
+                        let src_l = ol * stride + k_offset * dilation;
+
+                        // Check padding bounds
+                        if src_l < padding || src_l >= padding + length {
+                            continue;
+                        }
+                        let src_l = src_l - padding;
+
+                        // Compute dot product over input channels
+                        let src_base = b * length * in_channels + src_l * in_channels + in_c_start;
+                        let mut d = T::zero();
+                        for ic in 0..in_c_per_group {
+                            d += src_reordered[src_base + ic] * k_cont[ic];
+                        }
+
+                        // Accumulate into output
+                        // Safety: each out_c is processed by a different thread, so no races
+                        let dst_idx = dst_base + ol;
+                        unsafe {
+                            let ptr = dst.as_ptr().add(dst_idx) as *mut T;
+                            *ptr += d;
+                        }
+                    }
+                }
+            });
         }
         Ok(())
     }

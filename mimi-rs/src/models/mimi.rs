@@ -1226,11 +1226,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
 
         // Argmin to get indices, then reshape to target_shape
         let codes = dists.argmin(1)?; // [N]
-        if target_shape.is_empty() {
-            Ok(codes)
-        } else {
-            codes.reshape(target_shape)
-        }
+        if target_shape.is_empty() { Ok(codes) } else { codes.reshape(target_shape) }
     }
 
     pub fn decode(&self, indices: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
