@@ -214,17 +214,23 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Element-wise square.
     pub fn sqr(&self) -> Result<Self> {
-        todo!("sqr")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.sqr_(self)?;
+        Ok(result)
     }
 
     /// Element-wise square root.
     pub fn sqrt(&self) -> Result<Self> {
-        todo!("sqrt")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.sqrt_(self)?;
+        Ok(result)
     }
 
     /// Element-wise absolute value.
     pub fn abs(&self) -> Result<Self> {
-        todo!("abs")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.abs_(self)?;
+        Ok(result)
     }
 
     /// Sum along dimensions, keeping the dimensions.
@@ -281,27 +287,37 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// GELU activation with erf.
     pub fn gelu_erf(&self) -> Result<Self> {
-        todo!("gelu_erf")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.gelu_erf_(self)?;
+        Ok(result)
     }
 
     /// ELU activation.
-    pub fn elu(&self, _alpha: f32) -> Result<Self> {
-        todo!("elu")
+    pub fn elu(&self, alpha: f32) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.elu_(self, alpha)?;
+        Ok(result)
     }
 
     /// ReLU activation.
     pub fn relu(&self) -> Result<Self> {
-        todo!("relu")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.relu_(self)?;
+        Ok(result)
     }
 
     /// Tanh activation.
     pub fn tanh(&self) -> Result<Self> {
-        todo!("tanh")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.tanh_(self)?;
+        Ok(result)
     }
 
     /// Sigmoid activation.
     pub fn sigmoid(&self) -> Result<Self> {
-        todo!("sigmoid")
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.sigmoid_(self)?;
+        Ok(result)
     }
 
     /// Expand tensor to a new shape (broadcasting).

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 gemm = "0.19.0"
 half = { version = "2.7.1", features = ["num-traits"] }
+libm = "0.2"
 memmap2 = "0.9"
 num-traits = "0.2.19"
 num_cpus = "1.17.0"
