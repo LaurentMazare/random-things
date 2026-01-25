@@ -222,4 +222,34 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
         Ok(out)
     }
+
+    /// Stack tensors along a new dimension.
+    /// All tensors must have the same shape.
+    /// The new dimension is inserted at position `dim`.
+    pub fn stack(tensors: &[&Self], dim: impl Dim) -> Result<Self> {
+        if tensors.is_empty() {
+            crate::bail!("stack requires at least one tensor");
+        }
+
+        let first = tensors[0];
+        // For stack, dim can be 0..=rank (inserting a new dimension)
+        let dim = dim.to_index_plus_one(first.shape(), "stack dim")?;
+
+        // All tensors must have the same shape
+        for (i, t) in tensors.iter().enumerate().skip(1) {
+            if t.shape() != first.shape() {
+                crate::bail!(
+                    "stack: tensor {i} has shape {:?} but expected {:?}",
+                    t.shape(),
+                    first.shape()
+                );
+            }
+        }
+
+        // Unsqueeze each tensor at dim, then concatenate
+        let unsqueezed: Vec<Self> =
+            tensors.iter().map(|t| t.unsqueeze(dim)).collect::<Result<Vec<_>>>()?;
+        let unsqueezed_refs: Vec<&Self> = unsqueezed.iter().collect();
+        Self::cat(&unsqueezed_refs, dim)
+    }
 }

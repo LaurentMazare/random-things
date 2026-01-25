@@ -1325,7 +1325,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
         }
         // Stack codes: [n_q, B, T]
         let codes_refs: Vec<&Tensor<i64, B>> = codes.iter().collect();
-        Tensor::cat(&codes_refs, 0)
+        Tensor::stack(&codes_refs, 0)
     }
 
     pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
