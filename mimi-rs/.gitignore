@@ -1,0 +1,6 @@
+*.mp3
+*.wav
+perf.data*
+flamegraph.svg
+tmp/*
+

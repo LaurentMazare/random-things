@@ -19,5 +19,13 @@ yoke = { version = "0.8.1", features = ["derive"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hf-hub = "0.4"
+kaudio = "0.2.1"
 tokenizers = "0.21"
 rand = "0.9.2"
+
+[profile.release]
+debug = true
+
+[profile.release-no-debug]
+inherits = "release"
+debug = false

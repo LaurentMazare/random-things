@@ -8,9 +8,12 @@ use mimi::nn::VB;
 #[command(name = "mimi")]
 #[command(about = "Run Mimi audio tokenizer model")]
 struct Args {
-    /// Number of chunks to process (each chunk is 1920 samples)
-    #[arg(short, long, default_value_t = 10)]
-    num_chunks: usize,
+    /// Input audio file to process
+    input: std::path::PathBuf,
+
+    /// Output WAV file path
+    #[arg(short, long, default_value = "output.wav")]
+    output: std::path::PathBuf,
 
     /// Number of codebooks to use (default: 8)
     #[arg(short, long, default_value_t = 8)]
@@ -37,8 +40,34 @@ fn main() -> Result<()> {
 
     println!("Mimi Audio Tokenizer Example");
     println!("============================");
-    println!("Chunks to process: {}", args.num_chunks);
+    println!("Input file: {}", args.input.display());
+    println!("Output file: {}", args.output.display());
     println!("Codebooks: {}", args.codebooks);
+
+    // Load and resample audio
+    println!("\nLoading audio file...");
+    let (pcm_data, sample_rate) = kaudio::pcm_decode(&args.input)?;
+    println!(
+        "  Loaded {} samples at {} Hz ({:.2}s)",
+        pcm_data.len(),
+        sample_rate,
+        pcm_data.len() as f64 / sample_rate as f64
+    );
+
+    // Resample to 24000 Hz if needed
+    let target_sample_rate: usize = 24000;
+    let pcm_data = if sample_rate as usize != target_sample_rate {
+        println!("  Resampling from {} Hz to {} Hz...", sample_rate, target_sample_rate);
+        kaudio::resample(&pcm_data, sample_rate as usize, target_sample_rate)?
+    } else {
+        pcm_data
+    };
+    println!(
+        "  Audio ready: {} samples at {} Hz ({:.2}s)",
+        pcm_data.len(),
+        target_sample_rate,
+        pcm_data.len() as f64 / target_sample_rate as f64
+    );
 
     // Download model weights
     let model_path = download_model()?;
@@ -55,61 +84,102 @@ fn main() -> Result<()> {
     let mut model: Mimi<f32, ()> = Mimi::load(&vb.root(), config, &dev)?;
     println!("Model loaded successfully!");
 
-    // Process chunks of zeros
-    // Mimi expects audio at 24kHz, mono channel
-    // Each chunk of 1920 samples = 80ms of audio at 24kHz
+    // Process audio in chunks of 1920 samples
     let chunk_size = 1920;
-    let total_samples = chunk_size * args.num_chunks;
+    let num_chunks = (pcm_data.len() + chunk_size - 1) / chunk_size;
 
     println!(
-        "\nProcessing {} samples ({} chunks of {} samples each)...",
-        total_samples, args.num_chunks, chunk_size
+        "\nEncoding {} samples ({} chunks of {} samples each)...",
+        pcm_data.len(),
+        num_chunks,
+        chunk_size
     );
-    println!("Total duration: {:.2}ms at 24kHz", total_samples as f64 / 24.0);
 
-    let start = std::time::Instant::now();
+    let encode_start = std::time::Instant::now();
+    let mut all_codes: Vec<Tensor<i64, ()>> = Vec::with_capacity(num_chunks);
 
-    for chunk_idx in 0..args.num_chunks {
-        // Create a chunk of zeros: shape [batch=1, channels=1, time=1920]
-        let audio_data: Vec<f32> = vec![0.0; chunk_size];
-        let audio: Tensor<f32, ()> = Tensor::from_vec(audio_data, (1, 1, chunk_size), &dev)?;
+    for chunk_idx in 0..num_chunks {
+        let start_idx = chunk_idx * chunk_size;
+        let end_idx = (start_idx + chunk_size).min(pcm_data.len());
 
-        // Encode the audio to codes
-        let codes = model.encode(&audio)?;
-
-        // codes shape should be [batch, num_codebooks, time_frames]
-        let code_dims = codes.dims();
-        if chunk_idx == 0 {
-            println!("\nFirst chunk output:");
-            println!("  Input shape: [1, 1, {}]", chunk_size);
-            println!("  Output codes shape: {:?}", code_dims);
-
-            // Print first few codes
-            let codes_vec = codes.to_vec()?;
-            let num_to_show = codes_vec.len().min(16);
-            println!("  First {} code values: {:?}", num_to_show, &codes_vec[..num_to_show]);
+        // Get chunk data, pad with zeros if needed
+        let mut chunk_data: Vec<f32> = pcm_data[start_idx..end_idx].to_vec();
+        if chunk_data.len() < chunk_size {
+            chunk_data.resize(chunk_size, 0.0);
         }
 
-        if (chunk_idx + 1) % 10 == 0 || chunk_idx == args.num_chunks - 1 {
-            println!("  Processed chunk {}/{}", chunk_idx + 1, args.num_chunks);
+        // Create tensor: shape [batch=1, channels=1, time=1920]
+        let audio: Tensor<f32, ()> = Tensor::from_vec(chunk_data, (1, 1, chunk_size), &dev)?;
+
+        // Encode the audio to codes
+        let mut codes = model.encode(&audio)?;
+        // Ensure codes have 3 dimensions [B, n_q, T] - unsqueeze if T=1 was collapsed
+        if codes.rank() == 2 {
+            codes = codes.unsqueeze(2)?;
+        }
+        all_codes.push(codes);
+
+        if chunk_idx == 0 {
+            let code_dims = all_codes[0].dims();
+            println!("  First chunk codes shape: {:?}", code_dims);
+        }
+
+        if (chunk_idx + 1) % 50 == 0 || chunk_idx == num_chunks - 1 {
+            println!("  Encoded chunk {}/{}", chunk_idx + 1, num_chunks);
         }
     }
 
-    let elapsed = start.elapsed();
-    let samples_per_sec = total_samples as f64 / elapsed.as_secs_f64();
-    let realtime_factor = samples_per_sec / 24000.0;
+    let encode_elapsed = encode_start.elapsed();
+    println!(
+        "  Encoding completed in {:.2}s ({:.2}x realtime)",
+        encode_elapsed.as_secs_f64(),
+        pcm_data.len() as f64 / target_sample_rate as f64 / encode_elapsed.as_secs_f64()
+    );
 
-    println!("\nPerformance:");
-    println!("  Total time: {:.2}s", elapsed.as_secs_f64());
-    println!("  Samples/sec: {:.0}", samples_per_sec);
-    println!("  Realtime factor: {:.2}x (>1 means faster than realtime)", realtime_factor);
+    // Concatenate all codes along the time dimension
+    println!("\nConcatenating codes...");
+    let code_refs: Vec<&Tensor<i64, ()>> = all_codes.iter().collect();
+    let all_codes = Tensor::cat(&code_refs, 2)?; // dim 2 is time
+    println!("  Total codes shape: {:?}", all_codes.dims());
 
-    // Also test decode on a simple code tensor
-    println!("\nTesting decode...");
-    let test_codes: Vec<i64> = vec![0; args.codebooks * 2]; // 2 time frames
-    let test_codes: Tensor<i64, ()> = Tensor::from_vec(test_codes, (1, args.codebooks, 2), &dev)?;
-    let decoded = model.decode(&test_codes)?;
-    println!("  Decoded shape: {:?}", decoded.dims());
+    // Decode all codes back to audio
+    println!("\nDecoding codes to audio...");
+    let decode_start = std::time::Instant::now();
+    let decoded_audio = model.decode(&all_codes)?;
+    let decode_elapsed = decode_start.elapsed();
+
+    let decoded_dims = decoded_audio.dims();
+    println!("  Decoded shape: {:?}", decoded_dims);
+    println!(
+        "  Decoding completed in {:.2}s ({:.2}x realtime)",
+        decode_elapsed.as_secs_f64(),
+        pcm_data.len() as f64 / target_sample_rate as f64 / decode_elapsed.as_secs_f64()
+    );
+
+    // Extract PCM data from decoded tensor
+    let decoded_pcm = decoded_audio.to_vec()?;
+
+    // Trim to original length (remove padding)
+    let original_output_len = pcm_data.len();
+    let decoded_pcm: Vec<f32> = decoded_pcm.into_iter().take(original_output_len).collect();
+
+    // Write output WAV file
+    println!("\nWriting output WAV file...");
+    let output_file = std::fs::File::create(&args.output)?;
+    let mut writer = std::io::BufWriter::new(output_file);
+    kaudio::wav::write_pcm_as_wav(&mut writer, &decoded_pcm, target_sample_rate as u32, 1)?;
+    println!("  Written {} samples to {}", decoded_pcm.len(), args.output.display());
+
+    // Summary
+    let total_elapsed = encode_elapsed + decode_elapsed;
+    let audio_duration = pcm_data.len() as f64 / target_sample_rate as f64;
+    println!("\nSummary:");
+    println!("  Input duration: {:.2}s", audio_duration);
+    println!("  Total processing time: {:.2}s", total_elapsed.as_secs_f64());
+    println!(
+        "  Overall realtime factor: {:.2}x (>1 means faster than realtime)",
+        audio_duration / total_elapsed.as_secs_f64()
+    );
 
     println!("\nDone!");
     Ok(())
