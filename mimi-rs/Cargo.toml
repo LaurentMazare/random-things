@@ -12,6 +12,7 @@ num_cpus = "1.17.0"
 rayon = "1.11.0"
 safetensors = "0.4"
 thiserror = "2.0.17"
+yoke = { version = "0.8.1", features = ["derive"] }
 
 [dev-dependencies]
 anyhow = "1"

@@ -1239,6 +1239,7 @@ dependencies = [
  "safetensors",
  "thiserror 2.0.17",
  "tokenizers",
+ "yoke",
 ]
 
 [[package]]
