@@ -384,6 +384,100 @@ impl crate::Backend for () {
         });
         Ok(())
     }
+
+    fn sqr<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            *d = *s * *s;
+        }
+        Ok(())
+    }
+
+    fn sqrt<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            *d = s.sqrt();
+        }
+        Ok(())
+    }
+
+    fn abs<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            *d = s.abs();
+        }
+        Ok(())
+    }
+
+    fn gelu_erf<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        // GELU(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
+        let sqrt_2_inv = std::f32::consts::FRAC_1_SQRT_2;
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            let x: f32 = <T as WithDTypeF>::to_f32(*s);
+            let erf_val = libm::erff(x * sqrt_2_inv);
+            *d = T::from_f32(x * 0.5 * (1.0 + erf_val));
+        }
+        Ok(())
+    }
+
+    fn elu<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        alpha: f32,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            let x: f32 = <T as WithDTypeF>::to_f32(*s);
+            *d = T::from_f32(if x > 0.0 { x } else { alpha * (x.exp() - 1.0) });
+        }
+        Ok(())
+    }
+
+    fn relu<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            *d = T::max(*s, T::zero());
+        }
+        Ok(())
+    }
+
+    fn tanh<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            *d = s.tanh();
+        }
+        Ok(())
+    }
+
+    fn sigmoid<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        l: usize,
+    ) -> Result<()> {
+        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
+            *d = T::one() / (T::one() + (T::zero() - *s).exp());
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn get_num_threads() -> usize {

@@ -181,4 +181,53 @@ pub trait Backend: Sized + Clone + 'static {
         d: usize,
         eps: f32,
     ) -> Result<()>;
+
+    fn sqr<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn sqrt<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn abs<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn gelu_erf<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn elu<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        alpha: f32,
+        len: usize,
+    ) -> Result<()>;
+
+    fn relu<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn tanh<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
+
+    fn sigmoid<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+    ) -> Result<()>;
 }

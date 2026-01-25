@@ -177,4 +177,208 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     pub fn matmul_t(&self, other: &Self) -> Result<Self> {
         self.matmul_with_t(other, true)
     }
+
+    // ========================================================================
+    // Convolution operations (todo stubs)
+    // ========================================================================
+
+    /// 1D convolution.
+    pub fn conv1d(
+        &self,
+        _kernel: &Self,
+        _bias: Option<&Self>,
+        _stride: usize,
+        _padding: usize,
+        _dilation: usize,
+        _groups: usize,
+    ) -> Result<Self> {
+        todo!("conv1d")
+    }
+
+    /// 1D transposed convolution.
+    pub fn conv_transpose1d(
+        &self,
+        _kernel: &Self,
+        _bias: Option<&Self>,
+        _stride: usize,
+        _padding: usize,
+        _output_padding: usize,
+        _groups: usize,
+    ) -> Result<Self> {
+        todo!("conv_transpose1d")
+    }
+
+    // ========================================================================
+    // Additional operations (todo stubs)
+    // ========================================================================
+
+    /// Element-wise square.
+    pub fn sqr(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.sqr_(self)?;
+        Ok(result)
+    }
+
+    /// Element-wise square root.
+    pub fn sqrt(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.sqrt_(self)?;
+        Ok(result)
+    }
+
+    /// Element-wise absolute value.
+    pub fn abs(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.abs_(self)?;
+        Ok(result)
+    }
+
+    /// Sum along dimensions, keeping the dimensions.
+    pub fn sum_keepdim(&self, _dims: impl Into<Vec<usize>>) -> Result<Self> {
+        todo!("sum_keepdim")
+    }
+
+    /// Maximum value along dimension.
+    pub fn max(&self, _dim: impl Dim) -> Result<Self> {
+        todo!("max")
+    }
+
+    /// Minimum value along dimension.
+    pub fn min(&self, _dim: impl Dim) -> Result<Self> {
+        todo!("min")
+    }
+
+    /// Argmin along dimension.
+    /// Note: Returns indices encoded as the same type T for simplicity.
+    /// A proper implementation would return integer indices.
+    pub fn argmin(&self, _dim: impl Dim) -> Result<Self> {
+        todo!("argmin")
+    }
+
+    /// Broadcast multiplication.
+    pub fn broadcast_mul(&self, _other: &Self) -> Result<Self> {
+        todo!("broadcast_mul")
+    }
+
+    /// Broadcast division.
+    pub fn broadcast_div(&self, _other: &Self) -> Result<Self> {
+        todo!("broadcast_div")
+    }
+
+    /// Broadcast addition.
+    pub fn broadcast_add(&self, _other: &Self) -> Result<Self> {
+        todo!("broadcast_add")
+    }
+
+    /// Broadcast subtraction.
+    pub fn broadcast_sub(&self, _other: &Self) -> Result<Self> {
+        todo!("broadcast_sub")
+    }
+
+    /// Flatten all dimensions into a single dimension.
+    pub fn flatten_all(&self) -> Result<Self> {
+        self.reshape(vec![self.elem_count()])
+    }
+
+    /// Flatten dimensions from start to end (inclusive) into a single dimension.
+    pub fn flatten<D: Dim>(&self, start_dim: D, end_dim: D) -> Result<Self> {
+        let start_dim = start_dim.to_index(self.shape(), "flatten start_dim")?;
+        let end_dim = end_dim.to_index(self.shape(), "flatten end_dim")?;
+        let dims = self.dims();
+        if start_dim > end_dim {
+            crate::bail!("flatten: start_dim {start_dim} > end_dim {end_dim}");
+        }
+        let flat_size: usize = dims[start_dim..=end_dim].iter().product();
+        let mut new_dims = Vec::with_capacity(dims.len() - (end_dim - start_dim));
+        new_dims.extend_from_slice(&dims[..start_dim]);
+        new_dims.push(flat_size);
+        new_dims.extend_from_slice(&dims[end_dim + 1..]);
+        self.reshape(new_dims)
+    }
+
+    /// GELU activation with erf.
+    pub fn gelu_erf(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.gelu_erf_(self)?;
+        Ok(result)
+    }
+
+    /// ELU activation.
+    pub fn elu(&self, alpha: f32) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.elu_(self, alpha)?;
+        Ok(result)
+    }
+
+    /// ReLU activation.
+    pub fn relu(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.relu_(self)?;
+        Ok(result)
+    }
+
+    /// Tanh activation.
+    pub fn tanh(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.tanh_(self)?;
+        Ok(result)
+    }
+
+    /// Sigmoid activation.
+    pub fn sigmoid(&self) -> Result<Self> {
+        let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.sigmoid_(self)?;
+        Ok(result)
+    }
+
+    /// Expand tensor to a new shape (broadcasting).
+    pub fn expand(&self, _shape: impl Into<crate::Shape>) -> Result<Self> {
+        todo!("expand")
+    }
+
+    /// Repeat tensor along dimensions.
+    pub fn repeat(&self, _repeats: impl Into<Vec<usize>>) -> Result<Self> {
+        todo!("repeat")
+    }
+
+    /// Ensure tensor is contiguous in memory.
+    pub fn contiguous(&self) -> Result<Self> {
+        todo!("contiguous")
+    }
+
+    /// Where condition: select from self or other based on condition.
+    /// The condition should be a tensor of the same shape where non-zero values
+    /// select from self, and zero values select from other.
+    pub fn where_cond(&self, _condition: &Self, _other: &Self) -> Result<Self> {
+        todo!("where_cond")
+    }
+
+    /// Create a tensor of zeros with the same shape.
+    pub fn zeros_like(&self) -> Result<Self> {
+        Self::zeros(self.shape().clone(), self.device())
+    }
+
+    /// Transpose (swap last two dimensions).
+    pub fn t(&self) -> Result<Self> {
+        let rank = self.rank();
+        if rank < 2 {
+            crate::bail!("t requires at least 2 dimensions");
+        }
+        self.transpose(rank - 2, rank - 1)
+    }
+
+    /// Unsqueeze: add a dimension of size 1 at the given position.
+    pub fn unsqueeze(&self, _dim: impl Dim) -> Result<Self> {
+        todo!("unsqueeze")
+    }
+
+    /// Pad with zeros along a dimension.
+    pub fn pad_with_zeros(&self, _dim: impl Dim, _left: usize, _right: usize) -> Result<Self> {
+        todo!("pad_with_zeros")
+    }
+
+    /// Pad by replicating boundary values.
+    pub fn pad_with_same(&self, _dim: impl Dim, _left: usize, _right: usize) -> Result<Self> {
+        todo!("pad_with_same")
+    }
 }

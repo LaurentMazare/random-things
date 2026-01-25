@@ -1231,6 +1231,7 @@ dependencies = [
  "gemm",
  "half",
  "hf-hub",
+ "libm",
  "memmap2",
  "num-traits",
  "num_cpus",

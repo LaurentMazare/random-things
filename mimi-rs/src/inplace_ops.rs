@@ -251,4 +251,60 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         B::rope_i(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
         Ok(())
     }
+
+    pub fn sqr_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "sqr_")?;
+        let len = self.elem_count();
+        B::sqr(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
+
+    pub fn sqrt_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "sqrt_")?;
+        let len = self.elem_count();
+        B::sqrt(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
+
+    pub fn abs_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "abs_")?;
+        let len = self.elem_count();
+        B::abs(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
+
+    pub fn gelu_erf_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "gelu_erf_")?;
+        let len = self.elem_count();
+        B::gelu_erf(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
+
+    pub fn elu_(&mut self, src: &Self, alpha: f32) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "elu_")?;
+        let len = self.elem_count();
+        B::elu(&mut self.data, &src.data, alpha, len)?;
+        Ok(())
+    }
+
+    pub fn relu_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "relu_")?;
+        let len = self.elem_count();
+        B::relu(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
+
+    pub fn tanh_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "tanh_")?;
+        let len = self.elem_count();
+        B::tanh(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
+
+    pub fn sigmoid_(&mut self, src: &Self) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "sigmoid_")?;
+        let len = self.elem_count();
+        B::sigmoid(&mut self.data, &src.data, len)?;
+        Ok(())
+    }
 }
