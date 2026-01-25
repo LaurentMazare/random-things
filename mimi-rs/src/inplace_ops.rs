@@ -335,6 +335,15 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
+    pub fn reduce_sum_(&mut self, src: &Self, dim: usize) -> Result<()> {
+        let src_dims = src.dims();
+        let dim_size = src_dims[dim];
+        let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
+        let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        B::reduce_sum(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        Ok(())
+    }
+
     pub fn broadcast_add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =

@@ -263,6 +263,15 @@ pub trait Backend: Sized + Clone + 'static {
         inner_size: usize,
     ) -> Result<()>;
 
+    /// Reduce sum along a dimension.
+    fn reduce_sum<T: crate::WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()>;
+
     /// Broadcast binary operation: addition.
     /// lhs_strides and rhs_strides have 0 for broadcast dimensions.
     fn broadcast_add<T: crate::WithDTypeF>(

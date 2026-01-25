@@ -546,6 +546,27 @@ impl crate::Backend for () {
         Ok(())
     }
 
+    fn reduce_sum<T: WithDTypeF>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        dim_size: usize,
+        outer_size: usize,
+        inner_size: usize,
+    ) -> Result<()> {
+        for outer in 0..outer_size {
+            for inner in 0..inner_size {
+                let mut sum = T::zero();
+                for d in 0..dim_size {
+                    let src_idx = outer * dim_size * inner_size + d * inner_size + inner;
+                    sum = sum + src[src_idx];
+                }
+                let dst_idx = outer * inner_size + inner;
+                dst[dst_idx] = sum;
+            }
+        }
+        Ok(())
+    }
+
     fn broadcast_add<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,

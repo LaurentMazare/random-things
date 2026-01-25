@@ -59,7 +59,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let dim2 = dim2.to_index(self.shape(), "transpose dim2")?;
         let mut new_dims = self.dims().to_vec();
         new_dims.swap(dim1, dim2);
-        let mut result = unsafe { Tensor::alloc_uninit(new_dims.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(new_dims, self.device()) }?;
         result.transpose_(self, dim1, dim2)?;
         Ok(result)
     }
@@ -188,7 +188,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         target_shape.push(rhs_n);
 
         let dev = self.device();
-        let mut result = unsafe { Self::alloc_uninit(target_shape.into(), dev) }?;
+        let mut result = unsafe { Self::alloc_uninit(target_shape, dev) }?;
         result.matmul_(self, other, rhs_t)?;
         Ok(result)
     }
@@ -261,9 +261,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         // Compute output length
         let out_length = (length + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1;
 
-        let mut result = unsafe {
-            Tensor::alloc_uninit((batch, out_channels, out_length).into(), self.device())
-        }?;
+        let mut result =
+            unsafe { Tensor::alloc_uninit((batch, out_channels, out_length), self.device()) }?;
         result.conv1d_(self, kernel, stride, padding, dilation, groups)?;
 
         // Add bias if provided
@@ -334,9 +333,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         // out_length = (length - 1) * stride - 2 * padding + kernel_size + output_padding
         let out_length = (length - 1) * stride + kernel_size + output_padding - 2 * padding;
 
-        let mut result = unsafe {
-            Tensor::alloc_uninit((batch, out_channels, out_length).into(), self.device())
-        }?;
+        let mut result =
+            unsafe { Tensor::alloc_uninit((batch, out_channels, out_length), self.device()) }?;
         result.conv_transpose1d_(self, kernel, stride, padding, output_padding, groups)?;
 
         // Add bias if provided
@@ -381,9 +379,42 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
-    /// Sum along dimensions, keeping the dimensions.
-    pub fn sum_keepdim(&self, _dims: impl Into<Vec<usize>>) -> Result<Self> {
-        todo!("sum_keepdim")
+    /// Sum along dimensions, keeping the dimensions (with size 1).
+    pub fn sum_keepdim(&self, dims: impl Into<Vec<usize>>) -> Result<Self> {
+        let mut dims: Vec<usize> = dims.into();
+        // Sort dims in descending order so we can reduce from the end
+        dims.sort_by(|a, b| b.cmp(a));
+        dims.dedup();
+
+        let mut result = self.copy()?;
+        for &dim in &dims {
+            if dim >= result.rank() {
+                crate::bail!(
+                    "sum_keepdim: dimension {} out of range for tensor of rank {}",
+                    dim,
+                    result.rank()
+                );
+            }
+            // Reduce along dim, then reshape to keep the dimension with size 1
+            let current_dims = result.dims().to_vec();
+
+            // Output shape has dim reduced (removed)
+            let mut reduced_dims: Vec<usize> = current_dims.clone();
+            reduced_dims.remove(dim);
+            if reduced_dims.is_empty() {
+                reduced_dims.push(1);
+            }
+
+            let mut reduced = unsafe { Tensor::alloc_uninit(reduced_dims, result.device()) }?;
+            reduced.reduce_sum_(&result, dim)?;
+
+            // Reshape to keep the dimension with size 1
+            let mut keepdim_shape: Vec<usize> = current_dims;
+            keepdim_shape[dim] = 1;
+            result = reduced.reshape(keepdim_shape)?;
+        }
+
+        Ok(result)
     }
 
     /// Maximum value along dimension.
@@ -394,7 +425,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         if out_dims.is_empty() {
             out_dims.push(1);
         }
-        let mut result = unsafe { Tensor::alloc_uninit(out_dims.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
         result.reduce_max_(self, dim)?;
         Ok(result)
     }
@@ -407,7 +438,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         if out_dims.is_empty() {
             out_dims.push(1);
         }
-        let mut result = unsafe { Tensor::alloc_uninit(out_dims.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
         result.reduce_min_(self, dim)?;
         Ok(result)
     }
@@ -422,7 +453,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         if out_dims.is_empty() {
             out_dims.push(1);
         }
-        let mut result = unsafe { Tensor::alloc_uninit(out_dims.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
         result.reduce_argmin_(self, dim)?;
         Ok(result)
     }
@@ -430,7 +461,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Broadcast multiplication.
     pub fn broadcast_mul(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_mul_(self, other)?;
         Ok(result)
     }
@@ -438,7 +469,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Broadcast division.
     pub fn broadcast_div(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_div_(self, other)?;
         Ok(result)
     }
@@ -446,7 +477,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Broadcast addition.
     pub fn broadcast_add(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_add_(self, other)?;
         Ok(result)
     }
@@ -454,7 +485,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Broadcast subtraction.
     pub fn broadcast_sub(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let mut result = unsafe { Tensor::alloc_uninit(out_shape.into(), self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_sub_(self, other)?;
         Ok(result)
     }
@@ -609,9 +640,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         // Compute new shape
         let mut new_dims = dims.to_vec();
         new_dims[dim] = dim_size + left + right;
-        let new_shape = crate::Shape::from(new_dims);
 
-        let mut result = unsafe { Self::alloc_uninit(new_shape, self.device()) }?;
+        let mut result = unsafe { Self::alloc_uninit(new_dims, self.device()) }?;
 
         let outer_size: usize = dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
@@ -648,12 +678,12 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
             B::copy2d(
                 &mut result.data,
                 &self.data,
-                outer_size,                             // d1: number of outer blocks
-                inner_size,                             // d2: one slice
-                new_dim_size * inner_size,              // dst_s: stride in output
-                dim_size * inner_size,                  // src_s: stride in source
-                (left + dim_size + r) * inner_size,    // dst_o: position after original data
-                (dim_size - 1) * inner_size,           // src_o: last slice of source
+                outer_size,                         // d1: number of outer blocks
+                inner_size,                         // d2: one slice
+                new_dim_size * inner_size,          // dst_s: stride in output
+                dim_size * inner_size,              // src_s: stride in source
+                (left + dim_size + r) * inner_size, // dst_o: position after original data
+                (dim_size - 1) * inner_size,        // src_o: last slice of source
             )?;
         }
 

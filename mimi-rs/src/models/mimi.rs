@@ -1183,6 +1183,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for Transformer<T, B> {
 #[allow(dead_code)]
 pub struct EuclideanCodebook<T: WithDTypeF, B: Backend> {
     embedding: Tensor<T, B>,
+    c2: Tensor<T, B>, // Precomputed: (embedding * embedding).sum(dim=-1) / 2.0
     dim: usize,
 }
 
@@ -1200,29 +1201,52 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         let cluster_usage = cluster_usage.unsqueeze(1)?;
         let embedding = embedding_sum.broadcast_div(&cluster_usage)?;
 
-        Ok(Self { embedding, dim })
+        // Precompute c2 = (embedding * embedding).sum(dim=-1) / 2.0
+        // This is used for efficient distance computation: dist = c2 - dot_prod
+        let c2 = embedding.sqr()?.sum_keepdim(vec![1])?.scale(T::from_f32(0.5))?;
+        let c2 = c2.reshape((codebook_size,))?;
+
+        Ok(Self { embedding, c2, dim })
     }
 
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        // Find nearest codebook entry for each input vector
-        // Returns indices as float (since we don't have integer tensors yet)
-        let xs = xs.flatten(0, xs.rank() - 2)?; // [N, dim]
+        // Save target shape (all dims except the last)
+        let mut target_shape: Vec<usize> = xs.dims().to_vec();
+        target_shape.pop();
 
-        // Compute squared distances: ||x - e||^2 = ||x||^2 - 2*x*e^T + ||e||^2
-        let dot_prod = xs.matmul(&self.embedding.t()?)?;
-        let e2 = self.embedding.sqr()?.sum_keepdim(vec![1])?;
-        let e2 = e2.t()?; // [1, codebook_size]
-        let dists = e2.broadcast_sub(&dot_prod.scale(T::from_f32(2.0))?)?;
+        // Flatten to 2D: [*, dim] -> [N, dim]
+        let xs = xs.flatten(0, xs.rank().saturating_sub(2))?;
 
-        // Argmin to get indices
-        dists.argmin(1)
+        // Compute distances using precomputed c2:
+        // ||x - e||^2 / 2 = ||e||^2/2 - x*e^T + ||x||^2/2
+        // We only need relative distances, so: dist = c2 - dot_prod
+        let dot_prod = xs.matmul(&self.embedding.t()?)?; // [N, codebook_size]
+        let dists = self.c2.broadcast_sub(&dot_prod)?; // [N, codebook_size]
+
+        // Argmin to get indices, then reshape to target_shape
+        let codes = dists.argmin(1)?; // [N]
+        if target_shape.is_empty() {
+            Ok(codes)
+        } else {
+            codes.reshape(target_shape)
+        }
     }
 
     pub fn decode(&self, indices: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        // Save final dims: indices.dims() + [dim]
+        let mut final_dims = indices.dims().to_vec();
+        final_dims.push(self.dim);
+
+        // Flatten indices
+        let flat_indices = indices.flatten(0, indices.rank().saturating_sub(1))?;
+
         // Convert float indices to u32 and index into embedding
-        let indices_vec = indices.to_vec()?;
+        let indices_vec = flat_indices.to_vec()?;
         let indices_u32: Vec<u32> = indices_vec.iter().map(|&x| x.to_f32() as u32).collect();
-        self.embedding.index_select(&indices_u32, 0)
+        let values = self.embedding.index_select(&indices_u32, 0)?;
+
+        // Reshape to final_dims
+        values.reshape(final_dims)
     }
 }
 
@@ -1362,12 +1386,11 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
     }
 
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        // xs: [B, C, T]
         let xs = match &self.input_proj {
             Some(proj) => {
-                // xs: [B, C, T] -> [B, T, C] for matmul
-                let xs = xs.transpose(1, 2)?;
-                let xs = xs.matmul_t(proj)?;
-                xs.transpose(1, 2)?
+                // proj is stored as [out_dim, in_dim, 1] - conv1d weight format
+                xs.conv1d(proj, None, 1, 0, 1, 1)?
             }
             None => xs.copy()?,
         };
@@ -1380,9 +1403,8 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
         let quantized = self.vq.decode(&codes)?;
         match &self.output_proj {
             Some(proj) => {
-                let q = quantized.transpose(1, 2)?;
-                let q = q.matmul_t(proj)?;
-                q.transpose(1, 2)
+                // proj is stored as [out_dim, in_dim, 1] - conv1d weight format
+                quantized.conv1d(proj, None, 1, 0, 1, 1)
             }
             None => Ok(quantized),
         }
