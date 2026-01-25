@@ -15,6 +15,7 @@ pub trait Backend: Sized + Clone + 'static {
     unsafe fn alloc_uninit<T: crate::WithDType>(len: usize, dev: &Self)
     -> Result<Self::Storage<T>>;
 
+    // TODO(laurent): Add a from_slice variant.
     fn from_vec<T: crate::WithDType>(v: Vec<T>, dev: &Self) -> Result<Self::Storage<T>>;
 
     fn cst<T: crate::WithDType>(v: T, len: usize, dev: &Self) -> Result<Self::Storage<T>> {
@@ -24,11 +25,13 @@ pub trait Backend: Sized + Clone + 'static {
     }
 
     fn fill<T: crate::WithDType>(dst: &mut Self::Storage<T>, elem: T, len: usize) -> Result<()>;
+
     fn copy<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn data<T: crate::WithDType>(
         src: &Self::Storage<T>,
         len: usize,
@@ -39,23 +42,27 @@ pub trait Backend: Sized + Clone + 'static {
         s: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn mul_assign<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         s: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn add<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn mul<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn scale<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
@@ -138,16 +145,19 @@ pub trait Backend: Sized + Clone + 'static {
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn sin<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn silu<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()>;
+
     fn apply_causality_mask<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         bh: usize,
@@ -155,12 +165,14 @@ pub trait Backend: Sized + Clone + 'static {
         t2: usize,
         offset: usize,
     ) -> Result<()>;
+
     fn softmax<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         dim_m1: usize,
         d: usize,
     ) -> Result<()>;
+
     fn rms_norm<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

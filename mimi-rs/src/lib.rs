@@ -13,7 +13,7 @@ pub mod utils;
 pub use backend::Backend;
 pub use dtype::{DType, WithDType, WithDTypeF};
 pub use error::{Error, Result};
-pub use shape::{Dim, Shape, D};
+pub use shape::{D, Dim, Shape};
 pub use tensor::Tensor;
 
 pub type CpuDevice = ();

@@ -1,5 +1,8 @@
 use crate::{Backend, Result, Tensor, WithDTypeF};
 
+pub mod var_builder;
+pub use var_builder::VB;
+
 pub struct RmsNorm<T: WithDTypeF, B: Backend> {
     weight: Tensor<T, B>,
     eps: f32,

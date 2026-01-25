@@ -35,6 +35,18 @@ pub enum Error {
     #[error("matmul shape mismatch: {msg}, lhs: {lhs:?}, rhs: {rhs:?}")]
     MatmulShapeMismatch { msg: &'static str, lhs: Shape, rhs: Shape },
 
+    /// Utf8 parse error.
+    #[error(transparent)]
+    FromUtf8(#[from] std::string::FromUtf8Error),
+
+    /// I/O error.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    /// SafeTensor error.
+    #[error(transparent)]
+    SafeTensor(#[from] safetensors::SafeTensorError),
+
     /// Arbitrary errors wrapping.
     #[error("{0}")]
     Wrapped(Box<dyn std::fmt::Display + Send + Sync>),
