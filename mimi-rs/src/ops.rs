@@ -201,6 +201,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all)]
     fn matmul_with_t(&self, other: &Self, rhs_t: bool) -> Result<Self> {
         if self.shape.rank() < 2 || other.shape.rank() < 2 {
             return Err(Error::MatmulShapeMismatch {
@@ -274,6 +275,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Input: (batch, in_channels, length)
     /// Kernel: (out_channels, in_channels/groups, kernel_size)
     /// Output: (batch, out_channels, out_length)
+    #[tracing::instrument(skip_all)]
     pub fn conv1d(
         &self,
         kernel: &Self,
@@ -351,6 +353,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Input: (batch, in_channels, length)
     /// Kernel: (in_channels, out_channels/groups, kernel_size)
     /// Output: (batch, out_channels, out_length)
+    #[tracing::instrument(skip_all)]
     pub fn conv_transpose1d(
         &self,
         kernel: &Self,

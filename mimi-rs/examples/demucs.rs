@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use mimi::Tensor;
 use mimi::models::demucs::{Config, Demucs, DemucsStreamer};
 use mimi::nn::VB;
-use mimi::Tensor;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -19,6 +19,9 @@ struct Args {
 
     #[arg(long)]
     out: PathBuf,
+
+    #[arg(long)]
+    chrome_tracing: bool,
 
     #[arg(short = 'f', long, default_value_t = 1)]
     num_frames: usize,
@@ -57,8 +60,18 @@ fn read_and_resample_audio<P: AsRef<std::path::Path>>(p: P, target_sr: usize) ->
     Ok(resampled_data)
 }
 
+fn init_tracing() -> tracing_chrome::FlushGuard {
+    use tracing_chrome::ChromeLayerBuilder;
+    use tracing_subscriber::{prelude::*, registry::Registry};
+
+    let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
+    Registry::default().with(chrome_layer).init();
+    guard
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
+    let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
 
     println!("\nLoading config...");
     let config = load_config(&args.ckpt_path)?;
