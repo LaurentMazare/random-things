@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use mimi::Tensor;
 use mimi::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
 use mimi::nn::VB;
+use mimi::Tensor;
 
 #[derive(Parser, Debug)]
 #[command(name = "mimi")]
@@ -21,7 +21,7 @@ struct Args {
 }
 
 fn download_model() -> Result<std::path::PathBuf> {
-    use hf_hub::{Repo, RepoType, api::sync::Api};
+    use hf_hub::{api::sync::Api, Repo, RepoType};
     let repo_id = "kyutai/moshiko-candle-q8";
     println!("Downloading model from {repo_id}...");
     let api = Api::new()?;
@@ -72,8 +72,7 @@ fn main() -> Result<()> {
     // Download model weights
     let model_path = download_model()?;
 
-    // CPU device
-    let dev = ();
+    let dev = mimi::CPU;
 
     // Load model
     println!("\nLoading model weights...");
@@ -81,7 +80,7 @@ fn main() -> Result<()> {
     let config = Config::v0_1_no_weight_norm(Some(args.codebooks));
     println!("Config: sample_rate={}, frame_rate={}", config.sample_rate, config.frame_rate);
 
-    let mut model: Mimi<f32, ()> = Mimi::load(&vb.root(), config, &dev)?;
+    let mut model: Mimi<f32, mimi::CpuDevice> = Mimi::load(&vb.root(), config, &dev)?;
     println!("Model loaded successfully!");
 
     // Process audio in chunks of 1920 samples
@@ -100,7 +99,7 @@ fn main() -> Result<()> {
     let mask = StreamMask::empty();
 
     let encode_start = std::time::Instant::now();
-    let mut all_codes: Vec<Tensor<i64, ()>> = Vec::with_capacity(num_chunks);
+    let mut all_codes: Vec<Tensor<i64, mimi::CpuDevice>> = Vec::with_capacity(num_chunks);
 
     for chunk_idx in 0..num_chunks {
         let start_idx = chunk_idx * chunk_size;
@@ -113,7 +112,8 @@ fn main() -> Result<()> {
         }
 
         // Create tensor: shape [batch=1, channels=1, time=1920]
-        let audio: Tensor<f32, ()> = Tensor::from_vec(chunk_data, (1, 1, chunk_size), &dev)?;
+        let audio: Tensor<f32, mimi::CpuDevice> =
+            Tensor::from_vec(chunk_data, (1, 1, chunk_size), &dev)?;
         let audio_stream = StreamTensor::from_tensor(audio);
 
         // Encode the audio to codes using streaming API
@@ -146,7 +146,7 @@ fn main() -> Result<()> {
 
     // Concatenate all codes along the time dimension
     println!("\nConcatenating codes...");
-    let code_refs: Vec<&Tensor<i64, ()>> = all_codes.iter().collect();
+    let code_refs: Vec<&Tensor<i64, mimi::CpuDevice>> = all_codes.iter().collect();
     let all_codes = Tensor::cat(&code_refs, 2)?; // dim 2 is time
     let total_code_frames = all_codes.dims()[2];
     println!("  Total codes shape: {:?}", all_codes.dims());
@@ -155,12 +155,13 @@ fn main() -> Result<()> {
     println!("\nDecoding codes to audio ({} frames)...", total_code_frames);
     model.reset_state();
     let decode_start = std::time::Instant::now();
-    let mut all_decoded: Vec<Tensor<f32, ()>> = Vec::with_capacity(total_code_frames);
+    let mut all_decoded: Vec<Tensor<f32, mimi::CpuDevice>> = Vec::with_capacity(total_code_frames);
 
     for frame_idx in 0..total_code_frames {
         // Extract single frame: [B, n_q, 1]
         let codes_frame = all_codes.narrow(2, frame_idx, 1)?;
-        let codes_stream: StreamTensor<i64, ()> = StreamTensor::from_tensor(codes_frame);
+        let codes_stream: StreamTensor<i64, mimi::CpuDevice> =
+            StreamTensor::from_tensor(codes_frame);
 
         let decoded_stream = model.decode_step(&codes_stream, &mask)?;
         if let Some(decoded) = decoded_stream.as_option() {
@@ -180,7 +181,7 @@ fn main() -> Result<()> {
     );
 
     // Concatenate all decoded audio
-    let decoded_refs: Vec<&Tensor<f32, ()>> = all_decoded.iter().collect();
+    let decoded_refs: Vec<&Tensor<f32, mimi::CpuDevice>> = all_decoded.iter().collect();
     let decoded_audio = Tensor::cat(&decoded_refs, 2)?; // dim 2 is time
     println!("  Decoded shape: {:?}", decoded_audio.dims());
 

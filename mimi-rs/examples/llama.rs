@@ -72,7 +72,7 @@ struct ModelFiles {
 }
 
 fn download_model(repo_id: &str) -> Result<ModelFiles> {
-    use hf_hub::{Repo, RepoType, api::sync::Api};
+    use hf_hub::{api::sync::Api, Repo, RepoType};
     println!("Downloading model from {repo_id}...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
@@ -184,24 +184,24 @@ fn main() -> Result<()> {
     println!("Model: {:?}", args.model_size);
     println!("Config: {:?}", config);
 
-    // CPU Device
-    let dev = ();
+    let dev = mimi::CPU;
 
-    let (model, tokenizer): (Llama<f32, ()>, _) = if let Some(repo_id) = args.model_size.hf_repo() {
-        let model_files = download_model(repo_id)?;
+    let (model, tokenizer): (Llama<f32, mimi::CpuDevice>, _) =
+        if let Some(repo_id) = args.model_size.hf_repo() {
+            let model_files = download_model(repo_id)?;
 
-        println!("Loading tokenizer...");
-        let tokenizer = tokenizers::Tokenizer::from_file(&model_files.tokenizer_path)
-            .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
+            println!("Loading tokenizer...");
+            let tokenizer = tokenizers::Tokenizer::from_file(&model_files.tokenizer_path)
+                .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
-        println!("Loading weights...");
-        let vb = VB::load(&model_files.safetensor_paths, dev)?;
-        let model = Llama::load(&vb.root(), &config)?;
+            println!("Loading weights...");
+            let vb = VB::load(&model_files.safetensor_paths, dev)?;
+            let model = Llama::load(&vb.root(), &config)?;
 
-        (model, Some(tokenizer))
-    } else {
-        anyhow::bail!("Test mode not supported without weights");
-    };
+            (model, Some(tokenizer))
+        } else {
+            anyhow::bail!("Test mode not supported without weights");
+        };
 
     // Tokenize the prompt
     let mut tokens: Vec<u32> = if args.raw_tokens {
@@ -226,7 +226,7 @@ fn main() -> Result<()> {
 
     // Autoregressive generation loop
     let mut rng = rand::rng();
-    let mut kv_cache: Option<KvCache<f32, ()>> = None;
+    let mut kv_cache: Option<KvCache<f32, mimi::CpuDevice>> = None;
     let mut pos = 0;
     let mut generated_tokens = Vec::new();
     let mut autoregressive_start: Option<std::time::Instant> = None;

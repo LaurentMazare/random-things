@@ -1311,6 +1311,7 @@ dependencies = [
  "rand",
  "rayon",
  "safetensors",
+ "serde_json",
  "thiserror 2.0.17",
  "tokenizers",
  "yoke",

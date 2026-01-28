@@ -1,7 +1,7 @@
 use crate::{Result, WithDType, WithDTypeF};
 use rayon::prelude::*;
 
-impl crate::Backend for () {
+impl crate::Backend for crate::CpuDevice {
     type Storage<T: WithDType> = Vec<T>;
 
     fn storage_len<T: WithDType>(storage: &Self::Storage<T>) -> usize {
