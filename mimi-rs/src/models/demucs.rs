@@ -82,6 +82,7 @@ impl Config {
 // Sinc resampling
 // ============================================================================
 
+#[tracing::instrument(skip_all)]
 fn hann_window<T: WithDTypeF, B: Backend>(size: usize, device: &B) -> Result<Tensor<T, B>> {
     let mut data = Vec::with_capacity(size);
     let pi = std::f32::consts::PI;
@@ -98,6 +99,7 @@ fn compute_sinc(t: f32) -> f32 {
     if t.abs() < 1e-10 { 1.0 } else { t.sin() / t }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn kernel_upsample2<T: WithDTypeF, B: Backend>(
     zeros: usize,
     device: &B,
@@ -127,6 +129,7 @@ pub fn kernel_downsample2<T: WithDTypeF, B: Backend>(
     kernel_upsample2(zeros, device)
 }
 
+#[tracing::instrument(skip_all)]
 pub fn upsample2<T: WithDTypeF, B: Backend>(
     x: &Tensor<T, B>,
     zeros: usize,
@@ -154,6 +157,7 @@ pub fn upsample2<T: WithDTypeF, B: Backend>(
     y.reshape(new_dims)
 }
 
+#[tracing::instrument(skip_all)]
 pub fn downsample2<T: WithDTypeF, B: Backend>(
     x: &Tensor<T, B>,
     zeros: usize,
@@ -295,6 +299,7 @@ impl<T: WithDTypeF, B: Backend> Lstm<T, B> {
 
     /// x: (seq_len, batch, input), state: Option<(h, c)> where h,c are (num_layers, batch, hidden)
     #[allow(clippy::type_complexity)]
+    #[tracing::instrument(skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -371,6 +376,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
         Ok(Self { forward_layers, backward_layers, hidden_size })
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let seq_len = x.dim(0)?;
         let batch = x.dim(1)?;
@@ -447,6 +453,7 @@ impl<T: WithDTypeF, B: Backend> Blstm<T, B> {
     }
 
     #[allow(clippy::type_complexity)]
+    #[tracing::instrument(skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -566,6 +573,7 @@ impl<T: WithDTypeF, B: Backend> EncoderBlock<T, B> {
         Ok(Self { conv0, conv2, glu })
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let x = self.conv0.forward(x)?;
         let x = x.relu()?;
@@ -600,6 +608,7 @@ impl<T: WithDTypeF, B: Backend> DecoderBlock<T, B> {
         Ok(Self { conv0, convtr, glu, has_relu })
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let x = self.conv0.forward(x)?;
         let x = if self.glu { glu(&x, 1)? } else { x.relu()? };
@@ -612,6 +621,7 @@ impl<T: WithDTypeF, B: Backend> DecoderBlock<T, B> {
 // Fast conv for streaming (matches Python fast_conv)
 // ============================================================================
 
+#[tracing::instrument(skip_all)]
 fn fast_conv<T: WithDTypeF, B: Backend>(
     conv: &Conv1d<T, B>,
     x: &Tensor<T, B>,
@@ -718,6 +728,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
 
     /// Non-streaming forward pass
     #[allow(clippy::type_complexity)]
+    #[tracing::instrument(skip_all)]
     pub fn forward(
         &self,
         mix: &Tensor<T, B>,
@@ -876,6 +887,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
     }
 
     /// Feed audio and get processed output. wav: (chin, time)
+    #[tracing::instrument(skip_all)]
     pub fn feed(&mut self, wav: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let config = self.demucs.config.clone();
         let resample = config.resample;
@@ -989,6 +1001,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
     }
 
     /// Core streaming separation (matches Python _separate_frame)
+    #[tracing::instrument(skip_all)]
     fn separate_frame(&mut self, frame: &Tensor<T, B>) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
         let config = &self.demucs.config;
         let depth = config.depth;
