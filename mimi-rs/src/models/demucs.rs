@@ -253,6 +253,7 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
     }
 
     /// x: (batch, input), h: (batch, hidden), c: (batch, hidden)
+    #[tracing::instrument(skip_all)]
     pub fn forward_step(
         &self,
         x: &Tensor<T, B>,
@@ -299,7 +300,7 @@ impl<T: WithDTypeF, B: Backend> Lstm<T, B> {
 
     /// x: (seq_len, batch, input), state: Option<(h, c)> where h,c are (num_layers, batch, hidden)
     #[allow(clippy::type_complexity)]
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "lstm_forward", skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -377,6 +378,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
     }
 
     #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "bilstm_forward", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let seq_len = x.dim(0)?;
         let batch = x.dim(1)?;
@@ -453,7 +455,7 @@ impl<T: WithDTypeF, B: Backend> Blstm<T, B> {
     }
 
     #[allow(clippy::type_complexity)]
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "blstm_forward", skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -573,7 +575,7 @@ impl<T: WithDTypeF, B: Backend> EncoderBlock<T, B> {
         Ok(Self { conv0, conv2, glu })
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "encoder_forward", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let x = self.conv0.forward(x)?;
         let x = x.relu()?;
@@ -728,7 +730,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
 
     /// Non-streaming forward pass
     #[allow(clippy::type_complexity)]
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(name = "demucs_forward", skip_all)]
     pub fn forward(
         &self,
         mix: &Tensor<T, B>,

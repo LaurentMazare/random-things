@@ -1,4 +1,4 @@
-use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
+use crate::{shape::Dim, Backend, DType, Result, Shape, WithDType};
 
 #[derive(Clone)]
 pub struct Tensor<T: WithDType, B: Backend> {
@@ -64,6 +64,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Reshape the tensor to a new shape with the same number of elements.
+    #[tracing::instrument(skip_all)]
     pub fn reshape(&self, shape: impl crate::shape::ShapeWithOneHole) -> Result<Self> {
         let shape = shape.into_shape(self.elem_count())?;
         if shape.elem_count() != self.elem_count() {
