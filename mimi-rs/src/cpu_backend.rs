@@ -1,6 +1,9 @@
 use crate::{Result, WithDType, WithDTypeF};
 use rayon::prelude::*;
 
+const USE_IM2COL_CONV1D: bool = true;
+const USE_COL2IM_CONV1D_TR: bool = true;
+
 impl crate::Backend for crate::CpuDevice {
     type Storage<T: WithDType> = Vec<T>;
 
@@ -690,71 +693,99 @@ impl crate::Backend for crate::CpuDevice {
         dilation: usize,
         groups: usize,
     ) -> Result<()> {
-        let in_c_per_group = in_channels / groups;
+        if USE_IM2COL_CONV1D && groups == 1 {
+            // IM2COL approach: transform conv1d into matrix multiplication
+            // 1. Im2Col: transform input [B, C, L] -> [B, L_out, C * K]
+            // 2. Matmul: [B, L_out, C*K] x [C*K, out_channels] -> [B, L_out, out_channels]
+            // 3. Transpose result to [B, out_channels, L_out]
 
-        // Initialize output to zero
-        dst.iter_mut().for_each(|v| *v = T::zero());
+            let k = in_channels * kernel_size;
 
-        // Reorder input from [B, C, L] to [B, L, C] for better memory access in the inner loop
-        let mut src_reordered = vec![T::zero(); batch * length * in_channels];
-        for b in 0..batch {
-            for l in 0..length {
-                for c in 0..in_channels {
-                    let src_idx = b * in_channels * length + c * length + l;
-                    let dst_idx = b * length * in_channels + l * in_channels + c;
-                    src_reordered[dst_idx] = src[src_idx];
+            // Step 1: Im2Col transformation
+            let col = im2col1d(
+                src,
+                batch,
+                in_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+            );
+
+            // Step 2: Matrix multiplication
+            // col is [B, L_out, K] where K = in_channels * kernel_size
+            // kernel is [out_channels, in_channels, kernel_size] = [out_channels, K]
+            // We want [B, L_out, out_channels]
+            let mut result = vec![T::zero(); batch * out_length * out_channels];
+
+            for b_idx in 0..batch {
+                let col_offset = b_idx * out_length * k;
+                let res_offset = b_idx * out_length * out_channels;
+
+                // Use gemm for the matrix multiplication
+                // col[b]: [m, k] row-major where m = out_length, k = in_channels * kernel_size
+                // kernel: stored as [n, k] where n = out_channels, need to transpose to [k, n]
+                // Result: [m, n] = [out_length, out_channels]
+                unsafe {
+                    gemm::gemm(
+                        /* m */ out_length,
+                        /* n */ out_channels,
+                        /* k */ k,
+                        /* dst */ result[res_offset..].as_mut_ptr(),
+                        /* dst_cs */ 1isize,
+                        /* dst_rs */ out_channels as isize,
+                        /* read_dst */ false,
+                        /* lhs */ col[col_offset..].as_ptr(),
+                        /* lhs_cs */ 1isize,
+                        /* lhs_rs */ k as isize,
+                        /* rhs */ kernel.as_ptr(),
+                        /* rhs_cs */
+                        k as isize, // column stride: to next out_channel, jump k elements
+                        /* rhs_rs */ 1isize, // row stride: to next k element, jump 1
+                        /* alpha */ T::zero(),
+                        /* beta */ T::one(),
+                        /* conj_dst */ false,
+                        /* conj_lhs */ false,
+                        /* conj_rhs */ false,
+                        gemm::Parallelism::Rayon(get_num_threads()),
+                    )
                 }
             }
-        }
 
-        // Process each kernel offset
-        for k_offset in 0..kernel_size {
-            // Parallelize over output channels
-            (0..out_channels).into_par_iter().for_each(|out_c| {
-                let g = out_c / (out_channels / groups);
-                let in_c_start = g * in_c_per_group;
-
-                // Gather kernel weights for this output channel and kernel offset
-                // kernel layout: [out_channels, in_c_per_group, kernel_size]
-                let k_cont: Vec<T> = (0..in_c_per_group)
-                    .map(|ic| {
-                        let k_idx =
-                            out_c * in_c_per_group * kernel_size + ic * kernel_size + k_offset;
-                        kernel[k_idx]
-                    })
-                    .collect();
-
-                for b in 0..batch {
-                    let dst_base = b * out_channels * out_length + out_c * out_length;
-
-                    for ol in 0..out_length {
-                        let src_l = ol * stride + k_offset * dilation;
-
-                        // Check padding bounds
-                        if src_l < padding || src_l >= padding + length {
-                            continue;
-                        }
-                        let src_l = src_l - padding;
-
-                        // Compute dot product over input channels
-                        let src_base = b * length * in_channels + src_l * in_channels + in_c_start;
-                        let mut d = T::zero();
-                        for ic in 0..in_c_per_group {
-                            d += src_reordered[src_base + ic] * k_cont[ic];
-                        }
-
-                        // Accumulate into output
-                        // Safety: each out_c is processed by a different thread, so no races
-                        let dst_idx = dst_base + ol;
-                        unsafe {
-                            let ptr = dst.as_ptr().add(dst_idx) as *mut T;
-                            *ptr += d;
-                        }
+            // Step 3: Transpose from [B, L_out, out_channels] to [B, out_channels, L_out]
+            for b_idx in 0..batch {
+                for l_idx in 0..out_length {
+                    for c_idx in 0..out_channels {
+                        let src_idx =
+                            b_idx * out_length * out_channels + l_idx * out_channels + c_idx;
+                        let dst_idx =
+                            b_idx * out_channels * out_length + c_idx * out_length + l_idx;
+                        dst[dst_idx] = result[src_idx];
                     }
                 }
-            });
+            }
+
+            Ok(())
+        } else {
+            // Fallback: original implementation for grouped convolutions
+            conv1d_direct(
+                dst,
+                src,
+                kernel,
+                batch,
+                in_channels,
+                out_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+                groups,
+            )
         }
-        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -770,77 +801,350 @@ impl crate::Backend for crate::CpuDevice {
         kernel_size: usize,
         stride: usize,
         padding: usize,
-        _output_padding: usize,
+        output_padding: usize,
         groups: usize,
     ) -> Result<()> {
-        let in_c_per_group = in_channels / groups;
-        let out_c_per_group = out_channels / groups;
+        // COL2IM approach can be used when:
+        // - groups == 1
+        // - padding == 0
+        // - output_padding == 0
+        let can_use_col2im = groups == 1 && padding == 0 && output_padding == 0;
 
-        // Initialize output to zero
-        dst.iter_mut().for_each(|v| *v = T::zero());
+        if USE_COL2IM_CONV1D_TR && can_use_col2im {
+            // COL2IM approach: matmul + col2im transformation
+            // 1. Transpose input from [B, C_in, L_in] to [B, L_in, C_in]
+            // 2. Matmul: [B, L_in, C_in] @ [C_in, C_out * K] -> [B, L_in, C_out * K]
+            // 3. Col2Im: [B, L_in, C_out, K] -> [B, C_out, L_out]
 
-        // Reorder input from [B, C, L] to [B, L, C] for contiguous memory access
-        let mut src_reordered = vec![T::zero(); batch * length * in_channels];
-        for b in 0..batch {
-            for l in 0..length {
-                for c in 0..in_channels {
-                    let src_idx = b * in_channels * length + c * length + l;
-                    let dst_idx = b * length * in_channels + l * in_channels + c;
-                    src_reordered[dst_idx] = src[src_idx];
+            // Step 1: Transpose input to [B, L_in, C_in]
+            let mut src_transposed = vec![T::zero(); batch * length * in_channels];
+            for b in 0..batch {
+                for l in 0..length {
+                    for c in 0..in_channels {
+                        let src_idx = b * in_channels * length + c * length + l;
+                        let dst_idx = b * length * in_channels + l * in_channels + c;
+                        src_transposed[dst_idx] = src[src_idx];
+                    }
+                }
+            }
+
+            // Step 2: Matrix multiplication
+            // src_transposed: [B, L_in, C_in]
+            // kernel: [C_in, C_out, K] stored row-major, treat as [C_in, C_out * K]
+            // result: [B, L_in, C_out * K]
+            let n = out_channels * kernel_size;
+            let mut col = vec![T::zero(); batch * length * n];
+
+            for b_idx in 0..batch {
+                let src_offset = b_idx * length * in_channels;
+                let col_offset = b_idx * length * n;
+
+                // gemm: [L_in, C_in] @ [C_in, C_out * K] -> [L_in, C_out * K]
+                unsafe {
+                    gemm::gemm(
+                        /* m */ length,
+                        /* n */ n,
+                        /* k */ in_channels,
+                        /* dst */ col[col_offset..].as_mut_ptr(),
+                        /* dst_cs */ 1isize,
+                        /* dst_rs */ n as isize,
+                        /* read_dst */ false,
+                        /* lhs */ src_transposed[src_offset..].as_ptr(),
+                        /* lhs_cs */ 1isize,
+                        /* lhs_rs */ in_channels as isize,
+                        /* rhs */ kernel.as_ptr(),
+                        /* rhs_cs */ 1isize,
+                        /* rhs_rs */ n as isize,
+                        /* alpha */ T::zero(),
+                        /* beta */ T::one(),
+                        /* conj_dst */ false,
+                        /* conj_lhs */ false,
+                        /* conj_rhs */ false,
+                        gemm::Parallelism::Rayon(get_num_threads()),
+                    )
+                }
+            }
+
+            // Step 3: Col2Im transformation
+            // col is [B, L_in, C_out * K] = [B, L_in, C_out, K]
+            // output is [B, C_out, L_out]
+            col2im1d(dst, &col, batch, length, out_channels, kernel_size, stride);
+
+            Ok(())
+        } else {
+            // Fallback: original implementation for grouped convolutions or with padding
+            conv_transpose1d_direct(
+                dst,
+                src,
+                kernel,
+                batch,
+                in_channels,
+                out_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+                padding,
+                output_padding,
+                groups,
+            )
+        }
+    }
+}
+
+/// Im2Col transformation for 1D convolution.
+/// Transforms input from [B, C, L] to [B, L_out, C * K] for matrix multiplication.
+#[allow(clippy::too_many_arguments)]
+fn im2col1d<T: WithDTypeF>(
+    src: &[T],
+    batch: usize,
+    in_channels: usize,
+    length: usize,
+    l_out: usize,
+    l_k: usize,
+    stride: usize,
+    padding: usize,
+    dilation: usize,
+) -> Vec<T> {
+    let k = in_channels * l_k;
+    let mut dst = vec![T::zero(); batch * l_out * k];
+
+    for b_idx in 0..batch {
+        let src_b_offset = b_idx * in_channels * length;
+        let dst_b_offset = b_idx * l_out * k;
+
+        for l_idx in 0..l_out {
+            let dst_l_offset = dst_b_offset + l_idx * k;
+
+            for c_idx in 0..in_channels {
+                let src_c_offset = src_b_offset + c_idx * length;
+                let dst_c_offset = dst_l_offset + c_idx * l_k;
+
+                for l_k_idx in 0..l_k {
+                    let src_l = l_idx * stride + l_k_idx * dilation;
+
+                    // Handle padding
+                    if src_l < padding || src_l >= length + padding {
+                        // Zero padding - already initialized to zero
+                        continue;
+                    }
+                    let src_l = src_l - padding;
+
+                    let src_idx = src_c_offset + src_l;
+                    let dst_idx = dst_c_offset + l_k_idx;
+                    dst[dst_idx] = src[src_idx];
                 }
             }
         }
+    }
 
-        // Process each kernel offset
-        for k_offset in 0..kernel_size {
-            // Parallelize over output channels
-            (0..out_channels).into_par_iter().for_each(|out_c| {
-                let g = out_c / out_c_per_group;
-                let oc_in_group = out_c % out_c_per_group;
-                let in_c_start = g * in_c_per_group;
+    dst
+}
 
-                // Gather kernel weights for this output channel and kernel offset
-                // Kernel layout: [in_channels, out_channels/groups, kernel_size]
-                let k_cont: Vec<T> = (0..in_c_per_group)
-                    .map(|ic| {
-                        let in_c = in_c_start + ic;
-                        let k_idx = in_c * out_c_per_group * kernel_size
-                            + oc_in_group * kernel_size
-                            + k_offset;
-                        kernel[k_idx]
-                    })
-                    .collect();
+/// Direct conv1d implementation (fallback for grouped convolutions).
+#[allow(clippy::too_many_arguments)]
+fn conv1d_direct<T: WithDTypeF>(
+    dst: &mut [T],
+    src: &[T],
+    kernel: &[T],
+    batch: usize,
+    in_channels: usize,
+    out_channels: usize,
+    length: usize,
+    out_length: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: usize,
+    dilation: usize,
+    groups: usize,
+) -> crate::Result<()> {
+    let in_c_per_group = in_channels / groups;
 
-                for b in 0..batch {
-                    for il in 0..length {
-                        let out_pos_raw = il * stride + k_offset;
+    // Initialize output to zero
+    dst.iter_mut().for_each(|v| *v = T::zero());
 
-                        // Check padding bounds
-                        if out_pos_raw < padding || out_pos_raw >= out_length + padding {
-                            continue;
-                        }
-                        let out_pos = out_pos_raw - padding;
+    // Reorder input from [B, C, L] to [B, L, C] for better memory access in the inner loop
+    let mut src_reordered = vec![T::zero(); batch * length * in_channels];
+    for b in 0..batch {
+        for l in 0..length {
+            for c in 0..in_channels {
+                let src_idx = b * in_channels * length + c * length + l;
+                let dst_idx = b * length * in_channels + l * in_channels + c;
+                src_reordered[dst_idx] = src[src_idx];
+            }
+        }
+    }
 
-                        // Compute dot product over input channels
-                        let src_base = b * length * in_channels + il * in_channels + in_c_start;
-                        let mut d = T::zero();
-                        for ic in 0..in_c_per_group {
-                            d += src_reordered[src_base + ic] * k_cont[ic];
-                        }
+    // Process each kernel offset
+    for k_offset in 0..kernel_size {
+        // Parallelize over output channels
+        (0..out_channels).into_par_iter().for_each(|out_c| {
+            let g = out_c / (out_channels / groups);
+            let in_c_start = g * in_c_per_group;
 
-                        // Accumulate into output
-                        // Safety: each out_c is processed by a different thread, so no races
-                        let dst_idx = b * out_channels * out_length + out_c * out_length + out_pos;
-                        unsafe {
-                            let ptr = dst.as_ptr().add(dst_idx) as *mut T;
-                            *ptr += d;
-                        }
+            // Gather kernel weights for this output channel and kernel offset
+            // kernel layout: [out_channels, in_c_per_group, kernel_size]
+            let k_cont: Vec<T> = (0..in_c_per_group)
+                .map(|ic| {
+                    let k_idx = out_c * in_c_per_group * kernel_size + ic * kernel_size + k_offset;
+                    kernel[k_idx]
+                })
+                .collect();
+
+            for b in 0..batch {
+                let dst_base = b * out_channels * out_length + out_c * out_length;
+
+                for ol in 0..out_length {
+                    let src_l = ol * stride + k_offset * dilation;
+
+                    // Check padding bounds
+                    if src_l < padding || src_l >= padding + length {
+                        continue;
+                    }
+                    let src_l = src_l - padding;
+
+                    // Compute dot product over input channels
+                    let src_base = b * length * in_channels + src_l * in_channels + in_c_start;
+                    let mut d = T::zero();
+                    for ic in 0..in_c_per_group {
+                        d += src_reordered[src_base + ic] * k_cont[ic];
+                    }
+
+                    // Accumulate into output
+                    // Safety: each out_c is processed by a different thread, so no races
+                    let dst_idx = dst_base + ol;
+                    unsafe {
+                        let ptr = dst.as_ptr().add(dst_idx) as *mut T;
+                        *ptr += d;
                     }
                 }
-            });
-        }
-        Ok(())
+            }
+        });
     }
+    Ok(())
+}
+
+/// Col2Im transformation for 1D transposed convolution.
+/// Transforms col from [B, L_in, C_out, K] to output [B, C_out, L_out].
+/// Following the reference implementation closely.
+#[allow(clippy::too_many_arguments)]
+fn col2im1d<T: WithDTypeF>(
+    dst: &mut [T],
+    col: &[T],
+    b_size: usize,
+    l_in: usize,
+    c_out: usize,
+    k_size: usize,
+    stride: usize,
+) {
+    let l_out = (l_in - 1) * stride + k_size;
+
+    // Initialize output to zero
+    dst.iter_mut().for_each(|v| *v = T::zero());
+
+    // Strides for destination [B, C_out, L_out]
+    let (dst_s0, dst_s1) = (c_out * l_out, l_out);
+
+    // Strides for source [B, L_in, C_out, K] stored as [B, L_in, C_out * K]
+    let (src_s0, src_s1, src_s2) = (c_out * k_size * l_in, c_out * k_size, k_size);
+
+    for l_in_i in 0..l_in {
+        for k_i in 0..k_size {
+            let l_out_i = l_in_i * stride + k_i;
+            for b_i in 0..b_size {
+                for c_i in 0..c_out {
+                    let dst_idx = b_i * dst_s0 + c_i * dst_s1 + l_out_i;
+                    let src_idx = b_i * src_s0 + l_in_i * src_s1 + c_i * src_s2 + k_i;
+                    dst[dst_idx] += col[src_idx];
+                }
+            }
+        }
+    }
+}
+
+/// Direct conv_transpose1d implementation (fallback for grouped convolutions or with padding).
+#[allow(clippy::too_many_arguments)]
+fn conv_transpose1d_direct<T: WithDTypeF>(
+    dst: &mut [T],
+    src: &[T],
+    kernel: &[T],
+    batch: usize,
+    in_channels: usize,
+    out_channels: usize,
+    length: usize,
+    out_length: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: usize,
+    _output_padding: usize,
+    groups: usize,
+) -> crate::Result<()> {
+    let in_c_per_group = in_channels / groups;
+    let out_c_per_group = out_channels / groups;
+
+    // Initialize output to zero
+    dst.iter_mut().for_each(|v| *v = T::zero());
+
+    // Reorder input from [B, C, L] to [B, L, C] for contiguous memory access
+    let mut src_reordered = vec![T::zero(); batch * length * in_channels];
+    for b in 0..batch {
+        for l in 0..length {
+            for c in 0..in_channels {
+                let src_idx = b * in_channels * length + c * length + l;
+                let dst_idx = b * length * in_channels + l * in_channels + c;
+                src_reordered[dst_idx] = src[src_idx];
+            }
+        }
+    }
+
+    // Process each kernel offset
+    for k_offset in 0..kernel_size {
+        // Parallelize over output channels
+        (0..out_channels).into_par_iter().for_each(|out_c| {
+            let g = out_c / out_c_per_group;
+            let oc_in_group = out_c % out_c_per_group;
+            let in_c_start = g * in_c_per_group;
+
+            // Gather kernel weights for this output channel and kernel offset
+            // Kernel layout: [in_channels, out_channels/groups, kernel_size]
+            let k_cont: Vec<T> = (0..in_c_per_group)
+                .map(|ic| {
+                    let in_c = in_c_start + ic;
+                    let k_idx =
+                        in_c * out_c_per_group * kernel_size + oc_in_group * kernel_size + k_offset;
+                    kernel[k_idx]
+                })
+                .collect();
+
+            for b in 0..batch {
+                for il in 0..length {
+                    let out_pos_raw = il * stride + k_offset;
+
+                    // Check padding bounds
+                    if out_pos_raw < padding || out_pos_raw >= out_length + padding {
+                        continue;
+                    }
+                    let out_pos = out_pos_raw - padding;
+
+                    // Compute dot product over input channels
+                    let src_base = b * length * in_channels + il * in_channels + in_c_start;
+                    let mut d = T::zero();
+                    for ic in 0..in_c_per_group {
+                        d += src_reordered[src_base + ic] * k_cont[ic];
+                    }
+
+                    // Accumulate into output
+                    // Safety: each out_c is processed by a different thread, so no races
+                    let dst_idx = b * out_channels * out_length + out_c * out_length + out_pos;
+                    unsafe {
+                        let ptr = dst.as_ptr().add(dst_idx) as *mut T;
+                        *ptr += d;
+                    }
+                }
+            }
+        });
+    }
+    Ok(())
 }
 
 /// Helper function for broadcast binary operations.
