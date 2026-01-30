@@ -83,7 +83,7 @@ impl Config {
 // ============================================================================
 
 #[tracing::instrument(skip_all)]
-fn hann_window<T: WithDTypeF, B: Backend>(size: usize, device: &B) -> Result<Tensor<T, B>> {
+fn hann_window<T: WithDTypeF, B: Backend>(size: usize, device: &B) -> Result<Tensor<'static, T, B>> {
     let mut data = Vec::with_capacity(size);
     let pi = std::f32::consts::PI;
     for i in 0..size {
@@ -103,7 +103,7 @@ fn compute_sinc(t: f32) -> f32 {
 pub fn kernel_upsample2<T: WithDTypeF, B: Backend>(
     zeros: usize,
     device: &B,
-) -> Result<Tensor<T, B>> {
+) -> Result<Tensor<'static, T, B>> {
     let win = hann_window::<T, B>(4 * zeros + 1, device)?;
     let win_vec = win.to_vec()?;
     // winodd = win[1::2]
@@ -125,15 +125,15 @@ pub fn kernel_upsample2<T: WithDTypeF, B: Backend>(
 pub fn kernel_downsample2<T: WithDTypeF, B: Backend>(
     zeros: usize,
     device: &B,
-) -> Result<Tensor<T, B>> {
+) -> Result<Tensor<'static, T, B>> {
     kernel_upsample2(zeros, device)
 }
 
 #[tracing::instrument(skip_all)]
 pub fn upsample2<T: WithDTypeF, B: Backend>(
-    x: &Tensor<T, B>,
+    x: &Tensor<'_, T, B>,
     zeros: usize,
-) -> Result<Tensor<T, B>> {
+) -> Result<Tensor<'static, T, B>> {
     let dims = x.dims();
     let time = dims[dims.len() - 1];
     let kernel = kernel_upsample2::<T, B>(zeros, x.device())?;
@@ -159,9 +159,9 @@ pub fn upsample2<T: WithDTypeF, B: Backend>(
 
 #[tracing::instrument(skip_all)]
 pub fn downsample2<T: WithDTypeF, B: Backend>(
-    x: &Tensor<T, B>,
+    x: &Tensor<'_, T, B>,
     zeros: usize,
-) -> Result<Tensor<T, B>> {
+) -> Result<Tensor<'static, T, B>> {
     let dims = x.dims();
     let mut time = dims[dims.len() - 1];
 
@@ -215,10 +215,10 @@ pub fn downsample2<T: WithDTypeF, B: Backend>(
 // ============================================================================
 
 pub struct LstmCell<T: WithDTypeF, B: Backend> {
-    weight_ih: Tensor<T, B>,
-    weight_hh: Tensor<T, B>,
-    bias_ih: Tensor<T, B>,
-    bias_hh: Tensor<T, B>,
+    weight_ih: Tensor<'static, T, B>,
+    weight_hh: Tensor<'static, T, B>,
+    bias_ih: Tensor<'static, T, B>,
+    bias_hh: Tensor<'static, T, B>,
     hidden_size: usize,
 }
 
@@ -256,10 +256,10 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
     #[tracing::instrument(skip_all)]
     pub fn forward_step(
         &self,
-        x: &Tensor<T, B>,
-        h: &Tensor<T, B>,
-        c: &Tensor<T, B>,
-    ) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
+        x: &Tensor<'_, T, B>,
+        h: &Tensor<'_, T, B>,
+        c: &Tensor<'_, T, B>,
+    ) -> Result<(Tensor<'static, T, B>, Tensor<'static, T, B>)> {
         let gates_ih = x.matmul_t(&self.weight_ih)?;
         let gates_hh = h.matmul_t(&self.weight_hh)?;
         let bias_ih = self.bias_ih.reshape((1, 4 * self.hidden_size))?;
@@ -303,9 +303,9 @@ impl<T: WithDTypeF, B: Backend> Lstm<T, B> {
     #[tracing::instrument(name = "lstm_forward", skip_all)]
     pub fn forward(
         &self,
-        x: &Tensor<T, B>,
-        state: Option<(Tensor<T, B>, Tensor<T, B>)>,
-    ) -> Result<(Tensor<T, B>, (Tensor<T, B>, Tensor<T, B>))> {
+        x: &Tensor<'_, T, B>,
+        state: Option<(Tensor<'static, T, B>, Tensor<'static, T, B>)>,
+    ) -> Result<(Tensor<'static, T, B>, (Tensor<'static, T, B>, Tensor<'static, T, B>))> {
         let seq_len = x.dim(0)?;
         let batch = x.dim(1)?;
         let num_layers = self.layers.len();
@@ -379,7 +379,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
 
     #[tracing::instrument(skip_all)]
     #[tracing::instrument(name = "bilstm_forward", skip_all)]
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let seq_len = x.dim(0)?;
         let batch = x.dim(1)?;
         let num_layers = self.forward_layers.len();
@@ -458,9 +458,9 @@ impl<T: WithDTypeF, B: Backend> Blstm<T, B> {
     #[tracing::instrument(name = "blstm_forward", skip_all)]
     pub fn forward(
         &self,
-        x: &Tensor<T, B>,
-        state: Option<(Tensor<T, B>, Tensor<T, B>)>,
-    ) -> Result<(Tensor<T, B>, Option<(Tensor<T, B>, Tensor<T, B>)>)> {
+        x: &Tensor<'_, T, B>,
+        state: Option<(Tensor<'static, T, B>, Tensor<'static, T, B>)>,
+    ) -> Result<(Tensor<'static, T, B>, Option<(Tensor<'static, T, B>, Tensor<'static, T, B>)>)> {
         match &self.inner {
             BlstmInner::Bidirectional { lstm, linear } => {
                 let y = lstm.forward(x)?;
@@ -484,8 +484,8 @@ impl<T: WithDTypeF, B: Backend> Blstm<T, B> {
 // ============================================================================
 
 pub struct Conv1d<T: WithDTypeF, B: Backend> {
-    pub weight: Tensor<T, B>,
-    pub bias: Option<Tensor<T, B>>,
+    pub weight: Tensor<'static, T, B>,
+    pub bias: Option<Tensor<'static, T, B>>,
     pub stride: usize,
     pub out_channels: usize,
     pub in_channels: usize,
@@ -506,14 +506,14 @@ impl<T: WithDTypeF, B: Backend> Conv1d<T, B> {
         Ok(Self { weight, bias, stride, out_channels, in_channels, kernel_size })
     }
 
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         x.conv1d(&self.weight, self.bias.as_ref(), self.stride, 0, 1, 1)
     }
 }
 
 pub struct ConvTranspose1d<T: WithDTypeF, B: Backend> {
-    pub weight: Tensor<T, B>,
-    pub bias: Option<Tensor<T, B>>,
+    pub weight: Tensor<'static, T, B>,
+    pub bias: Option<Tensor<'static, T, B>>,
     pub stride: usize,
 }
 
@@ -531,7 +531,7 @@ impl<T: WithDTypeF, B: Backend> ConvTranspose1d<T, B> {
         Ok(Self { weight, bias, stride })
     }
 
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         x.conv_transpose1d(&self.weight, self.bias.as_ref(), self.stride, 0, 0, 1)
     }
 }
@@ -540,7 +540,7 @@ impl<T: WithDTypeF, B: Backend> ConvTranspose1d<T, B> {
 // GLU activation
 // ============================================================================
 
-fn glu<T: WithDTypeF, B: Backend>(x: &Tensor<T, B>, dim: usize) -> Result<Tensor<T, B>> {
+fn glu<T: WithDTypeF, B: Backend>(x: &Tensor<'_, T, B>, dim: usize) -> Result<Tensor<'static, T, B>> {
     let size = x.dim(dim)?;
     let half = size / 2;
     let a = x.narrow(dim, 0, half)?;
@@ -576,7 +576,7 @@ impl<T: WithDTypeF, B: Backend> EncoderBlock<T, B> {
     }
 
     #[tracing::instrument(name = "encoder_forward", skip_all)]
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let x = self.conv0.forward(x)?;
         let x = x.relu()?;
         let x = self.conv2.forward(&x)?;
@@ -611,7 +611,7 @@ impl<T: WithDTypeF, B: Backend> DecoderBlock<T, B> {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let x = self.conv0.forward(x)?;
         let x = if self.glu { glu(&x, 1)? } else { x.relu()? };
         let x = self.convtr.forward(&x)?;
@@ -626,8 +626,8 @@ impl<T: WithDTypeF, B: Backend> DecoderBlock<T, B> {
 #[tracing::instrument(skip_all)]
 fn fast_conv<T: WithDTypeF, B: Backend>(
     conv: &Conv1d<T, B>,
-    x: &Tensor<T, B>,
-) -> Result<Tensor<T, B>> {
+    x: &Tensor<'_, T, B>,
+) -> Result<Tensor<'static, T, B>> {
     let batch = x.dim(0)?;
     let length = x.dim(2)?;
     let kernel = conv.kernel_size;
@@ -733,9 +733,9 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
     #[tracing::instrument(name = "demucs_forward", skip_all)]
     pub fn forward(
         &self,
-        mix: &Tensor<T, B>,
-        lstm_state: Option<(Tensor<T, B>, Tensor<T, B>)>,
-    ) -> Result<(Tensor<T, B>, Option<(Tensor<T, B>, Tensor<T, B>)>)> {
+        mix: &Tensor<'_, T, B>,
+        lstm_state: Option<(Tensor<'static, T, B>, Tensor<'static, T, B>)>,
+    ) -> Result<(Tensor<'static, T, B>, Option<(Tensor<'static, T, B>, Tensor<'static, T, B>)>)> {
         let (std_val, mix) = if self.config.normalize {
             // Python: std = mix.std(dim=-1, keepdim=True)
             // std = sqrt(E[x^2] - E[x]^2)
@@ -817,14 +817,14 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
 
 pub struct DemucsStreamer<T: WithDTypeF, B: Backend> {
     pub demucs: Demucs<T, B>,
-    pub lstm_state: Option<(Tensor<T, B>, Tensor<T, B>)>,
-    pub conv_state: Option<Vec<Tensor<T, B>>>,
-    pub resample_in: Tensor<T, B>,
-    pub resample_out: Tensor<T, B>,
-    pub mean_variance: Tensor<T, B>,
-    pub mean_total: Tensor<T, B>,
+    pub lstm_state: Option<(Tensor<'static, T, B>, Tensor<'static, T, B>)>,
+    pub conv_state: Option<Vec<Tensor<'static, T, B>>>,
+    pub resample_in: Tensor<'static, T, B>,
+    pub resample_out: Tensor<'static, T, B>,
+    pub mean_variance: Tensor<'static, T, B>,
+    pub mean_total: Tensor<'static, T, B>,
     pub mean_decay: f32,
-    pub pending: Tensor<T, B>,
+    pub pending: Tensor<'static, T, B>,
     pub resample_lookahead: usize,
     pub resample_buffer: usize,
     pub total_length: usize,
@@ -884,13 +884,13 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
         if self.conv_state.is_none() { self.initial_frame_length } else { self.stride }
     }
 
-    fn variance(&self) -> Result<Tensor<T, B>> {
+    fn variance(&self) -> Result<Tensor<'static, T, B>> {
         self.mean_variance.broadcast_div(&self.mean_total)
     }
 
     /// Feed audio and get processed output. wav: (chin, time)
     #[tracing::instrument(skip_all)]
-    pub fn feed(&mut self, wav: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn feed(&mut self, wav: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let config = self.demucs.config.clone();
         let resample = config.resample;
 
@@ -1004,7 +1004,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
 
     /// Core streaming separation (matches Python _separate_frame)
     #[tracing::instrument(skip_all)]
-    fn separate_frame(&mut self, frame: &Tensor<T, B>) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
+    fn separate_frame(&mut self, frame: &Tensor<'_, T, B>) -> Result<(Tensor<'static, T, B>, Tensor<'static, T, B>)> {
         let config = &self.demucs.config;
         let depth = config.depth;
         let kernel_size = config.kernel_size;
@@ -1068,7 +1068,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
         let mut x = x.transpose(1, 2)?.transpose(0, 2)?;
 
         // Decoder
-        let mut extra: Option<Tensor<T, B>> = None;
+        let mut extra: Option<Tensor<'static, T, B>> = None;
 
         for (idx, decode) in self.demucs.decoder.iter().enumerate() {
             let skip = skips.pop().context("empty skips")?;
@@ -1163,7 +1163,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
         Ok((x, extra))
     }
 
-    pub fn flush(&mut self) -> Result<Tensor<T, B>> {
+    pub fn flush(&mut self) -> Result<Tensor<'static, T, B>> {
         let pending_length = self.pending.dim(1)?;
         let config = &self.demucs.config;
         let padding = Tensor::zeros((config.chin, self.total_length), self.pending.device())?;

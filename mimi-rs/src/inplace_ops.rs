@@ -1,105 +1,105 @@
 use crate::error::check_same_shape;
 use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 
-impl<T: WithDType, B: Backend> Tensor<T, B> {
-    pub fn inplace_add(&mut self, other: &Self) -> Result<()> {
+impl<'a, T: WithDType, B: Backend> Tensor<'a, T, B> {
+    pub fn inplace_add(&mut self, other: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &other.shape, "inplace_add")?;
         let len = self.elem_count();
-        B::add_assign(&mut self.data, &other.data, len)?;
+        B::add_assign(self.data.as_mut(), other.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn add_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "add_")?;
         check_same_shape(&self.shape, &lhs.shape, "add_ (output)")?;
         let len = self.elem_count();
-        B::add(&mut self.data, &lhs.data, &rhs.data, len)?;
+        B::add(self.data.as_mut(), lhs.data.as_ref(), rhs.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn mul_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn mul_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "mul_")?;
         check_same_shape(&self.shape, &lhs.shape, "mul_ (output)")?;
         let len = self.elem_count();
-        B::mul(&mut self.data, &lhs.data, &rhs.data, len)?;
+        B::mul(self.data.as_mut(), lhs.data.as_ref(), rhs.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn maximum_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn maximum_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "maximum_")?;
         check_same_shape(&self.shape, &lhs.shape, "maximum_ (output)")?;
         let len = self.elem_count();
-        B::maximum(&mut self.data, &lhs.data, &rhs.data, len)?;
+        B::maximum(self.data.as_mut(), lhs.data.as_ref(), rhs.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn minimum_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn minimum_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "minimum_")?;
         check_same_shape(&self.shape, &lhs.shape, "minimum_ (output)")?;
         let len = self.elem_count();
-        B::minimum(&mut self.data, &lhs.data, &rhs.data, len)?;
+        B::minimum(self.data.as_mut(), lhs.data.as_ref(), rhs.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn transpose_(&mut self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
+    pub fn transpose_(&mut self, src: &Tensor<'_, T, B>, dim1: usize, dim2: usize) -> Result<()> {
         let dims = src.dims();
         let len = self.elem_count();
         if dim1 == dim2 {
-            B::copy(&mut self.data, &src.data, len)?;
+            B::copy(self.data.as_mut(), src.data.as_ref(), len)?;
         } else {
-            B::transpose(&mut self.data, &src.data, dim1, dim2, dims)?;
+            B::transpose(self.data.as_mut(), src.data.as_ref(), dim1, dim2, dims)?;
         }
         Ok(())
     }
 
-    pub fn copy_(&mut self, src: &Self) -> Result<()> {
+    pub fn copy_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "copy_")?;
         let len = self.elem_count();
-        B::copy(&mut self.data, &src.data, len)?;
+        B::copy(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
     pub fn fill_(&mut self, value: T) -> Result<()> {
         let len = self.elem_count();
-        B::fill(&mut self.data, value, len)?;
+        B::fill(self.data.as_mut(), value, len)?;
         Ok(())
     }
 
-    pub fn scale_(&mut self, src: &Self, m: T) -> Result<()> {
+    pub fn scale_(&mut self, src: &Tensor<'_, T, B>, m: T) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "scale_")?;
         let len = self.elem_count();
-        B::scale(&mut self.data, &src.data, m, len)?;
+        B::scale(self.data.as_mut(), src.data.as_ref(), m, len)?;
         Ok(())
     }
 }
 
-impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
-    pub fn cos_(&mut self, src: &Self) -> Result<()> {
+impl<'a, T: WithDTypeF, B: Backend> Tensor<'a, T, B> {
+    pub fn cos_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "cos_")?;
         let len = self.elem_count();
-        B::cos(&mut self.data, &src.data, len)?;
+        B::cos(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn sin_(&mut self, src: &Self) -> Result<()> {
+    pub fn sin_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sin_")?;
         let len = self.elem_count();
-        B::sin(&mut self.data, &src.data, len)?;
+        B::sin(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn silu_(&mut self, src: &Self) -> Result<()> {
+    pub fn silu_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "silu_")?;
         let len = self.elem_count();
-        B::silu(&mut self.data, &src.data, len)?;
+        B::silu(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn softmax_(&mut self, src: &Self) -> Result<()> {
+    pub fn softmax_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "softmax_")?;
         let dim_m1 = self.shape.dims().last().copied().unwrap_or(1);
         let d = self.elem_count() / dim_m1;
-        B::softmax(&mut self.data, &src.data, dim_m1, d)?;
+        B::softmax(self.data.as_mut(), src.data.as_ref(), dim_m1, d)?;
         Ok(())
     }
 
@@ -117,11 +117,11 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
                 self.shape()
             ),
         };
-        B::apply_causality_mask(&mut self.data, bh, t1, t2, offset)?;
+        B::apply_causality_mask(self.data.as_mut(), bh, t1, t2, offset)?;
         Ok(())
     }
 
-    pub fn rms_norm_(&mut self, src: &Self, alpha: &Self, eps: f32) -> Result<()> {
+    pub fn rms_norm_(&mut self, src: &Tensor<'_, T, B>, alpha: &Tensor<'_, T, B>, eps: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rms_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("rms_norm_ eps must be positive");
@@ -130,11 +130,11 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let d = self.elem_count() / dim_m1;
         let expected_shape_alpha = dim_m1.into();
         check_same_shape(&alpha.shape, &expected_shape_alpha, "rms_norm_ alpha")?;
-        B::rms_norm(&mut self.data, &src.data, &alpha.data, dim_m1, d, eps)?;
+        B::rms_norm(self.data.as_mut(), src.data.as_ref(), alpha.data.as_ref(), dim_m1, d, eps)?;
         Ok(())
     }
 
-    pub fn layer_norm_(&mut self, src: &Self, weight: &Self, bias: &Self, eps: f32) -> Result<()> {
+    pub fn layer_norm_(&mut self, src: &Tensor<'_, T, B>, weight: &Tensor<'_, T, B>, bias: &Tensor<'_, T, B>, eps: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "layer_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("layer_norm_ eps must be positive");
@@ -144,11 +144,11 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let expected_shape = dim_m1.into();
         check_same_shape(&weight.shape, &expected_shape, "layer_norm_ weight")?;
         check_same_shape(&bias.shape, &expected_shape, "layer_norm_ bias")?;
-        B::layer_norm(&mut self.data, &src.data, &weight.data, &bias.data, dim_m1, d, eps)?;
+        B::layer_norm(self.data.as_mut(), src.data.as_ref(), weight.data.as_ref(), bias.data.as_ref(), dim_m1, d, eps)?;
         Ok(())
     }
 
-    pub fn matmul_(&mut self, lhs: &Self, rhs: &Self, rhs_t: bool) -> Result<()> {
+    pub fn matmul_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>, rhs_t: bool) -> Result<()> {
         let lhs_dims = lhs.dims();
         let rhs_dims = rhs.dims();
 
@@ -196,7 +196,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
         let (m, n, k) = (lhs_m, rhs_n, lhs_k);
         let dst_elems = lhs_batch * m * n;
-        let storage_len = B::storage_len(&self.data);
+        let storage_len = B::storage_len(self.data.as_ref());
 
         if dst_elems > storage_len {
             crate::bail!(
@@ -228,9 +228,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let b_stride = if rhs_batch == 1 { 0 } else { rhs_mat_size };
 
         B::gemm(
-            &mut self.data,
-            (&lhs.data, 0),
-            (&rhs.data, 0),
+            self.data.as_mut(),
+            (lhs.data.as_ref(), 0),
+            (rhs.data.as_ref(), 0),
             m,
             n,
             k,
@@ -244,7 +244,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn rope_(&mut self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
+    pub fn rope_(&mut self, src: &Tensor<'_, T, B>, cos: &Tensor<'_, T, B>, sin: &Tensor<'_, T, B>, pos: usize) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rope_ src")?;
         check_same_shape(&cos.shape, &sin.shape, "rope_ cos/sin")?;
         let (b, h, t, d) = self.dims4()?;
@@ -263,11 +263,11 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
                 cos.shape()
             );
         }
-        B::rope(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
+        B::rope(self.data.as_mut(), src.data.as_ref(), cos.data.as_ref(), sin.data.as_ref(), b, h, t, d, pos)?;
         Ok(())
     }
 
-    pub fn rope_i_(&mut self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
+    pub fn rope_i_(&mut self, src: &Tensor<'_, T, B>, cos: &Tensor<'_, T, B>, sin: &Tensor<'_, T, B>, pos: usize) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rope_i_ src")?;
         check_same_shape(&cos.shape, &sin.shape, "rope_i_ cos/sin")?;
         let (b, h, t, d) = self.dims4()?;
@@ -286,114 +286,114 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
                 cos.shape()
             );
         }
-        B::rope_i(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
+        B::rope_i(self.data.as_mut(), src.data.as_ref(), cos.data.as_ref(), sin.data.as_ref(), b, h, t, d, pos)?;
         Ok(())
     }
 
-    pub fn sqr_(&mut self, src: &Self) -> Result<()> {
+    pub fn sqr_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sqr_")?;
         let len = self.elem_count();
-        B::sqr(&mut self.data, &src.data, len)?;
+        B::sqr(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn sqrt_(&mut self, src: &Self) -> Result<()> {
+    pub fn sqrt_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sqrt_")?;
         let len = self.elem_count();
-        B::sqrt(&mut self.data, &src.data, len)?;
+        B::sqrt(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn abs_(&mut self, src: &Self) -> Result<()> {
+    pub fn abs_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "abs_")?;
         let len = self.elem_count();
-        B::abs(&mut self.data, &src.data, len)?;
+        B::abs(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn gelu_erf_(&mut self, src: &Self) -> Result<()> {
+    pub fn gelu_erf_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "gelu_erf_")?;
         let len = self.elem_count();
-        B::gelu_erf(&mut self.data, &src.data, len)?;
+        B::gelu_erf(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn elu_(&mut self, src: &Self, alpha: f32) -> Result<()> {
+    pub fn elu_(&mut self, src: &Tensor<'_, T, B>, alpha: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "elu_")?;
         let len = self.elem_count();
-        B::elu(&mut self.data, &src.data, alpha, len)?;
+        B::elu(self.data.as_mut(), src.data.as_ref(), alpha, len)?;
         Ok(())
     }
 
-    pub fn relu_(&mut self, src: &Self) -> Result<()> {
+    pub fn relu_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "relu_")?;
         let len = self.elem_count();
-        B::relu(&mut self.data, &src.data, len)?;
+        B::relu(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn tanh_(&mut self, src: &Self) -> Result<()> {
+    pub fn tanh_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "tanh_")?;
         let len = self.elem_count();
-        B::tanh(&mut self.data, &src.data, len)?;
+        B::tanh(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn sigmoid_(&mut self, src: &Self) -> Result<()> {
+    pub fn sigmoid_(&mut self, src: &Tensor<'_, T, B>) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sigmoid_")?;
         let len = self.elem_count();
-        B::sigmoid(&mut self.data, &src.data, len)?;
+        B::sigmoid(self.data.as_mut(), src.data.as_ref(), len)?;
         Ok(())
     }
 
-    pub fn reduce_max_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_max_(&mut self, src: &Tensor<'_, T, B>, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_max(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        B::reduce_max(self.data.as_mut(), src.data.as_ref(), dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
-    pub fn reduce_min_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_min_(&mut self, src: &Tensor<'_, T, B>, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_min(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        B::reduce_min(self.data.as_mut(), src.data.as_ref(), dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
     pub fn reduce_argmin_<U: crate::WithDTypeF>(
-        dst: &mut Tensor<i64, B>,
-        src: &Tensor<U, B>,
+        dst: &mut Tensor<'_, i64, B>,
+        src: &Tensor<'_, U, B>,
         dim: usize,
     ) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_argmin(&mut dst.data, &src.data, dim_size, outer_size, inner_size)?;
+        B::reduce_argmin(dst.data.as_mut(), src.data.as_ref(), dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
-    pub fn reduce_sum_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_sum_(&mut self, src: &Tensor<'_, T, B>, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_sum(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        B::reduce_sum(self.data.as_mut(), src.data.as_ref(), dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
-    pub fn broadcast_add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_add_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
         B::broadcast_add(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            self.data.as_mut(),
+            lhs.data.as_ref(),
+            rhs.data.as_ref(),
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -401,14 +401,14 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_sub_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_sub_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
         B::broadcast_sub(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            self.data.as_mut(),
+            lhs.data.as_ref(),
+            rhs.data.as_ref(),
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -416,14 +416,14 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_mul_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_mul_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
         B::broadcast_mul(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            self.data.as_mut(),
+            lhs.data.as_ref(),
+            rhs.data.as_ref(),
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -431,14 +431,14 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_div_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_div_(&mut self, lhs: &Tensor<'_, T, B>, rhs: &Tensor<'_, T, B>) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
         B::broadcast_div(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            self.data.as_mut(),
+            lhs.data.as_ref(),
+            rhs.data.as_ref(),
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -449,8 +449,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     #[allow(clippy::too_many_arguments)]
     pub fn conv1d_(
         &mut self,
-        src: &Self,
-        kernel: &Self,
+        src: &Tensor<'_, T, B>,
+        kernel: &Tensor<'_, T, B>,
         stride: usize,
         padding: usize,
         dilation: usize,
@@ -490,9 +490,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         }
 
         B::conv1d(
-            &mut self.data,
-            &src.data,
-            &kernel.data,
+            self.data.as_mut(),
+            src.data.as_ref(),
+            kernel.data.as_ref(),
             batch,
             in_channels,
             out_channels,
@@ -509,8 +509,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     #[allow(clippy::too_many_arguments)]
     pub fn conv_transpose1d_(
         &mut self,
-        src: &Self,
-        kernel: &Self,
+        src: &Tensor<'_, T, B>,
+        kernel: &Tensor<'_, T, B>,
         stride: usize,
         padding: usize,
         output_padding: usize,
@@ -551,9 +551,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         }
 
         B::conv_transpose1d(
-            &mut self.data,
-            &src.data,
-            &kernel.data,
+            self.data.as_mut(),
+            src.data.as_ref(),
+            kernel.data.as_ref(),
             batch,
             in_channels,
             out_channels,

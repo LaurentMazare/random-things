@@ -143,12 +143,12 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
 
     pub fn forward(
         &self,
-        x: &Tensor<T, B>,
-        cos: &Tensor<T, B>,
-        sin: &Tensor<T, B>,
+        x: &Tensor<'_, T, B>,
+        cos: &Tensor<'_, T, B>,
+        sin: &Tensor<'_, T, B>,
         pos: usize,
-        kv_cache: Option<(&Tensor<T, B>, &Tensor<T, B>)>,
-    ) -> Result<(Tensor<T, B>, Tensor<T, B>, Tensor<T, B>)> {
+        kv_cache: Option<(&Tensor<'_, T, B>, &Tensor<'_, T, B>)>,
+    ) -> Result<(Tensor<'static, T, B>, Tensor<'static, T, B>, Tensor<'static, T, B>)> {
         let (b, seq_len, _hidden) = x.dims3()?;
 
         // Project to Q, K, V
@@ -214,7 +214,7 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         Ok((output, k_cache, v_cache))
     }
 
-    fn repeat_kv(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    fn repeat_kv(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         if self.num_kv_groups == 1 {
             return x.copy();
         }
@@ -251,7 +251,7 @@ impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
         Ok(Self::new(gate_proj, up_proj, down_proj))
     }
 
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, x: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         // SwiGLU: down_proj(silu(gate_proj(x)) * up_proj(x))
         let gate = self.gate_proj.forward(x)?;
         let gate = gate.silu()?;
@@ -294,12 +294,12 @@ impl<T: WithDTypeF, B: Backend> TransformerBlock<T, B> {
 
     pub fn forward(
         &self,
-        x: &Tensor<T, B>,
-        cos: &Tensor<T, B>,
-        sin: &Tensor<T, B>,
+        x: &Tensor<'_, T, B>,
+        cos: &Tensor<'_, T, B>,
+        sin: &Tensor<'_, T, B>,
         pos: usize,
-        kv_cache: Option<(&Tensor<T, B>, &Tensor<T, B>)>,
-    ) -> Result<(Tensor<T, B>, Tensor<T, B>, Tensor<T, B>)> {
+        kv_cache: Option<(&Tensor<'_, T, B>, &Tensor<'_, T, B>)>,
+    ) -> Result<(Tensor<'static, T, B>, Tensor<'static, T, B>, Tensor<'static, T, B>)> {
         // Pre-norm architecture
         let residual = x;
         let x = self.input_layernorm.forward(x)?;
@@ -316,26 +316,26 @@ impl<T: WithDTypeF, B: Backend> TransformerBlock<T, B> {
 }
 
 pub struct Llama<T: WithDTypeF, B: Backend> {
-    embed_tokens: Tensor<T, B>,
+    embed_tokens: Tensor<'static, T, B>,
     layers: Vec<TransformerBlock<T, B>>,
     norm: RmsNorm<T, B>,
     lm_head: Linear<T, B>,
-    cos_cache: Tensor<T, B>,
-    sin_cache: Tensor<T, B>,
+    cos_cache: Tensor<'static, T, B>,
+    sin_cache: Tensor<'static, T, B>,
 }
 
 pub struct KvCache<T: WithDTypeF, B: Backend> {
-    kvs: Vec<(Tensor<T, B>, Tensor<T, B>)>,
+    kvs: Vec<(Tensor<'static, T, B>, Tensor<'static, T, B>)>,
 }
 
 impl<T: WithDTypeF, B: Backend> Llama<T, B> {
     pub fn new(
-        embed_tokens: Tensor<T, B>,
+        embed_tokens: Tensor<'static, T, B>,
         layers: Vec<TransformerBlock<T, B>>,
         norm: RmsNorm<T, B>,
         lm_head: Linear<T, B>,
-        cos_cache: Tensor<T, B>,
-        sin_cache: Tensor<T, B>,
+        cos_cache: Tensor<'static, T, B>,
+        sin_cache: Tensor<'static, T, B>,
     ) -> Self {
         Self { embed_tokens, layers, norm, lm_head, cos_cache, sin_cache }
     }
@@ -374,7 +374,7 @@ impl<T: WithDTypeF, B: Backend> Llama<T, B> {
         tokens: &[u32],
         pos: usize,
         kv_caches: Option<&KvCache<T, B>>,
-    ) -> Result<(Tensor<T, B>, KvCache<T, B>)> {
+    ) -> Result<(Tensor<'static, T, B>, KvCache<T, B>)> {
         // Token embedding: (seq_len,) -> (1, seq_len, hidden_size)
         let mut x = self.embed_tokens.index_select(tokens, 0)?;
         x = x.reshape((1, tokens.len(), ()))?;
@@ -404,7 +404,7 @@ pub fn precompute_freqs_cis<T: WithDTypeF, B: Backend>(
     max_seq_len: usize,
     theta: f32,
     dev: &B,
-) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
+) -> Result<(Tensor<'static, T, B>, Tensor<'static, T, B>)> {
     let half_dim = head_dim / 2;
     let mut freqs = Vec::with_capacity(half_dim);
     for i in 0..half_dim {
