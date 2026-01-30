@@ -13,14 +13,14 @@ use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 // ============================================================================
 
 /// A tensor that may be empty, used in streaming contexts.
-pub struct StreamTensor<T: WithDType, B: Backend>(Option<Tensor<T, B>>);
+pub struct StreamTensor<T: WithDType, B: Backend>(Option<Tensor<'static, T, B>>);
 
 impl<T: WithDType, B: Backend> StreamTensor<T, B> {
     pub fn empty() -> Self {
         Self(None)
     }
 
-    pub fn from_tensor(tensor: Tensor<T, B>) -> Self {
+    pub fn from_tensor(tensor: Tensor<'static, T, B>) -> Self {
         Self(Some(tensor))
     }
 
@@ -28,11 +28,11 @@ impl<T: WithDType, B: Backend> StreamTensor<T, B> {
         self.0.is_none()
     }
 
-    pub fn as_option(&self) -> Option<&Tensor<T, B>> {
+    pub fn as_option(&self) -> Option<&Tensor<'static, T, B>> {
         self.0.as_ref()
     }
 
-    pub fn take(self) -> Option<Tensor<T, B>> {
+    pub fn take(self) -> Option<Tensor<'static, T, B>> {
         self.0
     }
 }
@@ -49,14 +49,14 @@ impl<T: WithDType, B: Backend> From<()> for StreamTensor<T, B> {
     }
 }
 
-impl<T: WithDTypeF, B: Backend> From<Tensor<T, B>> for StreamTensor<T, B> {
-    fn from(t: Tensor<T, B>) -> Self {
+impl<T: WithDTypeF, B: Backend> From<Tensor<'static, T, B>> for StreamTensor<T, B> {
+    fn from(t: Tensor<'static, T, B>) -> Self {
         Self::from_tensor(t)
     }
 }
 
-impl<T: WithDTypeF, B: Backend> From<Option<Tensor<T, B>>> for StreamTensor<T, B> {
-    fn from(t: Option<Tensor<T, B>>) -> Self {
+impl<T: WithDTypeF, B: Backend> From<Option<Tensor<'static, T, B>>> for StreamTensor<T, B> {
+    fn from(t: Option<Tensor<'static, T, B>>) -> Self {
         Self(t)
     }
 }
@@ -125,7 +125,10 @@ pub enum Activation {
 }
 
 impl Activation {
-    pub fn apply<T: WithDTypeF, B: Backend>(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn apply<T: WithDTypeF, B: Backend>(
+        &self,
+        xs: &Tensor<'_, T, B>,
+    ) -> Result<Tensor<'static, T, B>> {
         match self {
             Activation::Elu(alpha) => xs.elu(*alpha),
             Activation::Gelu => xs.gelu_erf(),
@@ -139,8 +142,8 @@ impl Activation {
 
 /// 1D Convolution.
 pub struct Conv1d<T: WithDTypeF, B: Backend> {
-    weight: Tensor<T, B>,
-    bias: Option<Tensor<T, B>>,
+    weight: Tensor<'static, T, B>,
+    bias: Option<Tensor<'static, T, B>>,
     stride: usize,
     padding: usize,
     dilation: usize,
@@ -185,7 +188,7 @@ impl<T: WithDTypeF, B: Backend> Conv1d<T, B> {
         Ok(Self { weight, bias, stride, padding, dilation, groups })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         xs.conv1d(
             &self.weight,
             self.bias.as_ref(),
@@ -199,8 +202,8 @@ impl<T: WithDTypeF, B: Backend> Conv1d<T, B> {
 
 /// 1D Transposed Convolution.
 pub struct ConvTranspose1d<T: WithDTypeF, B: Backend> {
-    weight: Tensor<T, B>,
-    bias: Option<Tensor<T, B>>,
+    weight: Tensor<'static, T, B>,
+    bias: Option<Tensor<'static, T, B>>,
     stride: usize,
     padding: usize,
     output_padding: usize,
@@ -224,7 +227,7 @@ impl<T: WithDTypeF, B: Backend> ConvTranspose1d<T, B> {
         Ok(Self { weight, bias, stride, padding, output_padding, groups })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         xs.conv_transpose1d(
             &self.weight,
             self.bias.as_ref(),
@@ -244,7 +247,7 @@ pub struct StreamableConv1d<T: WithDTypeF, B: Backend> {
     kernel_size: usize,
     stride: usize,
     dilation: usize,
-    state_prev_xs: Option<Tensor<T, B>>,
+    state_prev_xs: Option<Tensor<'static, T, B>>,
     left_pad_applied: bool,
 }
 
@@ -275,7 +278,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConv1d<T, B> {
         k_size - self.stride
     }
 
-    fn pad1d(&self, xs: &Tensor<T, B>, pad_l: usize, pad_r: usize) -> Result<Tensor<T, B>> {
+    fn pad1d(&self, xs: &Tensor<'_, T, B>, pad_l: usize, pad_r: usize) -> Result<Tensor<'static, T, B>> {
         match self.pad_mode {
             PadMode::Constant => xs.pad_with_zeros(2, pad_l, pad_r), // dim 2 = last dim for [B, C, T]
             PadMode::Replicate => xs.pad_with_same(2, pad_l, pad_r),
@@ -283,7 +286,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConv1d<T, B> {
         }
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let padding_total = self.padding_total();
         let xs = if self.causal {
             self.pad1d(xs, padding_total, 0)?
@@ -351,7 +354,7 @@ pub struct StreamableConvTranspose1d<T: WithDTypeF, B: Backend> {
     causal: bool,
     kernel_size: usize,
     stride: usize,
-    state_prev_ys: Option<Tensor<T, B>>,
+    state_prev_ys: Option<Tensor<'static, T, B>>,
 }
 
 impl<T: WithDTypeF, B: Backend> StreamableConvTranspose1d<T, B> {
@@ -364,7 +367,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConvTranspose1d<T, B> {
         Self { convtr, causal, kernel_size, stride, state_prev_ys: None }
     }
 
-    fn unpad1d(xs: &Tensor<T, B>, unpad_l: usize, unpad_r: usize) -> Result<Tensor<T, B>> {
+    fn unpad1d(xs: &Tensor<'_, T, B>, unpad_l: usize, unpad_r: usize) -> Result<Tensor<'static, T, B>> {
         let len = xs.dim(2)?;
         if len < unpad_l + unpad_r {
             crate::bail!("unpad1d: tensor len {len} is too low for unpad {unpad_l} + {unpad_r}");
@@ -372,7 +375,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConvTranspose1d<T, B> {
         xs.narrow(2, unpad_l, len - (unpad_l + unpad_r))
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let padding_total = self.kernel_size.saturating_sub(self.stride);
         let xs = self.convtr.forward(xs)?;
         if self.causal {
@@ -451,7 +454,7 @@ impl<T: WithDTypeF, B: Backend> ConvDownsample1d<T, B> {
         Ok(Self { conv })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         self.conv.forward(xs)
     }
 }
@@ -490,7 +493,7 @@ impl<T: WithDTypeF, B: Backend> ConvTrUpsample1d<T, B> {
         Ok(Self { convtr })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         self.convtr.forward(xs)
     }
 }
@@ -586,7 +589,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetResnetBlock<T, B> {
         Ok(Self { block, shortcut, activation })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let mut ys = xs.copy()?;
         for conv in &self.block {
             ys = self.activation.apply(&ys)?;
@@ -797,7 +800,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetEncoder<T, B> {
         Ok(Self { init_conv, layers, final_conv, activation: cfg.activation })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let mut xs = self.init_conv.forward(xs)?;
         for layer in &self.layers {
             for residual in &layer.residuals {
@@ -995,7 +998,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetDecoder<T, B> {
         })
     }
 
-    pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let mut xs = self.init_conv.forward(xs)?;
         for layer in &self.layers {
             xs = self.activation.apply(&xs)?;
@@ -1092,8 +1095,8 @@ pub struct TransformerConfig {
 
 // KV Cache for streaming attention
 struct KvCache<T: WithDTypeF, B: Backend> {
-    k: Option<Tensor<T, B>>,
-    v: Option<Tensor<T, B>>,
+    k: Option<Tensor<'static, T, B>>,
+    v: Option<Tensor<'static, T, B>>,
     max_seq_len: usize,
 }
 
@@ -1116,9 +1119,9 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
 
     fn append(
         &mut self,
-        new_k: &Tensor<T, B>,
-        new_v: &Tensor<T, B>,
-    ) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
+        new_k: &Tensor<'_, T, B>,
+        new_v: &Tensor<'_, T, B>,
+    ) -> Result<(Tensor<'static, T, B>, Tensor<'static, T, B>)> {
         let (k, v) = match (&self.k, &self.v) {
             (Some(prev_k), Some(prev_v)) => {
                 // Concatenate along sequence dimension (dim 2)
@@ -1146,8 +1149,8 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
 
 // Rotary position embeddings
 struct RotaryEmbedding<T: WithDTypeF, B: Backend> {
-    cos: Tensor<T, B>,
-    sin: Tensor<T, B>,
+    cos: Tensor<'static, T, B>,
+    sin: Tensor<'static, T, B>,
 }
 
 impl<T: WithDTypeF, B: Backend> RotaryEmbedding<T, B> {
@@ -1178,7 +1181,7 @@ impl<T: WithDTypeF, B: Backend> RotaryEmbedding<T, B> {
 
 // Layer scale (multiply by learned scale)
 struct LayerScale<T: WithDTypeF, B: Backend> {
-    scale: Tensor<T, B>,
+    scale: Tensor<'static, T, B>,
 }
 
 impl<T: WithDTypeF, B: Backend> LayerScale<T, B> {
@@ -1187,15 +1190,15 @@ impl<T: WithDTypeF, B: Backend> LayerScale<T, B> {
         Ok(Self { scale })
     }
 
-    fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         xs.broadcast_mul(&self.scale)
     }
 }
 
 // Normalization layer (supports both LayerNorm and RmsNorm)
 enum TransformerNorm<T: WithDTypeF, B: Backend> {
-    LayerNorm { weight: Tensor<T, B>, bias: Tensor<T, B>, eps: f32 },
-    RmsNorm { alpha: Tensor<T, B>, eps: f32 },
+    LayerNorm { weight: Tensor<'static, T, B>, bias: Tensor<'static, T, B>, eps: f32 },
+    RmsNorm { alpha: Tensor<'static, T, B>, eps: f32 },
 }
 
 impl<T: WithDTypeF, B: Backend> TransformerNorm<T, B> {
@@ -1217,7 +1220,7 @@ impl<T: WithDTypeF, B: Backend> TransformerNorm<T, B> {
         }
     }
 
-    fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         match self {
             Self::LayerNorm { weight, bias, eps } => xs.layer_norm(weight, bias, *eps),
             Self::RmsNorm { alpha, eps } => xs.rms_norm(alpha, *eps),
@@ -1227,10 +1230,10 @@ impl<T: WithDTypeF, B: Backend> TransformerNorm<T, B> {
 
 // MLP (feed-forward network)
 struct Mlp<T: WithDTypeF, B: Backend> {
-    linear1_weight: Tensor<T, B>,
-    linear1_bias: Option<Tensor<T, B>>,
-    linear2_weight: Tensor<T, B>,
-    linear2_bias: Option<Tensor<T, B>>,
+    linear1_weight: Tensor<'static, T, B>,
+    linear1_bias: Option<Tensor<'static, T, B>>,
+    linear2_weight: Tensor<'static, T, B>,
+    linear2_bias: Option<Tensor<'static, T, B>>,
 }
 
 impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
@@ -1244,7 +1247,7 @@ impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
         Ok(Self { linear1_weight, linear1_bias, linear2_weight, linear2_bias })
     }
 
-    fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    fn forward(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         // xs: [b, t, d_model]
         let mut xs = xs.matmul_t(&self.linear1_weight)?;
         if let Some(bias) = &self.linear1_bias {
@@ -1261,10 +1264,10 @@ impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
 
 // Streaming multi-head self-attention
 struct StreamingMultiheadAttention<T: WithDTypeF, B: Backend> {
-    in_proj_weight: Tensor<T, B>,
-    in_proj_bias: Option<Tensor<T, B>>,
-    out_proj_weight: Tensor<T, B>,
-    out_proj_bias: Option<Tensor<T, B>>,
+    in_proj_weight: Tensor<'static, T, B>,
+    in_proj_bias: Option<Tensor<'static, T, B>>,
+    out_proj_weight: Tensor<'static, T, B>,
+    out_proj_bias: Option<Tensor<'static, T, B>>,
     num_heads: usize,
     head_dim: usize,
     kv_cache: KvCache<T, B>,
@@ -1306,10 +1309,10 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
 
     fn forward(
         &mut self,
-        xs: &Tensor<T, B>,
+        xs: &Tensor<'_, T, B>,
         rope: Option<&RotaryEmbedding<T, B>>,
         offset: usize,
-    ) -> Result<Tensor<T, B>> {
+    ) -> Result<Tensor<'static, T, B>> {
         let (b, t, _hd) = xs.dims3()?;
 
         // Project to QKV
@@ -1407,10 +1410,10 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
 
     fn forward(
         &mut self,
-        xs: &Tensor<T, B>,
+        xs: &Tensor<'_, T, B>,
         rope: Option<&RotaryEmbedding<T, B>>,
         offset: usize,
-    ) -> Result<Tensor<T, B>> {
+    ) -> Result<Tensor<'static, T, B>> {
         // Pre-norm architecture (norm_first = true)
         // xs + layer_scale_1(self_attn(norm1(xs)))
         let norm1_out = self.norm1.forward(xs)?;
@@ -1458,7 +1461,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
         Ok(Self { layers, rope })
     }
 
-    fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    fn forward(&mut self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let offset = self.current_seq_len();
         let mut xs = xs.copy()?;
         for layer in &mut self.layers {
@@ -1480,8 +1483,8 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
 
 /// Projected transformer with input/output projections.
 pub struct Transformer<T: WithDTypeF, B: Backend> {
-    input_proj: Option<Tensor<T, B>>,
-    output_proj: Option<Tensor<T, B>>,
+    input_proj: Option<Tensor<'static, T, B>>,
+    output_proj: Option<Tensor<'static, T, B>>,
     transformer: StreamingTransformer<T, B>,
     conv_layout: bool,
 }
@@ -1510,7 +1513,7 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
         Ok(Self { input_proj, output_proj, transformer, conv_layout: cfg.conv_layout })
     }
 
-    pub fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Vec<Tensor<T, B>>> {
+    pub fn forward(&mut self, xs: &Tensor<'_, T, B>) -> Result<Vec<Tensor<'static, T, B>>> {
         // Apply conv_layout transpose if needed
         let xs = if self.conv_layout { xs.transpose(1, 2)? } else { xs.copy()? };
 
@@ -1563,8 +1566,8 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for Transformer<T, B> {
 /// Euclidean codebook for vector quantization.
 #[allow(dead_code)]
 pub struct EuclideanCodebook<T: WithDTypeF, B: Backend> {
-    embedding: Tensor<T, B>,
-    c2: Tensor<T, B>, // Precomputed: (embedding * embedding).sum(dim=-1) / 2.0
+    embedding: Tensor<'static, T, B>,
+    c2: Tensor<'static, T, B>, // Precomputed: (embedding * embedding).sum(dim=-1) / 2.0
     dim: usize,
 }
 
@@ -1588,7 +1591,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         Ok(Self { embedding, c2, dim })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+    pub fn encode(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, i64, B>> {
         // Save target shape (all dims except the last)
         let mut target_shape: Vec<usize> = xs.dims().to_vec();
         target_shape.pop();
@@ -1607,7 +1610,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         if target_shape.is_empty() { Ok(codes) } else { codes.reshape(target_shape) }
     }
 
-    pub fn decode(&self, indices: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, indices: &Tensor<'_, i64, B>) -> Result<Tensor<'static, T, B>> {
         // Save final dims: indices.dims() + [dim]
         let mut final_dims = indices.dims().to_vec();
         final_dims.push(self.dim);
@@ -1627,8 +1630,8 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
 
 /// Vector quantization layer.
 pub struct VectorQuantization<T: WithDTypeF, B: Backend> {
-    project_in: Option<Tensor<T, B>>,
-    project_out: Option<Tensor<T, B>>,
+    project_in: Option<Tensor<'static, T, B>>,
+    project_out: Option<Tensor<'static, T, B>>,
     codebook: EuclideanCodebook<T, B>,
 }
 
@@ -1652,7 +1655,7 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
         Ok(Self { project_in, project_out, codebook })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+    pub fn encode(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, i64, B>> {
         let xs = xs.t()?; // [B, C, T] -> [B, T, C]
         let xs = match &self.project_in {
             Some(proj) => xs.matmul_t(proj)?,
@@ -1661,7 +1664,7 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
         self.codebook.encode(&xs)
     }
 
-    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<'_, i64, B>) -> Result<Tensor<'static, T, B>> {
         let quantized = self.codebook.decode(codes)?;
         let quantized = match &self.project_out {
             Some(proj) => quantized.matmul_t(proj)?,
@@ -1694,7 +1697,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
         Ok(Self { layers })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+    pub fn encode(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, i64, B>> {
         let mut codes = Vec::with_capacity(self.layers.len());
         let mut residual = xs.copy()?;
         for layer in &self.layers {
@@ -1704,11 +1707,11 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
             codes.push(indices);
         }
         // Stack codes: [n_q, B, T]
-        let codes_refs: Vec<&Tensor<i64, B>> = codes.iter().collect();
+        let codes_refs: Vec<&Tensor<'static, i64, B>> = codes.iter().collect();
         Tensor::stack(&codes_refs, 0)
     }
 
-    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<'_, i64, B>) -> Result<Tensor<'static, T, B>> {
         if self.layers.is_empty() {
             crate::bail!("empty layers in ResidualVectorQuantization");
         }
@@ -1727,8 +1730,8 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
 /// Residual vector quantizer with input/output projections.
 pub struct ResidualVectorQuantizer<T: WithDTypeF, B: Backend> {
     vq: ResidualVectorQuantization<T, B>,
-    input_proj: Option<Tensor<T, B>>,
-    output_proj: Option<Tensor<T, B>>,
+    input_proj: Option<Tensor<'static, T, B>>,
+    output_proj: Option<Tensor<'static, T, B>>,
 }
 
 impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
@@ -1760,7 +1763,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
         Ok(Self { vq, input_proj, output_proj })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+    pub fn encode(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, i64, B>> {
         // xs: [B, C, T]
         let xs = match &self.input_proj {
             Some(proj) => {
@@ -1773,7 +1776,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
         codes.transpose(0, 1) // [n_q, B, T] -> [B, n_q, T]
     }
 
-    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<'_, i64, B>) -> Result<Tensor<'static, T, B>> {
         let codes = codes.transpose(0, 1)?; // [B, n_q, T] -> [n_q, B, T]
         let quantized = self.vq.decode(&codes)?;
         match &self.output_proj {
@@ -1823,7 +1826,7 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
         Ok(Self { rvq_first, rvq_rest, n_q })
     }
 
-    pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+    pub fn encode(&self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, i64, B>> {
         let codes = self.rvq_first.encode(xs)?;
         if self.n_q > 1 {
             // Encode again (not residual - semantic + acoustic split)
@@ -1834,7 +1837,7 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
         }
     }
 
-    pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&self, codes: &Tensor<'_, i64, B>) -> Result<Tensor<'static, T, B>> {
         let first_codes = codes.narrow(1, 0, 1)?;
         let quantized = self.rvq_first.decode(&first_codes)?;
         if self.n_q > 1 {
@@ -2000,7 +2003,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     }
 
     /// Encode audio to codes (non-streaming).
-    pub fn encode(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
+    pub fn encode(&mut self, xs: &Tensor<'_, T, B>) -> Result<Tensor<'static, i64, B>> {
         let xs = self.encoder.forward(xs)?;
         self.encoder_transformer.reset_state();
         let xs = self.encoder_transformer.forward(&xs)?;
@@ -2010,7 +2013,7 @@ impl<T: WithDTypeF, B: Backend> Mimi<T, B> {
     }
 
     /// Decode codes to audio (non-streaming).
-    pub fn decode(&mut self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
+    pub fn decode(&mut self, codes: &Tensor<'_, i64, B>) -> Result<Tensor<'static, T, B>> {
         let emb = self.quantizer.decode(codes)?;
         let emb = self.upsample.forward(&emb)?;
         self.decoder_transformer.reset_state();

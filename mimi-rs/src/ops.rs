@@ -24,8 +24,8 @@ fn broadcast_shape(lhs: &[usize], rhs: &[usize]) -> Result<Vec<usize>> {
 }
 
 fn check_same_shape<T: WithDType, B: Backend>(
-    a: &Tensor<T, B>,
-    b: &Tensor<T, B>,
+    a: &Tensor<'_, T, B>,
+    b: &Tensor<'_, T, B>,
     op: &'static str,
 ) -> Result<()> {
     if a.shape != b.shape {
@@ -39,15 +39,15 @@ fn check_same_shape<T: WithDType, B: Backend>(
     Ok(())
 }
 
-impl<T: WithDType, B: Backend> Tensor<T, B> {
-    pub fn add(&self, other: &Self) -> Result<Self> {
+impl<'a, T: WithDType, B: Backend> Tensor<'a, T, B> {
+    pub fn add(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         check_same_shape(self, other, "add")?;
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.add_(self, other)?;
         Ok(result)
     }
 
-    pub fn mul(&self, other: &Self) -> Result<Self> {
+    pub fn mul(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         check_same_shape(self, other, "mul")?;
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.mul_(self, other)?;
@@ -55,7 +55,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Element-wise maximum of two tensors.
-    pub fn maximum(&self, other: &Self) -> Result<Self> {
+    pub fn maximum(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         check_same_shape(self, other, "maximum")?;
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.maximum_(self, other)?;
@@ -63,14 +63,14 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Element-wise minimum of two tensors.
-    pub fn minimum(&self, other: &Self) -> Result<Self> {
+    pub fn minimum(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         check_same_shape(self, other, "minimum")?;
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.minimum_(self, other)?;
         Ok(result)
     }
 
-    pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Self> {
+    pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Tensor<'static, T, B>> {
         let dim1 = dim1.to_index(self.shape(), "transpose dim1")?;
         let dim2 = dim2.to_index(self.shape(), "transpose dim2")?;
         let mut new_dims = self.dims().to_vec();
@@ -80,31 +80,31 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
-    pub fn copy(&self) -> Result<Self> {
+    pub fn copy(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.copy_(self)?;
         Ok(result)
     }
 
-    pub fn full_like(&self, value: T) -> Result<Self> {
+    pub fn full_like(&self, value: T) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.fill_(value)?;
         Ok(result)
     }
 
-    pub fn scale(&self, m: T) -> Result<Self> {
+    pub fn scale(&self, m: T) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.scale_(self, m)?;
         Ok(result)
     }
 
     /// Flatten all dimensions into a single dimension.
-    pub fn flatten_all(&self) -> Result<Self> {
+    pub fn flatten_all(&self) -> Result<Tensor<'static, T, B>> {
         self.reshape(vec![self.elem_count()])
     }
 
     /// Flatten dimensions from start to end (inclusive) into a single dimension.
-    pub fn flatten<D: Dim>(&self, start_dim: D, end_dim: D) -> Result<Self> {
+    pub fn flatten<D: Dim>(&self, start_dim: D, end_dim: D) -> Result<Tensor<'static, T, B>> {
         let start_dim = start_dim.to_index(self.shape(), "flatten start_dim")?;
         let end_dim = end_dim.to_index(self.shape(), "flatten end_dim")?;
         let dims = self.dims();
@@ -120,12 +120,12 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Create a tensor of zeros with the same shape.
-    pub fn zeros_like(&self) -> Result<Self> {
-        Self::zeros(self.shape().clone(), self.device())
+    pub fn zeros_like(&self) -> Result<Tensor<'static, T, B>> {
+        Tensor::zeros(self.shape().clone(), self.device())
     }
 
     /// Transpose (swap last two dimensions).
-    pub fn t(&self) -> Result<Self> {
+    pub fn t(&self) -> Result<Tensor<'static, T, B>> {
         let rank = self.rank();
         if rank < 2 {
             crate::bail!("t requires at least 2 dimensions");
@@ -134,7 +134,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Unsqueeze: add a dimension of size 1 at the given position.
-    pub fn unsqueeze<D: Dim>(&self, dim: D) -> Result<Self> {
+    pub fn unsqueeze<D: Dim>(&self, dim: D) -> Result<Tensor<'static, T, B>> {
         let dim = dim.to_index_plus_one(self.shape(), "unsqueeze")?;
         let mut new_dims = self.dims().to_vec();
         new_dims.insert(dim, 1);
@@ -142,26 +142,26 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 }
 
-impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
-    pub fn cos(&self) -> Result<Self> {
+impl<'a, T: WithDTypeF, B: Backend> Tensor<'a, T, B> {
+    pub fn cos(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.cos_(self)?;
         Ok(result)
     }
 
-    pub fn sin(&self) -> Result<Self> {
+    pub fn sin(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.sin_(self)?;
         Ok(result)
     }
 
-    pub fn silu(&self) -> Result<Self> {
+    pub fn silu(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.silu_(self)?;
         Ok(result)
     }
 
-    pub fn softmax(&self) -> Result<Self> {
+    pub fn softmax(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.softmax_(self)?;
         Ok(result)
@@ -171,38 +171,38 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Shape: (batch * heads, seq_q, seq_kv) or (batch, heads, seq_q, seq_kv)
     /// Masks positions where key position > query position + offset (sets to -inf).
     /// offset: starting position of the first query token (for KV cache generation).
-    pub fn apply_causality_mask(&self, offset: usize) -> Result<Self> {
+    pub fn apply_causality_mask(&self, offset: usize) -> Result<Tensor<'static, T, B>> {
         let mut result = self.copy()?;
         result.apply_causality_mask_(offset)?;
         Ok(result)
     }
 
-    pub fn rms_norm(&self, alpha: &Self, eps: f32) -> Result<Self> {
+    pub fn rms_norm(&self, alpha: &Tensor<'_, T, B>, eps: f32) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rms_norm_(self, alpha, eps)?;
         Ok(result)
     }
 
-    pub fn layer_norm(&self, weight: &Self, bias: &Self, eps: f32) -> Result<Self> {
+    pub fn layer_norm(&self, weight: &Tensor<'_, T, B>, bias: &Tensor<'_, T, B>, eps: f32) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.layer_norm_(self, weight, bias, eps)?;
         Ok(result)
     }
 
-    pub fn rope(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
+    pub fn rope(&self, cos: &Tensor<'_, T, B>, sin: &Tensor<'_, T, B>, pos: usize) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_(self, cos, sin, pos)?;
         Ok(result)
     }
 
-    pub fn rope_i(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
+    pub fn rope_i(&self, cos: &Tensor<'_, T, B>, sin: &Tensor<'_, T, B>, pos: usize) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_i_(self, cos, sin, pos)?;
         Ok(result)
     }
 
     #[tracing::instrument(skip_all)]
-    fn matmul_with_t(&self, other: &Self, rhs_t: bool) -> Result<Self> {
+    fn matmul_with_t(&self, other: &Tensor<'_, T, B>, rhs_t: bool) -> Result<Tensor<'static, T, B>> {
         if self.shape.rank() < 2 || other.shape.rank() < 2 {
             return Err(Error::MatmulShapeMismatch {
                 lhs: self.shape.clone(),
@@ -254,16 +254,16 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         target_shape.push(rhs_n);
 
         let dev = self.device();
-        let mut result = unsafe { Self::alloc_uninit(target_shape, dev) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(target_shape, dev) }?;
         result.matmul_(self, other, rhs_t)?;
         Ok(result)
     }
 
-    pub fn matmul(&self, other: &Self) -> Result<Self> {
+    pub fn matmul(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         self.matmul_with_t(other, false)
     }
 
-    pub fn matmul_t(&self, other: &Self) -> Result<Self> {
+    pub fn matmul_t(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         self.matmul_with_t(other, true)
     }
 
@@ -278,13 +278,13 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     #[tracing::instrument(skip_all)]
     pub fn conv1d(
         &self,
-        kernel: &Self,
-        bias: Option<&Self>,
+        kernel: &Tensor<'_, T, B>,
+        bias: Option<&Tensor<'_, T, B>>,
         stride: usize,
         padding: usize,
         dilation: usize,
         groups: usize,
-    ) -> Result<Self> {
+    ) -> Result<Tensor<'static, T, B>> {
         let src_dims = self.dims();
         let kernel_dims = kernel.dims();
 
@@ -356,13 +356,13 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     #[tracing::instrument(skip_all)]
     pub fn conv_transpose1d(
         &self,
-        kernel: &Self,
-        bias: Option<&Self>,
+        kernel: &Tensor<'_, T, B>,
+        bias: Option<&Tensor<'_, T, B>>,
         stride: usize,
         padding: usize,
         output_padding: usize,
         groups: usize,
-    ) -> Result<Self> {
+    ) -> Result<Tensor<'static, T, B>> {
         let src_dims = self.dims();
         let kernel_dims = kernel.dims();
 
@@ -427,21 +427,21 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     // ========================================================================
 
     /// Element-wise square.
-    pub fn sqr(&self) -> Result<Self> {
+    pub fn sqr(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.sqr_(self)?;
         Ok(result)
     }
 
     /// Element-wise square root.
-    pub fn sqrt(&self) -> Result<Self> {
+    pub fn sqrt(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.sqrt_(self)?;
         Ok(result)
     }
 
     /// Element-wise absolute value.
-    pub fn abs(&self) -> Result<Self> {
+    pub fn abs(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.abs_(self)?;
         Ok(result)
@@ -449,7 +449,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Sum along dimensions, keeping the dimensions (with size 1).
     #[tracing::instrument(skip_all)]
-    pub fn sum_keepdim(&self, dims: impl Into<Vec<usize>>) -> Result<Self> {
+    pub fn sum_keepdim(&self, dims: impl Into<Vec<usize>>) -> Result<Tensor<'static, T, B>> {
         let mut dims: Vec<usize> = dims.into();
         // Sort dims in descending order so we can reduce from the end
         dims.sort_by(|a, b| b.cmp(a));
@@ -488,7 +488,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Maximum value along dimension.
     #[tracing::instrument(skip_all)]
-    pub fn max<D: Dim>(&self, dim: D) -> Result<Self> {
+    pub fn max<D: Dim>(&self, dim: D) -> Result<Tensor<'static, T, B>> {
         let dim = dim.to_index(self.shape(), "max dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
         out_dims.remove(dim);
@@ -502,7 +502,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Minimum value along dimension.
     #[tracing::instrument(skip_all)]
-    pub fn min<D: Dim>(&self, dim: D) -> Result<Self> {
+    pub fn min<D: Dim>(&self, dim: D) -> Result<Tensor<'static, T, B>> {
         let dim = dim.to_index(self.shape(), "min dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
         out_dims.remove(dim);
@@ -517,21 +517,21 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Argmin along dimension.
     /// Returns i64 indices.
     #[tracing::instrument(skip_all)]
-    pub fn argmin<D: Dim>(&self, dim: D) -> Result<Tensor<i64, B>> {
+    pub fn argmin<D: Dim>(&self, dim: D) -> Result<Tensor<'static, i64, B>> {
         let dim = dim.to_index(self.shape(), "argmin dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
         out_dims.remove(dim);
         if out_dims.is_empty() {
             out_dims.push(1);
         }
-        let mut result: Tensor<i64, B> = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
+        let mut result: Tensor<'static, i64, B> = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
         Self::reduce_argmin_(&mut result, self, dim)?;
         Ok(result)
     }
 
     /// Broadcast multiplication.
     #[tracing::instrument(skip_all)]
-    pub fn broadcast_mul(&self, other: &Self) -> Result<Self> {
+    pub fn broadcast_mul(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_mul_(self, other)?;
@@ -540,7 +540,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Broadcast division.
     #[tracing::instrument(skip_all)]
-    pub fn broadcast_div(&self, other: &Self) -> Result<Self> {
+    pub fn broadcast_div(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_div_(self, other)?;
@@ -549,7 +549,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Broadcast addition.
     #[tracing::instrument(skip_all)]
-    pub fn broadcast_add(&self, other: &Self) -> Result<Self> {
+    pub fn broadcast_add(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_add_(self, other)?;
@@ -558,7 +558,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Broadcast subtraction.
     #[tracing::instrument(skip_all)]
-    pub fn broadcast_sub(&self, other: &Self) -> Result<Self> {
+    pub fn broadcast_sub(&self, other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
         result.broadcast_sub_(self, other)?;
@@ -566,64 +566,64 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// GELU activation with erf.
-    pub fn gelu_erf(&self) -> Result<Self> {
+    pub fn gelu_erf(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.gelu_erf_(self)?;
         Ok(result)
     }
 
     /// ELU activation.
-    pub fn elu(&self, alpha: f32) -> Result<Self> {
+    pub fn elu(&self, alpha: f32) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.elu_(self, alpha)?;
         Ok(result)
     }
 
     /// ReLU activation.
-    pub fn relu(&self) -> Result<Self> {
+    pub fn relu(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.relu_(self)?;
         Ok(result)
     }
 
     /// Tanh activation.
-    pub fn tanh(&self) -> Result<Self> {
+    pub fn tanh(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.tanh_(self)?;
         Ok(result)
     }
 
     /// Sigmoid activation.
-    pub fn sigmoid(&self) -> Result<Self> {
+    pub fn sigmoid(&self) -> Result<Tensor<'static, T, B>> {
         let mut result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.sigmoid_(self)?;
         Ok(result)
     }
 
     /// Expand tensor to a new shape (broadcasting).
-    pub fn expand(&self, _shape: impl Into<crate::Shape>) -> Result<Self> {
+    pub fn expand(&self, _shape: impl Into<crate::Shape>) -> Result<Tensor<'static, T, B>> {
         todo!("expand")
     }
 
     /// Repeat tensor along dimensions.
-    pub fn repeat(&self, _repeats: impl Into<Vec<usize>>) -> Result<Self> {
+    pub fn repeat(&self, _repeats: impl Into<Vec<usize>>) -> Result<Tensor<'static, T, B>> {
         todo!("repeat")
     }
 
     /// Ensure tensor is contiguous in memory.
-    pub fn contiguous(&self) -> Result<Self> {
+    pub fn contiguous(&self) -> Result<Tensor<'static, T, B>> {
         todo!("contiguous")
     }
 
     /// Where condition: select from self or other based on condition.
     /// The condition should be a tensor of the same shape where non-zero values
     /// select from self, and zero values select from other.
-    pub fn where_cond(&self, _condition: &Self, _other: &Self) -> Result<Self> {
+    pub fn where_cond(&self, _condition: &Tensor<'_, T, B>, _other: &Tensor<'_, T, B>) -> Result<Tensor<'static, T, B>> {
         todo!("where_cond")
     }
 
     /// Pad with zeros along a dimension.
-    pub fn pad_with_zeros<D: Dim>(&self, dim: D, left: usize, right: usize) -> Result<Self> {
+    pub fn pad_with_zeros<D: Dim>(&self, dim: D, left: usize, right: usize) -> Result<Tensor<'static, T, B>> {
         let dim = dim.to_index(self.shape(), "pad_with_zeros")?;
         let dims = self.dims();
         let dim_size = dims[dim];
@@ -634,7 +634,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let new_shape = crate::Shape::from(new_dims);
 
         // Create output tensor filled with zeros
-        let mut result = Self::zeros(new_shape, self.device())?;
+        let mut result = Tensor::zeros(new_shape, self.device())?;
 
         if dim_size == 0 || self.elem_count() == 0 {
             return Ok(result);
@@ -646,8 +646,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let new_dim_size = dim_size + left + right;
 
         B::copy2d(
-            &mut result.data,
-            &self.data,
+            result.data.as_mut(),
+            self.data.as_ref(),
             outer_size,                // d1: number of outer blocks
             dim_size * inner_size,     // d2: elements per block
             new_dim_size * inner_size, // dst_s: stride in output
@@ -660,7 +660,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Pad by replicating boundary values.
-    pub fn pad_with_same<D: Dim>(&self, dim: D, left: usize, right: usize) -> Result<Self> {
+    pub fn pad_with_same<D: Dim>(&self, dim: D, left: usize, right: usize) -> Result<Tensor<'static, T, B>> {
         let dim = dim.to_index(self.shape(), "pad_with_same")?;
         let dims = self.dims();
         let dim_size = dims[dim];
@@ -673,7 +673,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let mut new_dims = dims.to_vec();
         new_dims[dim] = dim_size + left + right;
 
-        let mut result = unsafe { Self::alloc_uninit(new_dims, self.device()) }?;
+        let mut result = unsafe { Tensor::alloc_uninit(new_dims, self.device()) }?;
 
         let outer_size: usize = dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
@@ -681,8 +681,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
         // Copy original data to the center position
         B::copy2d(
-            &mut result.data,
-            &self.data,
+            result.data.as_mut(),
+            self.data.as_ref(),
             outer_size,                // d1: number of outer blocks
             dim_size * inner_size,     // d2: elements per block
             new_dim_size * inner_size, // dst_s: stride in output
@@ -694,8 +694,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         // Replicate first slice for left padding
         for l in 0..left {
             B::copy2d(
-                &mut result.data,
-                &self.data,
+                result.data.as_mut(),
+                self.data.as_ref(),
                 outer_size,                // d1: number of outer blocks
                 inner_size,                // d2: one slice
                 new_dim_size * inner_size, // dst_s: stride in output
@@ -708,8 +708,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         // Replicate last slice for right padding
         for r in 0..right {
             B::copy2d(
-                &mut result.data,
-                &self.data,
+                result.data.as_mut(),
+                self.data.as_ref(),
                 outer_size,                         // d1: number of outer blocks
                 inner_size,                         // d2: one slice
                 new_dim_size * inner_size,          // dst_s: stride in output

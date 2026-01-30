@@ -70,7 +70,7 @@ impl<'a, B: Backend> VarBuilder<'a, B> {
         &self,
         name: &str,
         shape: impl Into<Shape>,
-    ) -> Result<Tensor<T, B>> {
+    ) -> Result<Tensor<'static, T, B>> {
         let td = self.tensor_data.get(name);
         make_tensor(td, name, shape, &self.device)
     }
@@ -81,7 +81,7 @@ fn make_tensor<T: WithDTypeF, B: Backend>(
     name: &str,
     shape: impl Into<Shape>,
     device: &B,
-) -> Result<Tensor<T, B>> {
+) -> Result<Tensor<'static, T, B>> {
     let td = match td {
         Some(t) => t,
         None => crate::bail!("tensor '{name}' not found"),
@@ -133,7 +133,7 @@ impl<B: Backend> VB<B> {
         &self,
         name: &str,
         shape: impl Into<Shape>,
-    ) -> Result<Tensor<T, B>> {
+    ) -> Result<Tensor<'static, T, B>> {
         let td = self.yoke.get().tensor_data.get(name);
         make_tensor(td, name, shape, &self.device)
     }
@@ -163,7 +163,7 @@ impl<B: Backend> Path<B> {
         &self,
         name: &str,
         shape: impl Into<Shape>,
-    ) -> Result<Tensor<T, B>> {
+    ) -> Result<Tensor<'static, T, B>> {
         let name = self.path(name);
         self.vb.tensor(&name, shape)
     }

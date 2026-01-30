@@ -14,10 +14,10 @@ pub use backend::Backend;
 pub use dtype::{DType, WithDType, WithDTypeF};
 pub use error::{Error, Result};
 pub use shape::{Dim, Shape, D};
-pub use tensor::Tensor;
+pub use tensor::{CowMut, Tensor};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CpuDevice;
-pub type CpuTensor<T> = Tensor<T, CpuDevice>;
+pub type CpuTensor<'a, T> = Tensor<'a, T, CpuDevice>;
 
 pub const CPU: CpuDevice = CpuDevice;
