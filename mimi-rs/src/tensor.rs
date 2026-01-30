@@ -1,8 +1,10 @@
 use crate::{shape::Dim, Backend, DType, Result, Shape, WithDType};
+use std::cell::{Ref, RefCell, RefMut};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Tensor<T: WithDType, B: Backend> {
-    pub(crate) data: B::Storage<T>,
+    pub(crate) data: Arc<RefCell<B::Storage<T>>>,
     pub(crate) shape: Shape,
     pub(crate) device: B,
     _marker: std::marker::PhantomData<T>,
@@ -37,12 +39,25 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         &self.device
     }
 
-    pub fn storage(&self) -> &B::Storage<T> {
-        &self.data
+    /// Borrow the underlying storage immutably.
+    /// Returns an error if the storage is currently mutably borrowed.
+    pub fn storage(&self) -> Result<Ref<'_, B::Storage<T>>> {
+        self.data.try_borrow().map_err(|_| {
+            crate::Error::Msg("tensor storage is currently mutably borrowed".to_string()).bt()
+        })
     }
 
-    pub fn storage_mut(&mut self) -> &mut B::Storage<T> {
-        &mut self.data
+    /// Borrow the underlying storage mutably.
+    /// Returns an error if the storage is currently borrowed (mutably or immutably).
+    pub fn storage_mut(&self) -> Result<RefMut<'_, B::Storage<T>>> {
+        self.data.try_borrow_mut().map_err(|_| {
+            crate::Error::Msg("tensor storage is currently borrowed".to_string()).bt()
+        })
+    }
+
+    /// Get the raw Arc<RefCell<...>> for direct access.
+    pub fn storage_arc(&self) -> &Arc<RefCell<B::Storage<T>>> {
+        &self.data
     }
 
     pub fn zeros(shape: impl Into<Shape>, device: &B) -> Result<Self> {
@@ -51,7 +66,8 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
     pub fn to_vec(&self) -> Result<Vec<T>> {
         let len = self.elem_count();
-        let data_cow = B::data(&self.data, len)?;
+        let data = self.storage()?;
+        let data_cow = B::data(&*data, len)?;
         Ok(data_cow.into_owned())
     }
 
@@ -60,10 +76,16 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let size = shape.elem_count();
         let mut data = unsafe { B::alloc_uninit(size, device)? };
         B::fill(&mut data, value, size)?;
-        Ok(Tensor { data, shape, device: device.clone(), _marker: std::marker::PhantomData })
+        Ok(Tensor {
+            data: Arc::new(RefCell::new(data)),
+            shape,
+            device: device.clone(),
+            _marker: std::marker::PhantomData,
+        })
     }
 
     /// Reshape the tensor to a new shape with the same number of elements.
+    /// This operation shares the underlying data (no copy).
     #[tracing::instrument(skip_all)]
     pub fn reshape(&self, shape: impl crate::shape::ShapeWithOneHole) -> Result<Self> {
         let shape = shape.into_shape(self.elem_count())?;
@@ -75,11 +97,13 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
                 shape.elem_count()
             );
         }
-        let elem_count = shape.elem_count();
-        let mut res = unsafe { Self::alloc_uninit(shape, self.device())? };
-        // TODO(laurent): avoid copying data if possible.
-        B::copy(&mut res.data, &self.data, elem_count)?;
-        Ok(res)
+        // Share the underlying data instead of copying
+        Ok(Tensor {
+            data: Arc::clone(&self.data),
+            shape,
+            device: self.device.clone(),
+            _marker: std::marker::PhantomData,
+        })
     }
 
     /// Extract a slice of the tensor along a given dimension.
@@ -98,22 +122,26 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         out_dims[dim] = len;
         let out_shape = crate::Shape::from(out_dims);
 
-        let mut result = unsafe { Self::alloc_uninit(out_shape, self.device()) }?;
+        let result = unsafe { Self::alloc_uninit(out_shape, self.device()) }?;
 
         // Copy using copy2d
         let outer_size: usize = dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
 
-        B::copy2d(
-            &mut result.data,
-            &self.data,
-            outer_size,            // d1: number of outer blocks
-            len * inner_size,      // d2: elements per block to copy
-            len * inner_size,      // dst_s: stride in output
-            dim_size * inner_size, // src_s: stride in source
-            0,                     // dst_o: start at beginning of output
-            start * inner_size,    // src_o: offset by start in source
-        )?;
+        {
+            let src_data = self.storage()?;
+            let mut dst_data = result.storage_mut()?;
+            B::copy2d(
+                &mut dst_data,
+                &*src_data,
+                outer_size,            // d1: number of outer blocks
+                len * inner_size,      // d2: elements per block to copy
+                len * inner_size,      // dst_s: stride in output
+                dim_size * inner_size, // src_s: stride in source
+                0,                     // dst_o: start at beginning of output
+                start * inner_size,    // src_o: offset by start in source
+            )?;
+        }
 
         Ok(result)
     }
@@ -124,7 +152,12 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let shape = shape.into();
         let size = shape.elem_count();
         let data = unsafe { B::alloc_uninit(size, dev)? };
-        Ok(Tensor { data, shape, device: dev.clone(), _marker: std::marker::PhantomData })
+        Ok(Tensor {
+            data: Arc::new(RefCell::new(data)),
+            shape,
+            device: dev.clone(),
+            _marker: std::marker::PhantomData,
+        })
     }
 
     pub fn index_select(&self, indices: &[u32], dim: impl Dim) -> Result<Self> {
@@ -145,8 +178,12 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
         // Allocate output
         let dev = self.device();
-        let mut out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
-        B::index_select(&mut out.data, &self.data, indices, dim, self.dims())?;
+        let out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
+        {
+            let src_data = self.storage()?;
+            let mut dst_data = out.storage_mut()?;
+            B::index_select(&mut dst_data, &*src_data, indices, dim, self.dims())?;
+        }
         Ok(out)
     }
 
@@ -161,7 +198,12 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
             );
         }
         let data = B::from_vec(data, dev)?;
-        Ok(Tensor { data, shape, device: dev.clone(), _marker: std::marker::PhantomData })
+        Ok(Tensor {
+            data: Arc::new(RefCell::new(data)),
+            shape,
+            device: dev.clone(),
+            _marker: std::marker::PhantomData,
+        })
     }
 
     /// Concatenate tensors along a given dimension.
@@ -197,7 +239,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
         // Allocate output
         let dev = first.device();
-        let mut out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
+        let out: Self = unsafe { Tensor::alloc_uninit(out_shape, dev) }?;
 
         // Copy data from each tensor using copy2d
         // For contiguous tensors, data is laid out as: [outer dims][cat dim][inner dims]
@@ -205,20 +247,24 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let inner_size: usize = out.dims()[dim + 1..].iter().product::<usize>().max(1);
 
         let mut cat_offset = 0;
-        for tensor in tensors {
-            let t_cat_size = tensor.dims()[dim];
-            // Copy using copy2d: outer_size rows of (t_cat_size * inner_size) elements
-            B::copy2d(
-                &mut out.data,
-                &tensor.data,
-                outer_size,                // d1: number of outer blocks
-                t_cat_size * inner_size,   // d2: elements per block from this tensor
-                cat_dim_size * inner_size, // dst_s: stride in output
-                t_cat_size * inner_size,   // src_s: stride in source
-                cat_offset * inner_size,   // dst_o: offset in output
-                0,                         // src_o: offset in source
-            )?;
-            cat_offset += t_cat_size;
+        {
+            let mut out_data = out.storage_mut()?;
+            for tensor in tensors {
+                let t_cat_size = tensor.dims()[dim];
+                let src_data = tensor.storage()?;
+                // Copy using copy2d: outer_size rows of (t_cat_size * inner_size) elements
+                B::copy2d(
+                    &mut out_data,
+                    &*src_data,
+                    outer_size,                // d1: number of outer blocks
+                    t_cat_size * inner_size,   // d2: elements per block from this tensor
+                    cat_dim_size * inner_size, // dst_s: stride in output
+                    t_cat_size * inner_size,   // src_s: stride in source
+                    cat_offset * inner_size,   // dst_o: offset in output
+                    0,                         // src_o: offset in source
+                )?;
+                cat_offset += t_cat_size;
+            }
         }
 
         Ok(out)
