@@ -72,7 +72,7 @@ struct ModelFiles {
 }
 
 fn download_model(repo_id: &str) -> Result<ModelFiles> {
-    use hf_hub::{api::sync::Api, Repo, RepoType};
+    use hf_hub::{Repo, RepoType, api::sync::Api};
     println!("Downloading model from {repo_id}...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));

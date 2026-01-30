@@ -1,4 +1,4 @@
-use crate::{shape::Dim, Backend, DType, Result, Shape, WithDType};
+use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
 use std::cell::{Ref, RefCell, RefMut};
 use std::sync::Arc;
 
@@ -50,9 +50,9 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     /// Borrow the underlying storage mutably.
     /// Returns an error if the storage is currently borrowed (mutably or immutably).
     pub fn storage_mut(&self) -> Result<RefMut<'_, B::Storage<T>>> {
-        self.data.try_borrow_mut().map_err(|_| {
-            crate::Error::Msg("tensor storage is currently borrowed".to_string()).bt()
-        })
+        self.data
+            .try_borrow_mut()
+            .map_err(|_| crate::Error::Msg("tensor storage is currently borrowed".to_string()).bt())
     }
 
     /// Get the raw Arc<RefCell<...>> for direct access.
@@ -107,6 +107,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Extract a slice of the tensor along a given dimension.
+    #[tracing::instrument(skip_all)]
     pub fn narrow(&self, dim: usize, start: usize, len: usize) -> Result<Self> {
         let dims = self.dims();
         if dim >= dims.len() {
