@@ -448,6 +448,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Sum along dimensions, keeping the dimensions (with size 1).
+    #[tracing::instrument(skip_all)]
     pub fn sum_keepdim(&self, dims: impl Into<Vec<usize>>) -> Result<Self> {
         let mut dims: Vec<usize> = dims.into();
         // Sort dims in descending order so we can reduce from the end
@@ -486,6 +487,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Maximum value along dimension.
+    #[tracing::instrument(skip_all)]
     pub fn max<D: Dim>(&self, dim: D) -> Result<Self> {
         let dim = dim.to_index(self.shape(), "max dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
@@ -499,6 +501,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Minimum value along dimension.
+    #[tracing::instrument(skip_all)]
     pub fn min<D: Dim>(&self, dim: D) -> Result<Self> {
         let dim = dim.to_index(self.shape(), "min dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
@@ -513,6 +516,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     /// Argmin along dimension.
     /// Returns i64 indices.
+    #[tracing::instrument(skip_all)]
     pub fn argmin<D: Dim>(&self, dim: D) -> Result<Tensor<i64, B>> {
         let dim = dim.to_index(self.shape(), "argmin dim")?;
         let mut out_dims: Vec<usize> = self.dims().to_vec();
@@ -526,6 +530,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Broadcast multiplication.
+    #[tracing::instrument(skip_all)]
     pub fn broadcast_mul(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
@@ -534,6 +539,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Broadcast division.
+    #[tracing::instrument(skip_all)]
     pub fn broadcast_div(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
@@ -542,6 +548,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Broadcast addition.
+    #[tracing::instrument(skip_all)]
     pub fn broadcast_add(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
@@ -550,6 +557,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Broadcast subtraction.
+    #[tracing::instrument(skip_all)]
     pub fn broadcast_sub(&self, other: &Self) -> Result<Self> {
         let out_shape = broadcast_shape(self.dims(), other.dims())?;
         let mut result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
