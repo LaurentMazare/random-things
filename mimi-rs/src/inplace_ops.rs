@@ -2,104 +2,133 @@ use crate::error::check_same_shape;
 use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 
 impl<T: WithDType, B: Backend> Tensor<T, B> {
-    pub fn inplace_add(&mut self, other: &Self) -> Result<()> {
+    pub fn inplace_add(&self, other: &Self) -> Result<()> {
         check_same_shape(&self.shape, &other.shape, "inplace_add")?;
         let len = self.elem_count();
-        B::add_assign(&mut self.data, &other.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src = other.storage()?;
+        B::add_assign(&mut *dst, &*src, len)?;
         Ok(())
     }
 
-    pub fn add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "add_")?;
         check_same_shape(&self.shape, &lhs.shape, "add_ (output)")?;
         let len = self.elem_count();
-        B::add(&mut self.data, &lhs.data, &rhs.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
+        B::add(&mut *dst, &*lhs_data, &*rhs_data, len)?;
         Ok(())
     }
 
-    pub fn mul_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn mul_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "mul_")?;
         check_same_shape(&self.shape, &lhs.shape, "mul_ (output)")?;
         let len = self.elem_count();
-        B::mul(&mut self.data, &lhs.data, &rhs.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
+        B::mul(&mut *dst, &*lhs_data, &*rhs_data, len)?;
         Ok(())
     }
 
-    pub fn maximum_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn maximum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "maximum_")?;
         check_same_shape(&self.shape, &lhs.shape, "maximum_ (output)")?;
         let len = self.elem_count();
-        B::maximum(&mut self.data, &lhs.data, &rhs.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
+        B::maximum(&mut *dst, &*lhs_data, &*rhs_data, len)?;
         Ok(())
     }
 
-    pub fn minimum_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn minimum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         check_same_shape(&lhs.shape, &rhs.shape, "minimum_")?;
         check_same_shape(&self.shape, &lhs.shape, "minimum_ (output)")?;
         let len = self.elem_count();
-        B::minimum(&mut self.data, &lhs.data, &rhs.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
+        B::minimum(&mut *dst, &*lhs_data, &*rhs_data, len)?;
         Ok(())
     }
 
-    pub fn transpose_(&mut self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
+    pub fn transpose_(&self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
         let dims = src.dims();
         let len = self.elem_count();
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
         if dim1 == dim2 {
-            B::copy(&mut self.data, &src.data, len)?;
+            B::copy(&mut *dst, &*src_data, len)?;
         } else {
-            B::transpose(&mut self.data, &src.data, dim1, dim2, dims)?;
+            B::transpose(&mut *dst, &*src_data, dim1, dim2, dims)?;
         }
         Ok(())
     }
 
-    pub fn copy_(&mut self, src: &Self) -> Result<()> {
+    pub fn copy_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "copy_")?;
         let len = self.elem_count();
-        B::copy(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::copy(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn fill_(&mut self, value: T) -> Result<()> {
+    pub fn fill_(&self, value: T) -> Result<()> {
         let len = self.elem_count();
-        B::fill(&mut self.data, value, len)?;
+        let mut dst = self.storage_mut()?;
+        B::fill(&mut *dst, value, len)?;
         Ok(())
     }
 
-    pub fn scale_(&mut self, src: &Self, m: T) -> Result<()> {
+    pub fn scale_(&self, src: &Self, m: T) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "scale_")?;
         let len = self.elem_count();
-        B::scale(&mut self.data, &src.data, m, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::scale(&mut *dst, &*src_data, m, len)?;
         Ok(())
     }
 }
 
 impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
-    pub fn cos_(&mut self, src: &Self) -> Result<()> {
+    pub fn cos_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "cos_")?;
         let len = self.elem_count();
-        B::cos(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::cos(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn sin_(&mut self, src: &Self) -> Result<()> {
+    pub fn sin_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sin_")?;
         let len = self.elem_count();
-        B::sin(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::sin(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn silu_(&mut self, src: &Self) -> Result<()> {
+    pub fn silu_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "silu_")?;
         let len = self.elem_count();
-        B::silu(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::silu(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn softmax_(&mut self, src: &Self) -> Result<()> {
+    pub fn softmax_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "softmax_")?;
         let dim_m1 = self.shape.dims().last().copied().unwrap_or(1);
         let d = self.elem_count() / dim_m1;
-        B::softmax(&mut self.data, &src.data, dim_m1, d)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::softmax(&mut *dst, &*src_data, dim_m1, d)?;
         Ok(())
     }
 
@@ -107,7 +136,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Shape: (batch * heads, seq_q, seq_kv) or (batch, heads, seq_q, seq_kv)
     /// Masks positions where key position > query position + offset (sets to -inf).
     /// offset: starting position of the first query token (for KV cache generation).
-    pub fn apply_causality_mask_(&mut self, offset: usize) -> Result<()> {
+    pub fn apply_causality_mask_(&self, offset: usize) -> Result<()> {
         let dims = self.dims();
         let (bh, t1, t2) = match dims.len() {
             3 => (dims[0], dims[1], dims[2]),
@@ -117,11 +146,12 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
                 self.shape()
             ),
         };
-        B::apply_causality_mask(&mut self.data, bh, t1, t2, offset)?;
+        let mut dst = self.storage_mut()?;
+        B::apply_causality_mask(&mut *dst, bh, t1, t2, offset)?;
         Ok(())
     }
 
-    pub fn rms_norm_(&mut self, src: &Self, alpha: &Self, eps: f32) -> Result<()> {
+    pub fn rms_norm_(&self, src: &Self, alpha: &Self, eps: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rms_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("rms_norm_ eps must be positive");
@@ -130,11 +160,14 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let d = self.elem_count() / dim_m1;
         let expected_shape_alpha = dim_m1.into();
         check_same_shape(&alpha.shape, &expected_shape_alpha, "rms_norm_ alpha")?;
-        B::rms_norm(&mut self.data, &src.data, &alpha.data, dim_m1, d, eps)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        let alpha_data = alpha.storage()?;
+        B::rms_norm(&mut *dst, &*src_data, &*alpha_data, dim_m1, d, eps)?;
         Ok(())
     }
 
-    pub fn layer_norm_(&mut self, src: &Self, weight: &Self, bias: &Self, eps: f32) -> Result<()> {
+    pub fn layer_norm_(&self, src: &Self, weight: &Self, bias: &Self, eps: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "layer_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("layer_norm_ eps must be positive");
@@ -144,11 +177,15 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let expected_shape = dim_m1.into();
         check_same_shape(&weight.shape, &expected_shape, "layer_norm_ weight")?;
         check_same_shape(&bias.shape, &expected_shape, "layer_norm_ bias")?;
-        B::layer_norm(&mut self.data, &src.data, &weight.data, &bias.data, dim_m1, d, eps)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        let weight_data = weight.storage()?;
+        let bias_data = bias.storage()?;
+        B::layer_norm(&mut *dst, &*src_data, &*weight_data, &*bias_data, dim_m1, d, eps)?;
         Ok(())
     }
 
-    pub fn matmul_(&mut self, lhs: &Self, rhs: &Self, rhs_t: bool) -> Result<()> {
+    pub fn matmul_(&self, lhs: &Self, rhs: &Self, rhs_t: bool) -> Result<()> {
         let lhs_dims = lhs.dims();
         let rhs_dims = rhs.dims();
 
@@ -196,7 +233,9 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
         let (m, n, k) = (lhs_m, rhs_n, lhs_k);
         let dst_elems = lhs_batch * m * n;
-        let storage_len = B::storage_len(&self.data);
+        let dst_data = self.storage()?;
+        let storage_len = B::storage_len(&*dst_data);
+        drop(dst_data);
 
         if dst_elems > storage_len {
             crate::bail!(
@@ -227,10 +266,13 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let rhs_mat_size = rhs_dims[rhs_dims.len() - 2] * rhs_dims[rhs_dims.len() - 1];
         let b_stride = if rhs_batch == 1 { 0 } else { rhs_mat_size };
 
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
         B::gemm(
-            &mut self.data,
-            (&lhs.data, 0),
-            (&rhs.data, 0),
+            &mut *dst,
+            (&*lhs_data, 0),
+            (&*rhs_data, 0),
             m,
             n,
             k,
@@ -244,7 +286,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn rope_(&mut self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
+    pub fn rope_(&self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rope_ src")?;
         check_same_shape(&cos.shape, &sin.shape, "rope_ cos/sin")?;
         let (b, h, t, d) = self.dims4()?;
@@ -263,11 +305,15 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
                 cos.shape()
             );
         }
-        B::rope(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        let cos_data = cos.storage()?;
+        let sin_data = sin.storage()?;
+        B::rope(&mut *dst, &*src_data, &*cos_data, &*sin_data, b, h, t, d, pos)?;
         Ok(())
     }
 
-    pub fn rope_i_(&mut self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
+    pub fn rope_i_(&self, src: &Self, cos: &Self, sin: &Self, pos: usize) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "rope_i_ src")?;
         check_same_shape(&cos.shape, &sin.shape, "rope_i_ cos/sin")?;
         let (b, h, t, d) = self.dims4()?;
@@ -286,86 +332,110 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
                 cos.shape()
             );
         }
-        B::rope_i(&mut self.data, &src.data, &cos.data, &sin.data, b, h, t, d, pos)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        let cos_data = cos.storage()?;
+        let sin_data = sin.storage()?;
+        B::rope_i(&mut *dst, &*src_data, &*cos_data, &*sin_data, b, h, t, d, pos)?;
         Ok(())
     }
 
-    pub fn sqr_(&mut self, src: &Self) -> Result<()> {
+    pub fn sqr_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sqr_")?;
         let len = self.elem_count();
-        B::sqr(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::sqr(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn sqrt_(&mut self, src: &Self) -> Result<()> {
+    pub fn sqrt_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sqrt_")?;
         let len = self.elem_count();
-        B::sqrt(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::sqrt(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn abs_(&mut self, src: &Self) -> Result<()> {
+    pub fn abs_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "abs_")?;
         let len = self.elem_count();
-        B::abs(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::abs(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn gelu_erf_(&mut self, src: &Self) -> Result<()> {
+    pub fn gelu_erf_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "gelu_erf_")?;
         let len = self.elem_count();
-        B::gelu_erf(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::gelu_erf(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn elu_(&mut self, src: &Self, alpha: f32) -> Result<()> {
+    pub fn elu_(&self, src: &Self, alpha: f32) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "elu_")?;
         let len = self.elem_count();
-        B::elu(&mut self.data, &src.data, alpha, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::elu(&mut *dst, &*src_data, alpha, len)?;
         Ok(())
     }
 
-    pub fn relu_(&mut self, src: &Self) -> Result<()> {
+    pub fn relu_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "relu_")?;
         let len = self.elem_count();
-        B::relu(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::relu(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn tanh_(&mut self, src: &Self) -> Result<()> {
+    pub fn tanh_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "tanh_")?;
         let len = self.elem_count();
-        B::tanh(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::tanh(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn sigmoid_(&mut self, src: &Self) -> Result<()> {
+    pub fn sigmoid_(&self, src: &Self) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "sigmoid_")?;
         let len = self.elem_count();
-        B::sigmoid(&mut self.data, &src.data, len)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::sigmoid(&mut *dst, &*src_data, len)?;
         Ok(())
     }
 
-    pub fn reduce_max_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_max_(&self, src: &Self, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_max(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::reduce_max(&mut *dst, &*src_data, dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
-    pub fn reduce_min_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_min_(&self, src: &Self, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_min(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::reduce_min(&mut *dst, &*src_data, dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
     pub fn reduce_argmin_<U: crate::WithDTypeF>(
-        dst: &mut Tensor<i64, B>,
+        dst: &Tensor<i64, B>,
         src: &Tensor<U, B>,
         dim: usize,
     ) -> Result<()> {
@@ -373,27 +443,34 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_argmin(&mut dst.data, &src.data, dim_size, outer_size, inner_size)?;
+        let mut dst_data = dst.storage_mut()?;
+        let src_data = src.storage()?;
+        B::reduce_argmin(&mut *dst_data, &*src_data, dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
-    pub fn reduce_sum_(&mut self, src: &Self, dim: usize) -> Result<()> {
+    pub fn reduce_sum_(&self, src: &Self, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
         let outer_size: usize = src_dims[..dim].iter().product::<usize>().max(1);
         let inner_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
-        B::reduce_sum(&mut self.data, &src.data, dim_size, outer_size, inner_size)?;
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        B::reduce_sum(&mut *dst, &*src_data, dim_size, outer_size, inner_size)?;
         Ok(())
     }
 
-    pub fn broadcast_add_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
         B::broadcast_add(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            &mut *dst,
+            &*lhs_data,
+            &*rhs_data,
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -401,14 +478,17 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_sub_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_sub_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
         B::broadcast_sub(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            &mut *dst,
+            &*lhs_data,
+            &*rhs_data,
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -416,14 +496,17 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_mul_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_mul_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
         B::broadcast_mul(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            &mut *dst,
+            &*lhs_data,
+            &*rhs_data,
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -431,14 +514,17 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_div_(&mut self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_div_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
         B::broadcast_div(
-            &mut self.data,
-            &lhs.data,
-            &rhs.data,
+            &mut *dst,
+            &*lhs_data,
+            &*rhs_data,
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
@@ -448,7 +534,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     #[allow(clippy::too_many_arguments)]
     pub fn conv1d_(
-        &mut self,
+        &self,
         src: &Self,
         kernel: &Self,
         stride: usize,
@@ -489,10 +575,13 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
             );
         }
 
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        let kernel_data = kernel.storage()?;
         B::conv1d(
-            &mut self.data,
-            &src.data,
-            &kernel.data,
+            &mut *dst,
+            &*src_data,
+            &*kernel_data,
             batch,
             in_channels,
             out_channels,
@@ -508,7 +597,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     #[allow(clippy::too_many_arguments)]
     pub fn conv_transpose1d_(
-        &mut self,
+        &self,
         src: &Self,
         kernel: &Self,
         stride: usize,
@@ -550,10 +639,13 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
             );
         }
 
+        let mut dst = self.storage_mut()?;
+        let src_data = src.storage()?;
+        let kernel_data = kernel.storage()?;
         B::conv_transpose1d(
-            &mut self.data,
-            &src.data,
-            &kernel.data,
+            &mut *dst,
+            &*src_data,
+            &*kernel_data,
             batch,
             in_channels,
             out_channels,

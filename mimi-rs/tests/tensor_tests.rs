@@ -1,4 +1,4 @@
-use mimi::{CpuTensor, Result, Tensor, CPU};
+use mimi::{CPU, CpuTensor, Result, Tensor};
 
 #[test]
 fn test_cat_dim0() -> Result<()> {
