@@ -3,4 +3,5 @@
 perf.data*
 flamegraph.svg
 tmp/*
-
+trace-*
+*.nsys-rep

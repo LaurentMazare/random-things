@@ -24,3 +24,8 @@ pub type CpuTensor<T> = Tensor<T, CpuDevice>;
 pub const CPU: CpuDevice = CpuDevice;
 
 pub(crate) use inplace_ops::{BinaryOp, UnaryOp};
+
+#[cfg(feature = "cuda")]
+pub mod cuda_backend;
+#[cfg(feature = "cuda")]
+pub mod cuda_kernels;
