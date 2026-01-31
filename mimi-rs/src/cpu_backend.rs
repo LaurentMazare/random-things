@@ -1,4 +1,4 @@
-use crate::{Result, WithDType, WithDTypeF};
+use crate::{BinaryOp, Result, UnaryOp, WithDType, WithDTypeF};
 use rayon::prelude::*;
 
 const USE_IM2COL_CONV1D: bool = true;
@@ -23,21 +23,100 @@ impl crate::Backend for crate::CpuDevice {
         Ok(std::borrow::Cow::Borrowed(&src[..len]))
     }
 
-    fn add_assign<T: WithDType>(
+    fn bin_assign<T: WithDType>(
         dst: &mut Self::Storage<T>,
-        s: &Self::Storage<T>,
-        l: usize,
+        src: &Self::Storage<T>,
+        len: usize,
+        op: BinaryOp,
     ) -> Result<()> {
-        s[..l].iter().zip(dst[..l].iter_mut()).for_each(|(src, dst)| *dst += *src);
+        match op {
+            BinaryOp::Add => apply_bin_assign(&mut dst[..len], &src[..len], |d, s| *d += s),
+            BinaryOp::Sub => apply_bin_assign(&mut dst[..len], &src[..len], |d, s| *d -= s),
+            BinaryOp::Mul => apply_bin_assign(&mut dst[..len], &src[..len], |d, s| *d *= s),
+            BinaryOp::Div => apply_bin_assign(&mut dst[..len], &src[..len], |d, s| *d /= s),
+            BinaryOp::Maximum => apply_bin_assign(&mut dst[..len], &src[..len], |d, s| {
+                if s > *d {
+                    *d = s
+                }
+            }),
+            BinaryOp::Minimum => apply_bin_assign(&mut dst[..len], &src[..len], |d, s| {
+                if s < *d {
+                    *d = s
+                }
+            }),
+        }
         Ok(())
     }
 
-    fn mul_assign<T: WithDType>(
+    fn inplace_unary<T: WithDType>(
         dst: &mut Self::Storage<T>,
-        s: &Self::Storage<T>,
-        l: usize,
+        len: usize,
+        op: UnaryOp,
     ) -> Result<()> {
-        s[..l].iter().zip(dst[..l].iter_mut()).for_each(|(src, dst)| *dst *= *src);
+        match op {
+            UnaryOp::Sqr => apply_inplace_unary(&mut dst[..len], |v| *v *= *v),
+            UnaryOp::Relu => apply_inplace_unary(&mut dst[..len], |v| {
+                if *v < T::zero() {
+                    *v = T::zero()
+                }
+            }),
+            // Operations requiring float - not supported for generic WithDType
+            _ => crate::bail!("unary operation {:?} requires float type", op),
+        }
+        Ok(())
+    }
+
+    fn unary<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        len: usize,
+        op: UnaryOp,
+    ) -> Result<()> {
+        match op {
+            UnaryOp::Sqr => apply_unary(&mut dst[..len], &src[..len], |s| s * s),
+            UnaryOp::Relu => {
+                let zero = T::zero();
+                apply_unary(&mut dst[..len], &src[..len], |s| if s < zero { zero } else { s })
+            }
+            // Operations requiring float - not supported for generic WithDType
+            _ => crate::bail!("unary operation {:?} requires float type", op),
+        }
+        Ok(())
+    }
+
+    fn binary<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        lhs: &Self::Storage<T>,
+        rhs: &Self::Storage<T>,
+        len: usize,
+        op: BinaryOp,
+    ) -> Result<()> {
+        match op {
+            BinaryOp::Add => apply_binary(&mut dst[..len], &lhs[..len], &rhs[..len], |a, b| a + b),
+            BinaryOp::Sub => apply_binary(&mut dst[..len], &lhs[..len], &rhs[..len], |a, b| a - b),
+            BinaryOp::Mul => apply_binary(&mut dst[..len], &lhs[..len], &rhs[..len], |a, b| a * b),
+            BinaryOp::Div => apply_binary(&mut dst[..len], &lhs[..len], &rhs[..len], |a, b| a / b),
+            BinaryOp::Maximum => {
+                apply_binary(
+                    &mut dst[..len],
+                    &lhs[..len],
+                    &rhs[..len],
+                    |a, b| {
+                        if a > b { a } else { b }
+                    },
+                )
+            }
+            BinaryOp::Minimum => {
+                apply_binary(
+                    &mut dst[..len],
+                    &lhs[..len],
+                    &rhs[..len],
+                    |a, b| {
+                        if a < b { a } else { b }
+                    },
+                )
+            }
+        }
         Ok(())
     }
 
@@ -45,59 +124,9 @@ impl crate::Backend for crate::CpuDevice {
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         m: T,
-        l: usize,
+        len: usize,
     ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = *s * m
-        }
-        Ok(())
-    }
-
-    fn add<T: WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for ((d, l), r) in dst[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
-            *d = *l + *r
-        }
-        Ok(())
-    }
-
-    fn mul<T: WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for ((d, l), r) in dst[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
-            *d = *l * *r
-        }
-        Ok(())
-    }
-
-    fn maximum<T: WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for ((d, l), r) in dst[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
-            *d = if *l > *r { *l } else { *r }
-        }
-        Ok(())
-    }
-
-    fn minimum<T: WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for ((d, l), r) in dst[..l].iter_mut().zip(&lhs[..l]).zip(&rhs[..l]) {
-            *d = if *l < *r { *l } else { *r }
-        }
+        apply_unary(&mut dst[..len], &src[..len], |s| s * m);
         Ok(())
     }
 
@@ -633,48 +662,47 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
-    fn broadcast_add<T: WithDTypeF>(
+    fn broadcast_binary<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,
         dst_shape: &[usize],
         lhs_strides: &[usize],
         rhs_strides: &[usize],
+        op: BinaryOp,
     ) -> Result<()> {
-        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a + b)
-    }
-
-    fn broadcast_sub<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        dst_shape: &[usize],
-        lhs_strides: &[usize],
-        rhs_strides: &[usize],
-    ) -> Result<()> {
-        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a - b)
-    }
-
-    fn broadcast_mul<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        dst_shape: &[usize],
-        lhs_strides: &[usize],
-        rhs_strides: &[usize],
-    ) -> Result<()> {
-        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a * b)
-    }
-
-    fn broadcast_div<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        dst_shape: &[usize],
-        lhs_strides: &[usize],
-        rhs_strides: &[usize],
-    ) -> Result<()> {
-        broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| a / b)
+        match op {
+            BinaryOp::Add => {
+                broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
+                    a + b
+                })
+            }
+            BinaryOp::Sub => {
+                broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
+                    a - b
+                })
+            }
+            BinaryOp::Mul => {
+                broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
+                    a * b
+                })
+            }
+            BinaryOp::Div => {
+                broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
+                    a / b
+                })
+            }
+            BinaryOp::Maximum => {
+                broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
+                    if a > b { a } else { b }
+                })
+            }
+            BinaryOp::Minimum => {
+                broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
+                    if a < b { a } else { b }
+                })
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -889,6 +917,50 @@ impl crate::Backend for crate::CpuDevice {
                 groups,
             )
         }
+    }
+}
+
+/// Apply a binary operation in-place: dst[i] = op(dst[i], src[i])
+#[inline(always)]
+fn apply_bin_assign<T: Copy, F>(dst: &mut [T], src: &[T], f: F)
+where
+    F: Fn(&mut T, T),
+{
+    for (d, s) in dst.iter_mut().zip(src) {
+        f(d, *s);
+    }
+}
+
+/// Apply a unary operation in-place: dst[i] = op(dst[i])
+#[inline(always)]
+fn apply_inplace_unary<T: Copy, F>(dst: &mut [T], f: F)
+where
+    F: Fn(&mut T),
+{
+    for d in dst.iter_mut() {
+        f(d);
+    }
+}
+
+/// Apply a unary operation: dst[i] = op(src[i])
+#[inline(always)]
+fn apply_unary<T: Copy, F>(dst: &mut [T], src: &[T], f: F)
+where
+    F: Fn(T) -> T,
+{
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d = f(*s);
+    }
+}
+
+/// Apply a binary operation: dst[i] = op(lhs[i], rhs[i])
+#[inline(always)]
+fn apply_binary<T: Copy, F>(dst: &mut [T], lhs: &[T], rhs: &[T], f: F)
+where
+    F: Fn(T, T) -> T,
+{
+    for ((d, l), r) in dst.iter_mut().zip(lhs).zip(rhs) {
+        *d = f(*l, *r);
     }
 }
 

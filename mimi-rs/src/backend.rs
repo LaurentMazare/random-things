@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::{BinaryOp, UnaryOp};
 
 pub trait Backend: Sized + Clone + 'static {
     type Storage<T: crate::WithDType>: Sized;
@@ -37,44 +38,32 @@ pub trait Backend: Sized + Clone + 'static {
         len: usize,
     ) -> Result<std::borrow::Cow<'_, [T]>>;
 
-    fn add_assign<T: crate::WithDType>(
+    fn inplace_unary<T: crate::WithDType>(
+        dst: &mut Self::Storage<T>,
+        len: usize,
+        op: UnaryOp,
+    ) -> Result<()>;
+
+    fn bin_assign<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         s: &Self::Storage<T>,
         len: usize,
+        op: BinaryOp,
     ) -> Result<()>;
 
-    fn mul_assign<T: crate::WithDType>(
+    fn unary<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
-        s: &Self::Storage<T>,
+        src: &Self::Storage<T>,
         len: usize,
+        op: UnaryOp,
     ) -> Result<()>;
 
-    fn add<T: crate::WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn mul<T: crate::WithDType>(
+    fn binary<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,
         len: usize,
-    ) -> Result<()>;
-
-    fn maximum<T: crate::WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn minimum<T: crate::WithDType>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        len: usize,
+        op: BinaryOp,
     ) -> Result<()>;
 
     fn scale<T: crate::WithDType>(
@@ -299,45 +288,16 @@ pub trait Backend: Sized + Clone + 'static {
         inner_size: usize,
     ) -> Result<()>;
 
-    /// Broadcast binary operation: addition.
+    /// Broadcast binary operation
     /// lhs_strides and rhs_strides have 0 for broadcast dimensions.
-    fn broadcast_add<T: crate::WithDTypeF>(
+    fn broadcast_binary<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,
         dst_shape: &[usize],
         lhs_strides: &[usize],
         rhs_strides: &[usize],
-    ) -> Result<()>;
-
-    /// Broadcast binary operation: subtraction.
-    fn broadcast_sub<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        dst_shape: &[usize],
-        lhs_strides: &[usize],
-        rhs_strides: &[usize],
-    ) -> Result<()>;
-
-    /// Broadcast binary operation: multiplication.
-    fn broadcast_mul<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        dst_shape: &[usize],
-        lhs_strides: &[usize],
-        rhs_strides: &[usize],
-    ) -> Result<()>;
-
-    /// Broadcast binary operation: division.
-    fn broadcast_div<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        lhs: &Self::Storage<T>,
-        rhs: &Self::Storage<T>,
-        dst_shape: &[usize],
-        lhs_strides: &[usize],
-        rhs_strides: &[usize],
+        op: BinaryOp,
     ) -> Result<()>;
 
     /// 1D convolution.

@@ -21,3 +21,5 @@ pub struct CpuDevice;
 pub type CpuTensor<T> = Tensor<T, CpuDevice>;
 
 pub const CPU: CpuDevice = CpuDevice;
+
+pub(crate) use inplace_ops::{BinaryOp, UnaryOp};

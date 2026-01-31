@@ -1,58 +1,127 @@
 use crate::error::check_same_shape;
 use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum UnaryOp {
+    Cos,
+    Sin,
+    Sqr,
+    Sqrt,
+    Abs,
+    GeluErf,
+    Elu { alpha: f32 },
+    Relu,
+    Tanh,
+    Sigmoid,
+}
+
+impl UnaryOp {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Cos => "cos",
+            UnaryOp::Sin => "sin",
+            UnaryOp::Sqr => "sqr",
+            UnaryOp::Sqrt => "sqrt",
+            UnaryOp::Abs => "abs",
+            UnaryOp::GeluErf => "gelu_erf",
+            UnaryOp::Elu { .. } => "elu",
+            UnaryOp::Relu => "relu",
+            UnaryOp::Tanh => "tanh",
+            UnaryOp::Sigmoid => "sigmoid",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Maximum,
+    Minimum,
+}
+
+impl BinaryOp {
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            BinaryOp::Add => "add",
+            BinaryOp::Sub => "sub",
+            BinaryOp::Mul => "mul",
+            BinaryOp::Div => "div",
+            BinaryOp::Maximum => "maximum",
+            BinaryOp::Minimum => "minimum",
+        }
+    }
+}
+
 impl<T: WithDType, B: Backend> Tensor<T, B> {
-    pub fn inplace_add(&self, other: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &other.shape, "inplace_add")?;
+    pub(crate) fn inplace_binary(&self, other: &Self, op: BinaryOp) -> Result<()> {
+        check_same_shape(&self.shape, &other.shape, op.as_str())?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
         let src = other.storage()?;
-        B::add_assign(&mut *dst, &*src, len)?;
+        B::bin_assign(&mut *dst, &*src, len, op)?;
+        Ok(())
+    }
+
+    pub fn inplace_add(&self, other: &Self) -> Result<()> {
+        self.inplace_binary(other, BinaryOp::Add)
+    }
+
+    pub fn inplace_sub(&self, other: &Self) -> Result<()> {
+        self.inplace_binary(other, BinaryOp::Sub)
+    }
+
+    pub fn inplace_mul(&self, other: &Self) -> Result<()> {
+        self.inplace_binary(other, BinaryOp::Mul)
+    }
+
+    pub fn inplace_div(&self, other: &Self) -> Result<()> {
+        self.inplace_binary(other, BinaryOp::Div)
+    }
+
+    pub fn inplace_maximum(&self, other: &Self) -> Result<()> {
+        self.inplace_binary(other, BinaryOp::Maximum)
+    }
+
+    pub fn inplace_minimum(&self, other: &Self) -> Result<()> {
+        self.inplace_binary(other, BinaryOp::Minimum)
+    }
+
+    pub fn binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
+        check_same_shape(&lhs.shape, &rhs.shape, op.as_str())?;
+        check_same_shape(&self.shape, &lhs.shape, op.as_str())?;
+        let len = self.elem_count();
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
+        B::binary(&mut *dst, &*lhs_data, &*rhs_data, len, op)?;
         Ok(())
     }
 
     pub fn add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        check_same_shape(&lhs.shape, &rhs.shape, "add_")?;
-        check_same_shape(&self.shape, &lhs.shape, "add_ (output)")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::add(&mut *dst, &*lhs_data, &*rhs_data, len)?;
-        Ok(())
+        self.binary_(lhs, rhs, BinaryOp::Add)
+    }
+
+    pub fn sub_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+        self.binary_(lhs, rhs, BinaryOp::Sub)
     }
 
     pub fn mul_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        check_same_shape(&lhs.shape, &rhs.shape, "mul_")?;
-        check_same_shape(&self.shape, &lhs.shape, "mul_ (output)")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::mul(&mut *dst, &*lhs_data, &*rhs_data, len)?;
-        Ok(())
+        self.binary_(lhs, rhs, BinaryOp::Mul)
+    }
+
+    pub fn div_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+        self.binary_(lhs, rhs, BinaryOp::Div)
     }
 
     pub fn maximum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        check_same_shape(&lhs.shape, &rhs.shape, "maximum_")?;
-        check_same_shape(&self.shape, &lhs.shape, "maximum_ (output)")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::maximum(&mut *dst, &*lhs_data, &*rhs_data, len)?;
-        Ok(())
+        self.binary_(lhs, rhs, BinaryOp::Maximum)
     }
 
     pub fn minimum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        check_same_shape(&lhs.shape, &rhs.shape, "minimum_")?;
-        check_same_shape(&self.shape, &lhs.shape, "minimum_ (output)")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::minimum(&mut *dst, &*lhs_data, &*rhs_data, len)?;
-        Ok(())
+        self.binary_(lhs, rhs, BinaryOp::Minimum)
     }
 
     pub fn transpose_(&self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
@@ -95,22 +164,53 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
-    pub fn cos_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "cos_")?;
+    pub fn unary_(&self, src: &Self, op: UnaryOp) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, op.as_str())?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
         let src_data = src.storage()?;
-        B::cos(&mut *dst, &*src_data, len)?;
+        B::unary(&mut *dst, &*src_data, len, op)?;
         Ok(())
     }
 
+    pub fn cos_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Cos)
+    }
+
     pub fn sin_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "sin_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::sin(&mut *dst, &*src_data, len)?;
-        Ok(())
+        self.unary_(src, UnaryOp::Sin)
+    }
+
+    pub fn gelu_erf_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::GeluErf)
+    }
+
+    pub fn elu_(&self, src: &Self, alpha: f32) -> Result<()> {
+        self.unary_(src, UnaryOp::Elu { alpha })
+    }
+
+    pub fn abs_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Abs)
+    }
+
+    pub fn sqr_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Sqr)
+    }
+
+    pub fn sqrt_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Sqrt)
+    }
+
+    pub fn relu_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Relu)
+    }
+
+    pub fn tanh_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Tanh)
+    }
+
+    pub fn sigmoid_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Sigmoid)
     }
 
     pub fn silu_(&self, src: &Self) -> Result<()> {
@@ -340,78 +440,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn sqr_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "sqr_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::sqr(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
-    pub fn sqrt_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "sqrt_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::sqrt(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
-    pub fn abs_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "abs_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::abs(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
-    pub fn gelu_erf_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "gelu_erf_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::gelu_erf(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
-    pub fn elu_(&self, src: &Self, alpha: f32) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "elu_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::elu(&mut *dst, &*src_data, alpha, len)?;
-        Ok(())
-    }
-
-    pub fn relu_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "relu_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::relu(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
-    pub fn tanh_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "tanh_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::tanh(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
-    pub fn sigmoid_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "sigmoid_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::sigmoid(&mut *dst, &*src_data, len)?;
-        Ok(())
-    }
-
     pub fn reduce_max_(&self, src: &Self, dim: usize) -> Result<()> {
         let src_dims = src.dims();
         let dim_size = src_dims[dim];
@@ -460,76 +488,47 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn broadcast_add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+    pub fn broadcast_binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
         let dst_shape = self.dims().to_vec();
         let (lhs_strides, rhs_strides) =
             compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
         let mut dst = self.storage_mut()?;
         let lhs_data = lhs.storage()?;
         let rhs_data = rhs.storage()?;
-        B::broadcast_add(
+        B::broadcast_binary(
             &mut *dst,
             &*lhs_data,
             &*rhs_data,
             &dst_shape,
             &lhs_strides,
             &rhs_strides,
+            op,
         )?;
         Ok(())
+    }
+
+    pub fn broadcast_add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+        self.broadcast_binary_(lhs, rhs, BinaryOp::Add)
     }
 
     pub fn broadcast_sub_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        let dst_shape = self.dims().to_vec();
-        let (lhs_strides, rhs_strides) =
-            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::broadcast_sub(
-            &mut *dst,
-            &*lhs_data,
-            &*rhs_data,
-            &dst_shape,
-            &lhs_strides,
-            &rhs_strides,
-        )?;
-        Ok(())
+        self.broadcast_binary_(lhs, rhs, BinaryOp::Sub)
     }
 
     pub fn broadcast_mul_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        let dst_shape = self.dims().to_vec();
-        let (lhs_strides, rhs_strides) =
-            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::broadcast_mul(
-            &mut *dst,
-            &*lhs_data,
-            &*rhs_data,
-            &dst_shape,
-            &lhs_strides,
-            &rhs_strides,
-        )?;
-        Ok(())
+        self.broadcast_binary_(lhs, rhs, BinaryOp::Mul)
     }
 
     pub fn broadcast_div_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        let dst_shape = self.dims().to_vec();
-        let (lhs_strides, rhs_strides) =
-            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::broadcast_div(
-            &mut *dst,
-            &*lhs_data,
-            &*rhs_data,
-            &dst_shape,
-            &lhs_strides,
-            &rhs_strides,
-        )?;
-        Ok(())
+        self.broadcast_binary_(lhs, rhs, BinaryOp::Div)
+    }
+
+    pub fn broadcast_maximum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+        self.broadcast_binary_(lhs, rhs, BinaryOp::Maximum)
+    }
+
+    pub fn broadcast_minimum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+        self.broadcast_binary_(lhs, rhs, BinaryOp::Minimum)
     }
 
     #[allow(clippy::too_many_arguments)]
