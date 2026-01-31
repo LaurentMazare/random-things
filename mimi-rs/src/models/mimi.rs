@@ -1599,6 +1599,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         Ok(Self { embedding, c2, dim })
     }
 
+    #[tracing::instrument(name = "ec-encode", skip_all)]
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         // Save target shape (all dims except the last)
         let mut target_shape: Vec<usize> = xs.dims().to_vec();
@@ -1622,6 +1623,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         }
     }
 
+    #[tracing::instrument(name = "ec-decode", skip_all)]
     pub fn decode(&self, indices: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         // Save final dims: indices.dims() + [dim]
         let mut final_dims = indices.dims().to_vec();
@@ -1667,6 +1669,7 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
         Ok(Self { project_in, project_out, codebook })
     }
 
+    #[tracing::instrument(name = "vq-encode", skip_all)]
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let xs = xs.t()?; // [B, C, T] -> [B, T, C]
         let xs = match &self.project_in {

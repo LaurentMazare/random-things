@@ -74,6 +74,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     binary_op!(minimum, broadcast_minimum, Minimum);
     binary_op!(maximum, broadcast_maximum, Maximum);
 
+    #[tracing::instrument(skip_all)]
     pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Self> {
         let dim1 = dim1.to_index(self.shape(), "transpose dim1")?;
         let dim2 = dim2.to_index(self.shape(), "transpose dim2")?;
