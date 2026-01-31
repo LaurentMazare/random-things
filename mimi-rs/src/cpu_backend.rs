@@ -1170,20 +1170,20 @@ fn broadcast_binary_op<T: WithDType>(
     }
     if lhs_no_zero && rhs_strides == [0, 1] {
         for idx0 in 0..dst_shape[0] {
-            for idx1 in 0..dst_shape[1] {
+            for (idx1, rhs) in rhs.iter().enumerate().take(dst_shape[1]) {
                 let dst_idx = idx0 * dst_shape[1] + idx1;
                 let lhs_idx = idx0 * lhs_strides[0] + idx1;
-                dst[dst_idx] = op(lhs[lhs_idx], rhs[idx1]);
+                dst[dst_idx] = op(lhs[lhs_idx], *rhs);
             }
         }
         return Ok(());
     }
     if lhs_no_zero && rhs_strides == [1, 0] {
-        for idx0 in 0..dst_shape[0] {
+        for (idx0, rhs) in rhs.iter().enumerate().take(dst_shape[0]) {
             for idx1 in 0..dst_shape[1] {
                 let dst_idx = idx0 * dst_shape[1] + idx1;
                 let lhs_idx = idx0 * lhs_strides[0] + idx1;
-                dst[dst_idx] = op(lhs[lhs_idx], rhs[idx0]);
+                dst[dst_idx] = op(lhs[lhs_idx], *rhs);
             }
         }
         return Ok(());

@@ -137,26 +137,29 @@ trait TensorFormatter {
         match dims {
             [] => {
                 if let Ok(vs) = t.to_vec()
-                    && let Some(&v) = vs.first() {
-                        self.fmt(v, max_w, f)?
-                    }
+                    && let Some(&v) = vs.first()
+                {
+                    self.fmt(v, max_w, f)?
+                }
             }
             [v] if summarize && *v > 2 * edge_items => {
                 if let Ok(slice) = t.narrow(0, 0, edge_items)
-                    && let Ok(vs) = slice.to_vec() {
-                        for v in vs.into_iter() {
-                            self.fmt(v, max_w, f)?;
-                            write!(f, ", ")?;
-                        }
+                    && let Ok(vs) = slice.to_vec()
+                {
+                    for v in vs.into_iter() {
+                        self.fmt(v, max_w, f)?;
+                        write!(f, ", ")?;
                     }
+                }
                 write!(f, "...")?;
                 if let Ok(slice) = t.narrow(0, v - edge_items, edge_items)
-                    && let Ok(vs) = slice.to_vec() {
-                        for v in vs.into_iter() {
-                            write!(f, ", ")?;
-                            self.fmt(v, max_w, f)?;
-                        }
+                    && let Ok(vs) = slice.to_vec()
+                {
+                    for v in vs.into_iter() {
+                        write!(f, ", ")?;
+                        self.fmt(v, max_w, f)?;
                     }
+                }
             }
             [_] => {
                 let elements_per_line = usize::max(1, po.line_width / (max_w + 2));
@@ -226,11 +229,7 @@ fn get_subtensor<T: WithDType, B: Backend>(t: &Tensor<T, B>, i: usize) -> Result
     let slice = t.narrow(0, i, 1)?;
     // Remove the first dimension
     let new_dims: Vec<usize> = t.dims()[1..].to_vec();
-    if new_dims.is_empty() {
-        slice.reshape(vec![1])
-    } else {
-        slice.reshape(new_dims)
-    }
+    if new_dims.is_empty() { slice.reshape(vec![1]) } else { slice.reshape(new_dims) }
 }
 
 struct FloatFormatter<S: WithDType> {
@@ -277,11 +276,12 @@ where
             }
             if let Some(v1) = S::from(1000.)
                 && let Some(v2) = S::from(1e8)
-                    && let Some(v3) = S::from(1e-4) {
-                        sci_mode = nonzero_finite_max / nonzero_finite_min > v1
-                            || nonzero_finite_max > v2
-                            || nonzero_finite_min < v3
-                    }
+                && let Some(v3) = S::from(1e-4)
+            {
+                sci_mode = nonzero_finite_max / nonzero_finite_min > v1
+                    || nonzero_finite_max > v2
+                    || nonzero_finite_min < v3
+            }
         }
 
         match po.sci_mode {
@@ -382,9 +382,10 @@ impl<T: WithDType + std::fmt::Display, B: Backend> std::fmt::Debug for Tensor<T,
         match self.dims() {
             [] => {
                 if let Ok(vs) = self.to_vec()
-                    && let Some(v) = vs.first() {
-                        write!(f, "{v}")?
-                    }
+                    && let Some(v) = vs.first()
+                {
+                    write!(f, "{v}")?
+                }
             }
             [s] if *s < 10 => {
                 if let Ok(vs) = self.to_vec() {
