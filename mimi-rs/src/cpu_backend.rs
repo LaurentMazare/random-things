@@ -144,7 +144,11 @@ impl crate::Backend for crate::CpuDevice {
                     &lhs[..len],
                     &rhs[..len],
                     |a, b| {
-                        if a > b { a } else { b }
+                        if a > b {
+                            a
+                        } else {
+                            b
+                        }
                     },
                 )
             }
@@ -154,7 +158,11 @@ impl crate::Backend for crate::CpuDevice {
                     &lhs[..len],
                     &rhs[..len],
                     |a, b| {
-                        if a < b { a } else { b }
+                        if a < b {
+                            a
+                        } else {
+                            b
+                        }
                     },
                 )
             }
@@ -609,12 +617,20 @@ impl crate::Backend for crate::CpuDevice {
             }
             BinaryOp::Maximum => {
                 broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
-                    if a > b { a } else { b }
+                    if a > b {
+                        a
+                    } else {
+                        b
+                    }
                 })
             }
             BinaryOp::Minimum => {
                 broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
-                    if a < b { a } else { b }
+                    if a < b {
+                        a
+                    } else {
+                        b
+                    }
                 })
             }
         }
@@ -1135,6 +1151,7 @@ fn conv_transpose1d_direct<T: WithDTypeF>(
 }
 
 /// Helper function for broadcast binary operations.
+#[inline(always)]
 fn broadcast_binary_op<T: WithDType>(
     dst: &mut [T],
     lhs: &[T],
@@ -1144,6 +1161,34 @@ fn broadcast_binary_op<T: WithDType>(
     rhs_strides: &[usize],
     op: impl Fn(T, T) -> T,
 ) -> Result<()> {
+    let lhs_no_zero = lhs_strides.iter().all(|&s| s > 0);
+    let rhs_no_zero = rhs_strides.iter().all(|&s| s > 0);
+
+    if lhs_no_zero && rhs_no_zero {
+        apply_binary(dst, lhs, rhs, &op);
+        return Ok(());
+    }
+    if lhs_no_zero && rhs_strides == [0, 1] {
+        for idx0 in 0..dst_shape[0] {
+            for idx1 in 0..dst_shape[1] {
+                let dst_idx = idx0 * dst_shape[1] + idx1;
+                let lhs_idx = idx0 * lhs_strides[0] + idx1;
+                dst[dst_idx] = op(lhs[lhs_idx], rhs[idx1]);
+            }
+        }
+        return Ok(());
+    }
+    if lhs_no_zero && rhs_strides == [1, 0] {
+        for idx0 in 0..dst_shape[0] {
+            for idx1 in 0..dst_shape[1] {
+                let dst_idx = idx0 * dst_shape[1] + idx1;
+                let lhs_idx = idx0 * lhs_strides[0] + idx1;
+                dst[dst_idx] = op(lhs[lhs_idx], rhs[idx0]);
+            }
+        }
+        return Ok(());
+    }
+
     let total_elems: usize = dst_shape.iter().product();
     let rank = dst_shape.len();
 
