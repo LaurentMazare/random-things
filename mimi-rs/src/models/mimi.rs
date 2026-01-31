@@ -1611,7 +1611,7 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
         // Compute distances using precomputed c2:
         // ||x - e||^2 / 2 = ||e||^2/2 - x*e^T + ||x||^2/2
         // We only need relative distances, so: dist = c2 - dot_prod
-        let dot_prod = xs.matmul(&self.embedding.t()?)?; // [N, codebook_size]
+        let dot_prod = xs.matmul_t(&self.embedding)?; // [N, codebook_size]
         let dists = self.c2.broadcast_sub(&dot_prod)?; // [N, codebook_size]
 
         // Argmin to get indices, then reshape to target_shape
