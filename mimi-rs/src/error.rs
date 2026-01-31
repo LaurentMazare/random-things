@@ -67,6 +67,14 @@ pub enum Error {
 
     #[error("unwrap none")]
     UnwrapNone,
+
+    #[cfg(feature = "cuda")]
+    #[error(transparent)]
+    Cublas(#[from] cudarc::cublas::result::CublasError),
+
+    #[cfg(feature = "cuda")]
+    #[error(transparent)]
+    CudaDriver(#[from] cudarc::driver::DriverError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
