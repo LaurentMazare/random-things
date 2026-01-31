@@ -4,20 +4,19 @@ use crate::{Backend, BinaryOp, Dim, Error, Result, Tensor, WithDType, WithDTypeF
 fn broadcast_shape(lhs: &[usize], rhs: &[usize]) -> Result<Vec<usize>> {
     let out_rank = lhs.len().max(rhs.len());
     let mut out_shape = vec![0usize; out_rank];
-
-    for i in 0..out_rank {
+    for (i, out_dim) in out_shape.iter_mut().enumerate() {
         let lhs_dim = if i < out_rank - lhs.len() { 1 } else { lhs[i - (out_rank - lhs.len())] };
         let rhs_dim = if i < out_rank - rhs.len() { 1 } else { rhs[i - (out_rank - rhs.len())] };
 
-        if lhs_dim == rhs_dim {
-            out_shape[i] = lhs_dim;
+        *out_dim = if lhs_dim == rhs_dim {
+            lhs_dim
         } else if lhs_dim == 1 {
-            out_shape[i] = rhs_dim;
+            rhs_dim
         } else if rhs_dim == 1 {
-            out_shape[i] = lhs_dim;
+            lhs_dim
         } else {
-            crate::bail!("broadcast shape mismatch at dim {}: lhs={}, rhs={}", i, lhs_dim, rhs_dim);
-        }
+            crate::bail!("cannot broadcast between shapes {lhs:?} and {rhs:?}");
+        };
     }
 
     Ok(out_shape)

@@ -95,9 +95,9 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn broadcast_binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
-        let dst_shape = self.dims().to_vec();
-        let (lhs_strides, rhs_strides) =
-            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        let dst_shape = self.dims();
+        let (dst_shape, lhs_strides, rhs_strides) =
+            compute_broadcast_strides(dst_shape, lhs.dims(), rhs.dims())?;
         let mut dst = self.storage_mut()?;
         let lhs_data = lhs.storage()?;
         let rhs_data = rhs.storage()?;
@@ -613,53 +613,75 @@ fn compute_broadcast_strides(
     out_shape: &[usize],
     lhs_shape: &[usize],
     rhs_shape: &[usize],
-) -> crate::Result<(Vec<usize>, Vec<usize>)> {
+) -> crate::Result<(Vec<usize>, Vec<usize>, Vec<usize>)> {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Broadcast {
+        Lhs,
+        Rhs,
+        None,
+    }
     let out_rank = out_shape.len();
     let lhs_rank = lhs_shape.len();
     let rhs_rank = rhs_shape.len();
 
-    let mut lhs_strides = vec![0usize; out_rank];
-    let mut rhs_strides = vec![0usize; out_rank];
-
-    // Compute strides for lhs (right-aligned)
-    let lhs_offset = out_rank - lhs_rank;
-    let mut lhs_stride = 1usize;
-    for i in (0..lhs_rank).rev() {
-        let out_idx = i + lhs_offset;
-        if lhs_shape[i] == out_shape[out_idx] {
-            lhs_strides[out_idx] = lhs_stride;
-            lhs_stride *= lhs_shape[i];
-        } else if lhs_shape[i] == 1 {
-            lhs_strides[out_idx] = 0; // broadcast dimension
-        } else {
-            crate::bail!(
-                "broadcast shape mismatch: lhs dim {} is {} but output is {}",
-                i,
-                lhs_shape[i],
-                out_shape[out_idx]
-            );
+    let mut lro = Vec::with_capacity(out_rank);
+    for (i, out_dim) in out_shape.iter().enumerate() {
+        let lhs_dim =
+            if i >= out_rank - lhs_rank { lhs_shape[i - (out_rank - lhs_rank)] } else { 1 };
+        let rhs_dim =
+            if i >= out_rank - rhs_rank { rhs_shape[i - (out_rank - rhs_rank)] } else { 1 };
+        if lhs_dim != *out_dim && lhs_dim != 1 {
+            crate::bail!("broadcast mismatch: lhs dim {i} is {lhs_dim} but output is {out_dim}",);
         }
+        if rhs_dim != *out_dim && rhs_dim != 1 {
+            crate::bail!("broadcast mismatch: rhs dim {i} is {rhs_dim} but output is {out_dim}",);
+        }
+        let broadcast = match (lhs_dim == 1, rhs_dim == 1) {
+            (true, false) => Broadcast::Lhs,
+            (false, true) => Broadcast::Rhs,
+            (false, false) => Broadcast::None,
+            (true, true) => continue,
+        };
+        lro.push((broadcast, *out_dim))
     }
 
-    // Compute strides for rhs (right-aligned)
-    let rhs_offset = out_rank - rhs_rank;
-    let mut rhs_stride = 1usize;
-    for i in (0..rhs_rank).rev() {
-        let out_idx = i + rhs_offset;
-        if rhs_shape[i] == out_shape[out_idx] {
-            rhs_strides[out_idx] = rhs_stride;
-            rhs_stride *= rhs_shape[i];
-        } else if rhs_shape[i] == 1 {
-            rhs_strides[out_idx] = 0; // broadcast dimension
-        } else {
-            crate::bail!(
-                "broadcast shape mismatch: rhs dim {} is {} but output is {}",
-                i,
-                rhs_shape[i],
-                out_shape[out_idx]
-            );
+    let mut compact_lro = Vec::with_capacity(lro.len());
+    for (b, dim) in lro {
+        if let Some((last_b, last_dim)) = compact_lro.last_mut()
+            && *last_b == b
+        {
+            *last_dim *= dim;
+            continue;
         }
+        compact_lro.push((b, dim));
     }
 
-    Ok((lhs_strides, rhs_strides))
+    let out_rank = compact_lro.len();
+    let mut lhs_strides = vec![0; out_rank];
+    let mut rhs_strides = vec![0; out_rank];
+    let mut lhs_stride = 1;
+    let mut rhs_stride = 1;
+    for i in (0..out_rank).rev() {
+        let (b, dim) = compact_lro[i];
+        match b {
+            Broadcast::Lhs => {
+                rhs_strides[i] = rhs_stride;
+                lhs_strides[i] = 0;
+                rhs_stride *= dim;
+            }
+            Broadcast::Rhs => {
+                lhs_strides[i] = lhs_stride;
+                rhs_strides[i] = 0;
+                lhs_stride *= dim;
+            }
+            Broadcast::None => {
+                lhs_strides[i] = lhs_stride;
+                rhs_strides[i] = rhs_stride;
+                lhs_stride *= dim;
+                rhs_stride *= dim;
+            }
+        }
+    }
+    let out_shape = compact_lro.iter().map(|(_, dim)| *dim).collect();
+    Ok((out_shape, lhs_strides, rhs_strides))
 }
