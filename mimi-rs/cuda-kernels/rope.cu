@@ -3,7 +3,7 @@
 #include<stdint.h>
 
 template <typename T>
-__device__ void ropei(const T * cos, const T * sin, T * dst, const uint32_t bh, const uint32_t td) {
+__device__ void ropei(const T * cos, const T * sin, const T * src, T * dst, const uint32_t bh, const uint32_t td) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (2 * idx >= bh * td) return;
 
@@ -11,15 +11,15 @@ __device__ void ropei(const T * cos, const T * sin, T * dst, const uint32_t bh, 
     T c = cos[rope_idx];
     T s = sin[rope_idx];
 
-    T src1 = dst[2 * idx];
-    T src2 = dst[2 * idx + 1];
+    T src1 = src[2 * idx];
+    T src2 = src[2 * idx + 1];
 
     dst[2 * idx] = src1 * c - src2 * s;
     dst[2 * idx + 1] = src1 * s + src2 * c;
 }
 
 template <typename T>
-__device__ void rope(const T * cos, const T * sin, T * dst, const uint32_t bh, const uint32_t td, const uint32_t d) {
+__device__ void rope(const T * cos, const T * sin, const T * src, T * dst, const uint32_t bh, const uint32_t td, const uint32_t d) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (2 * idx >= bh * td) return;
 
@@ -32,8 +32,8 @@ __device__ void rope(const T * cos, const T * sin, T * dst, const uint32_t bh, c
     uint32_t i_cs = i_t * (d / 2) + i_d;
     T c = cos[i_cs];
     T s = sin[i_cs];
-    T src1 = dst[i1];
-    T src2 = dst[i2];
+    T src1 = src[i1];
+    T src2 = src[i2];
 
     dst[i1] = src1 * c - src2 * s;
     dst[i2] = src1 * s + src2 * c;
@@ -43,6 +43,7 @@ template <typename T>
 __device__ void rope_thd(
     const T * cos,
     const T * sin,
+    const T * src,
     T * dst,
     const uint32_t b,
     const uint32_t t,
@@ -60,8 +61,8 @@ __device__ void rope_thd(
     uint32_t i_cs = i_t * (d / 2) + i_d;
     T c = cos[i_cs];
     T s = sin[i_cs];
-    T src1 = dst[i1];
-    T src2 = dst[i2];
+    T src1 = src[i1];
+    T src2 = src[i2];
 
     dst[i1] = src1 * c - src2 * s;
     dst[i2] = src1 * s + src2 * c;
@@ -71,29 +72,32 @@ __device__ void rope_thd(
   extern "C" __global__ void FN_NAME_I( \
       const TYPENAME *cos, \
       const TYPENAME *sin, \
+      const TYPENAME *src, \
       TYPENAME *dst, \
       const uint32_t bh, \
       const uint32_t td) { \
-    ropei<TYPENAME>(cos, sin, dst, bh, td); \
+    ropei<TYPENAME>(cos, sin, src, dst, bh, td); \
   } \
   extern "C" __global__ void FN_NAME( \
       const TYPENAME *cos, \
       const TYPENAME *sin, \
+      const TYPENAME *src, \
       TYPENAME *dst, \
       const uint32_t bh, \
       const uint32_t td, \
       const uint32_t d) { \
-    rope<TYPENAME>(cos, sin, dst, bh, td, d); \
+    rope<TYPENAME>(cos, sin, src, dst, bh, td, d); \
   } \
   extern "C" __global__ void FN_NAME_THD( \
       const TYPENAME *cos, \
       const TYPENAME *sin, \
+      const TYPENAME *src, \
       TYPENAME *dst, \
       const uint32_t b, \
       const uint32_t t, \
       const uint32_t h, \
       const uint32_t d) { \
-    rope_thd<TYPENAME>(cos, sin, dst, b, t, h, d); \
+    rope_thd<TYPENAME>(cos, sin, src, dst, b, t, h, d); \
   } \
 
 #if __CUDA_ARCH__ >= 800

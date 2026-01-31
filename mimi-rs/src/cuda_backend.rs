@@ -233,9 +233,25 @@ impl crate::Backend for Device {
         h: usize,
         t: usize,
         d: usize,
-        pos: usize,
+        _pos: usize,
     ) -> Result<()> {
-        crate::bail!("rope not implemented yet")
+        let kname = kernel_name::<T>("rope");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ROPE)?;
+        let bh = (b * h) as u32;
+        let td = (t * d) as u32;
+        let d = d as u32;
+        // The kernel processes bh * td / 2 elements (each thread handles 2 elements)
+        let cfg = LaunchConfig::for_num_elems(bh * td / 2);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&cos.data);
+        launch_args.arg(&sin.data);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&bh);
+        launch_args.arg(&td);
+        launch_args.arg(&d);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn rope_i<T: WithDTypeF>(
@@ -247,9 +263,23 @@ impl crate::Backend for Device {
         h: usize,
         t: usize,
         d: usize,
-        pos: usize,
+        _pos: usize,
     ) -> Result<()> {
-        crate::bail!("rope_i not implemented yet")
+        let kname = kernel_name::<T>("rope_i");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ROPE)?;
+        let bh = (b * h) as u32;
+        let td = (t * d) as u32;
+        // The kernel processes bh * td / 2 elements (each thread handles 2 elements)
+        let cfg = LaunchConfig::for_num_elems(bh * td / 2);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&cos.data);
+        launch_args.arg(&sin.data);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&bh);
+        launch_args.arg(&td);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn gemm<T: WithDType>(
