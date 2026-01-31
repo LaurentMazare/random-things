@@ -9,6 +9,25 @@ pub enum DType {
     U8,
 }
 
+#[cfg(feature = "cuda")]
+pub trait WithDType:
+    Sized
+    + Copy
+    + num_traits::NumAssign
+    + PartialOrd
+    + 'static
+    + Clone
+    + Send
+    + Sync
+    + std::fmt::Debug
+    + cudarc::driver::DeviceRepr
+{
+    const DTYPE: DType;
+    const BYTE_SIZE: usize;
+    fn vec_from_le_bytes(src: &[u8]) -> Vec<Self>;
+}
+
+#[cfg(not(feature = "cuda"))]
 pub trait WithDType:
     Sized + Copy + num_traits::NumAssign + PartialOrd + 'static + Clone + Send + Sync + std::fmt::Debug
 {

@@ -1,46 +1,143 @@
 #![allow(unused)]
-use crate::{BinaryOp, Result, UnaryOp, WithDType, WithDTypeF};
+use crate::{BinaryOp, DType, Result, UnaryOp, WithDType, WithDTypeF};
 use cudarc::cublas::{Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, DevicePtr, DeviceRepr, DeviceSlice,
-    LaunchConfig,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaView, DeviceRepr, DeviceSlice,
+    LaunchConfig, PushKernelArg,
 };
 use half::{bf16, f16};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub struct Device {
     cuda: Arc<CudaContext>,
-    default_stream: Arc<CudaStream>,
+    stream: Arc<CudaStream>,
     blas: Arc<cudarc::cublas::CudaBlas>,
+    /// Cache for loaded PTX modules
+    modules: Arc<Mutex<HashMap<&'static str, Arc<cudarc::driver::CudaModule>>>>,
 }
 
 impl Device {
     pub fn new(ordinal: usize) -> Result<Self> {
         let cuda = cudarc::driver::CudaContext::new(ordinal)?;
-        let default_stream = cuda.default_stream();
-        let blas = cudarc::cublas::CudaBlas::new(default_stream.clone())?;
-        Ok(Self { cuda, default_stream, blas: Arc::new(blas) })
+        let stream = cuda.default_stream();
+        let blas = cudarc::cublas::CudaBlas::new(stream.clone())?;
+        Ok(Self {
+            cuda,
+            stream,
+            blas: Arc::new(blas),
+            modules: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
+
+    fn get_or_load_module(&self, ptx: &'static str) -> Result<Arc<cudarc::driver::CudaModule>> {
+        let mut modules = self.modules.lock().unwrap();
+        if let Some(module) = modules.get(ptx) {
+            return Ok(module.clone());
+        }
+        let module = self.cuda.load_module(ptx.into())?;
+        modules.insert(ptx, module.clone());
+        Ok(module)
+    }
+
+    fn get_func(&self, name: &str, ptx: &'static str) -> Result<CudaFunction> {
+        let module = self.get_or_load_module(ptx)?;
+        let func = module.load_function(name)?;
+        Ok(func)
     }
 }
 
+/// CUDA storage that holds both the device data and a reference to the device.
+pub struct Storage<T: WithDType> {
+    pub data: CudaSlice<T>,
+    pub device: Device,
+}
+
+impl<T: WithDType> Storage<T> {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+}
+
+fn kernel_name<T: WithDType>(base_name: &str) -> String {
+    let dtype_str = match T::DTYPE {
+        DType::F16 => "f16",
+        DType::BF16 => "bf16",
+        DType::F32 => "f32",
+        DType::I64 => "i64",
+        DType::U8 => "u8",
+    };
+    format!("{base_name}_{dtype_str}")
+}
+
+// Reduced precision settings
+static MM_F16_REDUCED_PRECISION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static MM_BF16_REDUCED_PRECISION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static MM_F32_REDUCED_PRECISION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn gemm_reduced_precision_f32() -> bool {
+    MM_F32_REDUCED_PRECISION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_gemm_reduced_precision_f32(b: bool) {
+    MM_F32_REDUCED_PRECISION.store(b, std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn gemm_reduced_precision_f16() -> bool {
+    MM_F16_REDUCED_PRECISION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_gemm_reduced_precision_f16(b: bool) {
+    MM_F16_REDUCED_PRECISION.store(b, std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn gemm_reduced_precision_bf16() -> bool {
+    MM_BF16_REDUCED_PRECISION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_gemm_reduced_precision_bf16(b: bool) {
+    MM_BF16_REDUCED_PRECISION.store(b, std::sync::atomic::Ordering::Relaxed)
+}
+
 impl crate::Backend for Device {
-    type Storage<T: WithDType> = CudaSlice<T>;
+    type Storage<T: WithDType> = Storage<T>;
 
     fn storage_len<T: WithDType>(storage: &Self::Storage<T>) -> usize {
         storage.len()
     }
 
     unsafe fn alloc_uninit<T: WithDType>(len: usize, dev: &Self) -> Result<Self::Storage<T>> {
-        crate::bail!("not implemented yet")
+        let data = unsafe { dev.stream.alloc::<T>(len) }?;
+        Ok(Storage { data, device: dev.clone() })
     }
 
     fn from_vec<T: WithDType>(v: Vec<T>, dev: &Self) -> Result<Self::Storage<T>> {
-        crate::bail!("not implemented yet")
+        let data = dev.stream.clone_htod(&v)?;
+        Ok(Storage { data, device: dev.clone() })
     }
 
     fn fill<T: WithDType>(dst: &mut Self::Storage<T>, elem: T, len: usize) -> Result<()> {
-        crate::bail!("not implemented yet")
+        let kname = kernel_name::<T>("fill");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::FILL)?;
+        let cfg = LaunchConfig::for_num_elems(len as u32);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&elem);
+        launch_args.arg(&len);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn copy<T: WithDType>(
@@ -48,11 +145,12 @@ impl crate::Backend for Device {
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("copy not implemented yet")
     }
 
     fn data<T: WithDType>(src: &Self::Storage<T>, len: usize) -> Result<std::borrow::Cow<'_, [T]>> {
-        crate::bail!("not implemented yet")
+        let data = src.device.stream.clone_dtoh(&src.data)?;
+        Ok(std::borrow::Cow::Owned(data))
     }
 
     fn inplace_unary<T: WithDTypeF>(
@@ -60,7 +158,7 @@ impl crate::Backend for Device {
         len: usize,
         op: UnaryOp,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("inplace_unary not implemented yet")
     }
 
     fn bin_assign<T: WithDType>(
@@ -69,7 +167,7 @@ impl crate::Backend for Device {
         len: usize,
         op: BinaryOp,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("bin_assign not implemented yet")
     }
 
     fn unary<T: WithDTypeF>(
@@ -78,7 +176,7 @@ impl crate::Backend for Device {
         len: usize,
         op: UnaryOp,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("unary not implemented yet")
     }
 
     fn binary<T: WithDType>(
@@ -88,7 +186,7 @@ impl crate::Backend for Device {
         len: usize,
         op: BinaryOp,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("binary not implemented yet")
     }
 
     fn scale<T: WithDType>(
@@ -97,17 +195,17 @@ impl crate::Backend for Device {
         v: T,
         len: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("scale not implemented yet")
     }
 
     fn transpose<T: WithDType>(
         dst: &mut Self::Storage<T>,
-        s: &Self::Storage<T>,
+        src: &Self::Storage<T>,
         dim1: usize,
         dim2: usize,
         dims: &[usize],
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("transpose not implemented yet")
     }
 
     fn copy2d<T: WithDType>(
@@ -120,7 +218,7 @@ impl crate::Backend for Device {
         dst_o: usize,
         src_o: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("copy2d not implemented yet")
     }
 
     fn rope<T: WithDTypeF>(
@@ -134,7 +232,7 @@ impl crate::Backend for Device {
         d: usize,
         pos: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("rope not implemented yet")
     }
 
     fn rope_i<T: WithDTypeF>(
@@ -148,7 +246,7 @@ impl crate::Backend for Device {
         d: usize,
         pos: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("rope_i not implemented yet")
     }
 
     fn gemm<T: WithDType>(
@@ -164,7 +262,7 @@ impl crate::Backend for Device {
         lhs_strides: (usize, usize),
         rhs_strides: (usize, usize),
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("gemm not implemented yet")
     }
 
     fn index_select<T: WithDType>(
@@ -174,7 +272,7 @@ impl crate::Backend for Device {
         dim: usize,
         dims: &[usize],
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("index_select not implemented yet")
     }
 
     fn apply_causality_mask<T: WithDTypeF>(
@@ -184,7 +282,7 @@ impl crate::Backend for Device {
         t2: usize,
         offset: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("apply_causality_mask not implemented yet")
     }
 
     fn softmax<T: WithDTypeF>(
@@ -193,7 +291,7 @@ impl crate::Backend for Device {
         dim_m1: usize,
         d: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("softmax not implemented yet")
     }
 
     fn rms_norm<T: WithDTypeF>(
@@ -204,7 +302,7 @@ impl crate::Backend for Device {
         d: usize,
         eps: f32,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("rms_norm not implemented yet")
     }
 
     fn layer_norm<T: WithDTypeF>(
@@ -216,7 +314,7 @@ impl crate::Backend for Device {
         d: usize,
         eps: f32,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("layer_norm not implemented yet")
     }
 
     fn reduce_max<T: WithDTypeF>(
@@ -226,7 +324,7 @@ impl crate::Backend for Device {
         outer_size: usize,
         inner_size: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("reduce_max not implemented yet")
     }
 
     fn reduce_min<T: WithDTypeF>(
@@ -236,7 +334,7 @@ impl crate::Backend for Device {
         outer_size: usize,
         inner_size: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("reduce_min not implemented yet")
     }
 
     fn reduce_argmin<T: WithDTypeF>(
@@ -246,7 +344,7 @@ impl crate::Backend for Device {
         outer_size: usize,
         inner_size: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("reduce_argmin not implemented yet")
     }
 
     fn reduce_sum<T: WithDTypeF>(
@@ -256,7 +354,7 @@ impl crate::Backend for Device {
         outer_size: usize,
         inner_size: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("reduce_sum not implemented yet")
     }
 
     fn broadcast_binary<T: WithDType>(
@@ -268,7 +366,7 @@ impl crate::Backend for Device {
         rhs_strides: &[usize],
         op: BinaryOp,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("broadcast_binary not implemented yet")
     }
 
     fn conv1d<T: WithDTypeF>(
@@ -286,7 +384,7 @@ impl crate::Backend for Device {
         dilation: usize,
         groups: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("conv1d not implemented yet")
     }
 
     fn conv_transpose1d<T: WithDTypeF>(
@@ -304,6 +402,6 @@ impl crate::Backend for Device {
         output_padding: usize,
         groups: usize,
     ) -> Result<()> {
-        crate::bail!("not implemented yet")
+        crate::bail!("conv_transpose1d not implemented yet")
     }
 }
