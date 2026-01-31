@@ -558,11 +558,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         todo!("repeat")
     }
 
-    /// Ensure tensor is contiguous in memory.
-    pub fn contiguous(&self) -> Result<Self> {
-        todo!("contiguous")
-    }
-
     /// Where condition: select from self or other based on condition.
     /// The condition should be a tensor of the same shape where non-zero values
     /// select from self, and zero values select from other.
