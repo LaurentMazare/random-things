@@ -208,7 +208,7 @@ impl crate::Backend for crate::CpuDevice {
         dim2: usize,
         dims: &[usize],
     ) -> Result<()> {
-        if dim1 == dim2 {
+        if dim1 == dim2 || dims.iter().filter(|v| **v != 1).count() <= 1 {
             dst.copy_from_slice(src);
         } else {
             let (dim1, dim2) = (usize::min(dim1, dim2), usize::max(dim1, dim2));
