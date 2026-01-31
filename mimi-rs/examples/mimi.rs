@@ -171,6 +171,7 @@ fn main() -> Result<()> {
     let all_codes = Tensor::cat(&code_refs, 2)?; // dim 2 is time
     let total_code_frames = all_codes.dims()[2];
     println!("  Total codes shape: {:?}", all_codes.dims());
+    println!("CODES\n{all_codes}");
 
     // Decode all codes back to audio using streaming API
     println!("\nDecoding codes to audio ({} frames)...", total_code_frames);
