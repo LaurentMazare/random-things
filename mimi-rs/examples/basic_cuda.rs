@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --release --example basic_cuda --features cuda
 
-use mimi::{cuda_backend::Device, Result, Tensor};
+use mimi::{Result, Tensor, cuda_backend::Device};
 
 fn main() -> Result<()> {
     println!("Initializing CUDA device...");
@@ -42,22 +42,17 @@ fn main() -> Result<()> {
 
     // Test with f16
     println!("\nTesting with f16...");
-    let f16_data: Vec<half::f16> = vec![1.0, 2.0, 3.0]
-        .into_iter()
-        .map(half::f16::from_f32)
-        .collect();
+    let f16_data: Vec<half::f16> =
+        vec![1.0, 2.0, 3.0].into_iter().map(half::f16::from_f32).collect();
     let t_f16: Tensor<half::f16, Device> = Tensor::from_vec(f16_data.clone(), vec![3], &device)?;
     let f16_back = t_f16.to_vec()?;
     println!("F16 data roundtrip successful: {:?}", f16_back);
 
     // Test with bf16
     println!("\nTesting with bf16...");
-    let bf16_data: Vec<half::bf16> = vec![1.0, 2.0, 3.0]
-        .into_iter()
-        .map(half::bf16::from_f32)
-        .collect();
-    let t_bf16: Tensor<half::bf16, Device> =
-        Tensor::from_vec(bf16_data.clone(), vec![3], &device)?;
+    let bf16_data: Vec<half::bf16> =
+        vec![1.0, 2.0, 3.0].into_iter().map(half::bf16::from_f32).collect();
+    let t_bf16: Tensor<half::bf16, Device> = Tensor::from_vec(bf16_data.clone(), vec![3], &device)?;
     let bf16_back = t_bf16.to_vec()?;
     println!("BF16 data roundtrip successful: {:?}", bf16_back);
 

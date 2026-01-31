@@ -42,3 +42,7 @@ debug = false
 [features]
 default = []
 cuda = ["dep:cudarc", "dep:bindgen_cuda"]
+
+[[example]]
+name = "basic_cuda"
+required-features = ["cuda"]
