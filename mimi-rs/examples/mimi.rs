@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use mimi::Tensor;
 use mimi::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
 use mimi::nn::VB;
+use mimi::Tensor;
 
 #[derive(Parser, Debug)]
 #[command(name = "mimi")]
@@ -18,10 +18,16 @@ struct Args {
     /// Number of codebooks to use (default: 8)
     #[arg(short, long, default_value_t = 8)]
     codebooks: usize,
+
+    #[arg(long)]
+    chrome_tracing: bool,
+
+    #[arg(long)]
+    audio_to_codes_only: bool,
 }
 
 fn download_model() -> Result<std::path::PathBuf> {
-    use hf_hub::{Repo, RepoType, api::sync::Api};
+    use hf_hub::{api::sync::Api, Repo, RepoType};
     let repo_id = "kyutai/moshiko-candle-q8";
     println!("Downloading model from {repo_id}...");
     let api = Api::new()?;
@@ -35,8 +41,18 @@ fn download_model() -> Result<std::path::PathBuf> {
     Ok(model_path)
 }
 
+fn init_tracing() -> tracing_chrome::FlushGuard {
+    use tracing_chrome::ChromeLayerBuilder;
+    use tracing_subscriber::{prelude::*, registry::Registry};
+
+    let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
+    Registry::default().with(chrome_layer).init();
+    guard
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
+    let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
 
     println!("Mimi Audio Tokenizer Example");
     println!("============================");
@@ -143,6 +159,11 @@ fn main() -> Result<()> {
         encode_elapsed.as_secs_f64(),
         pcm_data.len() as f64 / target_sample_rate as f64 / encode_elapsed.as_secs_f64()
     );
+
+    if args.audio_to_codes_only {
+        println!("\nAudio to codes only mode, skipping decoding.");
+        return Ok(());
+    }
 
     // Concatenate all codes along the time dimension
     println!("\nConcatenating codes...");
