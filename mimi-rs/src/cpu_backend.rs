@@ -577,7 +577,7 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
-    fn broadcast_binary<T: WithDTypeF>(
+    fn broadcast_binary<T: WithDType>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,
@@ -1135,7 +1135,7 @@ fn conv_transpose1d_direct<T: WithDTypeF>(
 }
 
 /// Helper function for broadcast binary operations.
-fn broadcast_binary_op<T: WithDTypeF>(
+fn broadcast_binary_op<T: WithDType>(
     dst: &mut [T],
     lhs: &[T],
     rhs: &[T],

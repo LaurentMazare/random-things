@@ -222,7 +222,7 @@ pub trait Backend: Sized + Clone + 'static {
 
     /// Broadcast binary operation
     /// lhs_strides and rhs_strides have 0 for broadcast dimensions.
-    fn broadcast_binary<T: crate::WithDTypeF>(
+    fn broadcast_binary<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         lhs: &Self::Storage<T>,
         rhs: &Self::Storage<T>,

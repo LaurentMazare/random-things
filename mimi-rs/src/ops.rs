@@ -1,4 +1,4 @@
-use crate::{Backend, Dim, Error, Result, Tensor, WithDType, WithDTypeF};
+use crate::{Backend, BinaryOp, Dim, Error, Result, Tensor, WithDType, WithDTypeF};
 
 /// Compute the broadcast output shape for two input shapes.
 fn broadcast_shape(lhs: &[usize], rhs: &[usize]) -> Result<Vec<usize>> {
@@ -39,36 +39,41 @@ fn check_same_shape<T: WithDType, B: Backend>(
     Ok(())
 }
 
+macro_rules! binary_op {
+    ($n:ident, $bn:ident, $v:ident) => {
+        #[tracing::instrument(skip_all)]
+        pub fn $n(&self, other: &Self) -> Result<Self> {
+            self.binary(other, BinaryOp::$v)
+        }
+
+        #[tracing::instrument(skip_all)]
+        pub fn $bn(&self, other: &Self) -> Result<Self> {
+            self.broadcast_binary(other, BinaryOp::$v)
+        }
+    };
+}
+
 impl<T: WithDType, B: Backend> Tensor<T, B> {
-    pub fn add(&self, other: &Self) -> Result<Self> {
-        check_same_shape(self, other, "add")?;
+    pub fn binary(&self, other: &Self, op: BinaryOp) -> Result<Self> {
+        check_same_shape(self, other, op.as_str())?;
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.add_(self, other)?;
+        result.binary_(self, other, op)?;
         Ok(result)
     }
 
-    pub fn mul(&self, other: &Self) -> Result<Self> {
-        check_same_shape(self, other, "mul")?;
-        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.mul_(self, other)?;
+    pub fn broadcast_binary(&self, other: &Self, op: BinaryOp) -> Result<Self> {
+        let out_shape = broadcast_shape(self.dims(), other.dims())?;
+        let result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
+        result.broadcast_binary_(self, other, op)?;
         Ok(result)
     }
 
-    /// Element-wise maximum of two tensors.
-    pub fn maximum(&self, other: &Self) -> Result<Self> {
-        check_same_shape(self, other, "maximum")?;
-        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.maximum_(self, other)?;
-        Ok(result)
-    }
-
-    /// Element-wise minimum of two tensors.
-    pub fn minimum(&self, other: &Self) -> Result<Self> {
-        check_same_shape(self, other, "minimum")?;
-        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.minimum_(self, other)?;
-        Ok(result)
-    }
+    binary_op!(add, broadcast_add, Add);
+    binary_op!(sub, broadcast_sub, Sub);
+    binary_op!(mul, broadcast_mul, Mul);
+    binary_op!(div, broadcast_div, Div);
+    binary_op!(minimum, broadcast_minimum, Minimum);
+    binary_op!(maximum, broadcast_maximum, Maximum);
 
     pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Self> {
         let dim1 = dim1.to_index(self.shape(), "transpose dim1")?;
@@ -474,42 +479,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         }
         let result: Tensor<i64, B> = unsafe { Tensor::alloc_uninit(out_dims, self.device()) }?;
         Self::reduce_argmin_(&result, self, dim)?;
-        Ok(result)
-    }
-
-    /// Broadcast multiplication.
-    #[tracing::instrument(skip_all)]
-    pub fn broadcast_mul(&self, other: &Self) -> Result<Self> {
-        let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
-        result.broadcast_mul_(self, other)?;
-        Ok(result)
-    }
-
-    /// Broadcast division.
-    #[tracing::instrument(skip_all)]
-    pub fn broadcast_div(&self, other: &Self) -> Result<Self> {
-        let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
-        result.broadcast_div_(self, other)?;
-        Ok(result)
-    }
-
-    /// Broadcast addition.
-    #[tracing::instrument(skip_all)]
-    pub fn broadcast_add(&self, other: &Self) -> Result<Self> {
-        let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
-        result.broadcast_add_(self, other)?;
-        Ok(result)
-    }
-
-    /// Broadcast subtraction.
-    #[tracing::instrument(skip_all)]
-    pub fn broadcast_sub(&self, other: &Self) -> Result<Self> {
-        let out_shape = broadcast_shape(self.dims(), other.dims())?;
-        let result = unsafe { Tensor::alloc_uninit(out_shape, self.device()) }?;
-        result.broadcast_sub_(self, other)?;
         Ok(result)
     }
 

@@ -57,6 +57,22 @@ impl BinaryOp {
     }
 }
 
+macro_rules! binary_op {
+    ($ipn:ident, $n_:ident, $bn_:ident, $v:ident) => {
+        pub fn $ipn(&self, other: &Self) -> Result<()> {
+            self.inplace_binary(other, BinaryOp::$v)
+        }
+
+        pub fn $n_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+            self.binary_(lhs, rhs, BinaryOp::$v)
+        }
+
+        pub fn $bn_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
+            self.broadcast_binary_(lhs, rhs, BinaryOp::$v)
+        }
+    };
+}
+
 impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub(crate) fn inplace_binary(&self, other: &Self, op: BinaryOp) -> Result<()> {
         check_same_shape(&self.shape, &other.shape, op.as_str())?;
@@ -65,30 +81,6 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let src = other.storage()?;
         B::bin_assign(&mut *dst, &*src, len, op)?;
         Ok(())
-    }
-
-    pub fn inplace_add(&self, other: &Self) -> Result<()> {
-        self.inplace_binary(other, BinaryOp::Add)
-    }
-
-    pub fn inplace_sub(&self, other: &Self) -> Result<()> {
-        self.inplace_binary(other, BinaryOp::Sub)
-    }
-
-    pub fn inplace_mul(&self, other: &Self) -> Result<()> {
-        self.inplace_binary(other, BinaryOp::Mul)
-    }
-
-    pub fn inplace_div(&self, other: &Self) -> Result<()> {
-        self.inplace_binary(other, BinaryOp::Div)
-    }
-
-    pub fn inplace_maximum(&self, other: &Self) -> Result<()> {
-        self.inplace_binary(other, BinaryOp::Maximum)
-    }
-
-    pub fn inplace_minimum(&self, other: &Self) -> Result<()> {
-        self.inplace_binary(other, BinaryOp::Minimum)
     }
 
     pub fn binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
@@ -102,29 +94,31 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.binary_(lhs, rhs, BinaryOp::Add)
+    pub fn broadcast_binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
+        let dst_shape = self.dims().to_vec();
+        let (lhs_strides, rhs_strides) =
+            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
+        let mut dst = self.storage_mut()?;
+        let lhs_data = lhs.storage()?;
+        let rhs_data = rhs.storage()?;
+        B::broadcast_binary(
+            &mut *dst,
+            &*lhs_data,
+            &*rhs_data,
+            &dst_shape,
+            &lhs_strides,
+            &rhs_strides,
+            op,
+        )?;
+        Ok(())
     }
 
-    pub fn sub_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.binary_(lhs, rhs, BinaryOp::Sub)
-    }
-
-    pub fn mul_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.binary_(lhs, rhs, BinaryOp::Mul)
-    }
-
-    pub fn div_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.binary_(lhs, rhs, BinaryOp::Div)
-    }
-
-    pub fn maximum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.binary_(lhs, rhs, BinaryOp::Maximum)
-    }
-
-    pub fn minimum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.binary_(lhs, rhs, BinaryOp::Minimum)
-    }
+    binary_op!(inplace_add, add_, broadcast_add_, Add);
+    binary_op!(inplace_sub, sub_, broadcast_sub_, Sub);
+    binary_op!(inplace_mul, mul_, broadcast_mul_, Mul);
+    binary_op!(inplace_div, div_, broadcast_div_, Div);
+    binary_op!(inplace_maximum, maximum_, broadcast_maximum_, Maximum);
+    binary_op!(inplace_minimum, minimum_, broadcast_minimum_, Minimum);
 
     pub fn transpose_(&self, src: &Self, dim1: usize, dim2: usize) -> Result<()> {
         let dims = src.dims();
@@ -483,49 +477,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let src_data = src.storage()?;
         B::reduce_sum(&mut *dst, &*src_data, dim_size, outer_size, inner_size)?;
         Ok(())
-    }
-
-    pub fn broadcast_binary_(&self, lhs: &Self, rhs: &Self, op: BinaryOp) -> Result<()> {
-        let dst_shape = self.dims().to_vec();
-        let (lhs_strides, rhs_strides) =
-            compute_broadcast_strides(&dst_shape, lhs.dims(), rhs.dims())?;
-        let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
-        B::broadcast_binary(
-            &mut *dst,
-            &*lhs_data,
-            &*rhs_data,
-            &dst_shape,
-            &lhs_strides,
-            &rhs_strides,
-            op,
-        )?;
-        Ok(())
-    }
-
-    pub fn broadcast_add_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.broadcast_binary_(lhs, rhs, BinaryOp::Add)
-    }
-
-    pub fn broadcast_sub_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.broadcast_binary_(lhs, rhs, BinaryOp::Sub)
-    }
-
-    pub fn broadcast_mul_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.broadcast_binary_(lhs, rhs, BinaryOp::Mul)
-    }
-
-    pub fn broadcast_div_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.broadcast_binary_(lhs, rhs, BinaryOp::Div)
-    }
-
-    pub fn broadcast_maximum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.broadcast_binary_(lhs, rhs, BinaryOp::Maximum)
-    }
-
-    pub fn broadcast_minimum_(&self, lhs: &Self, rhs: &Self) -> Result<()> {
-        self.broadcast_binary_(lhs, rhs, BinaryOp::Minimum)
     }
 
     #[allow(clippy::too_many_arguments)]
