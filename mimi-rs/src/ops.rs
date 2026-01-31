@@ -285,43 +285,19 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         dilation: usize,
         groups: usize,
     ) -> Result<Self> {
-        let src_dims = self.dims();
-        let kernel_dims = kernel.dims();
-
-        if src_dims.len() != 3 {
-            crate::bail!(
-                "conv1d input must be 3D (batch, in_channels, length), got {:?}",
-                self.shape()
-            );
-        }
-        if kernel_dims.len() != 3 {
-            crate::bail!(
-                "conv1d kernel must be 3D (out_channels, in_channels/groups, kernel_size), got {:?}",
-                kernel.shape()
-            );
-        }
-
-        let batch = src_dims[0];
-        let in_channels = src_dims[1];
-        let length = src_dims[2];
-        let out_channels = kernel_dims[0];
-        let kernel_size = kernel_dims[2];
+        let (batch, in_channels, length) = self.dims3()?;
+        let (out_channels, kernel_in_channels, kernel_size) = kernel.dims3()?;
 
         if !in_channels.is_multiple_of(groups) {
-            crate::bail!("in_channels ({}) must be divisible by groups ({})", in_channels, groups);
+            crate::bail!("in_channels ({in_channels}) must be divisible by groups ({groups})");
         }
         if !out_channels.is_multiple_of(groups) {
-            crate::bail!(
-                "out_channels ({}) must be divisible by groups ({})",
-                out_channels,
-                groups
-            );
+            crate::bail!("out_channels ({out_channels}) must be divisible by groups ({groups})",);
         }
-        if kernel_dims[1] != in_channels / groups {
+        if kernel_in_channels != in_channels / groups {
             crate::bail!(
-                "kernel in_channels/groups mismatch: expected {}, got {}",
+                "kernel in_channels/groups mismatch: expected {}, got {kernel_in_channels}",
                 in_channels / groups,
-                kernel_dims[1]
             );
         }
 
@@ -363,37 +339,17 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         output_padding: usize,
         groups: usize,
     ) -> Result<Self> {
-        let src_dims = self.dims();
-        let kernel_dims = kernel.dims();
+        let (batch, in_channels, length) = self.dims3()?;
+        let (k_in_channels, out_channels_per_group, kernel_size) = kernel.dims3()?;
 
-        if src_dims.len() != 3 {
-            crate::bail!(
-                "conv_transpose1d input must be 3D (batch, in_channels, length), got {:?}",
-                self.shape()
-            );
-        }
-        if kernel_dims.len() != 3 {
-            crate::bail!(
-                "conv_transpose1d kernel must be 3D (in_channels, out_channels/groups, kernel_size), got {:?}",
-                kernel.shape()
-            );
-        }
-
-        let batch = src_dims[0];
-        let in_channels = src_dims[1];
-        let length = src_dims[2];
-        let out_channels_per_group = kernel_dims[1];
         let out_channels = out_channels_per_group * groups;
-        let kernel_size = kernel_dims[2];
 
         if !in_channels.is_multiple_of(groups) {
-            crate::bail!("in_channels ({}) must be divisible by groups ({})", in_channels, groups);
+            crate::bail!("in_channels ({in_channels}) must be divisible by groups ({groups})");
         }
-        if kernel_dims[0] != in_channels {
+        if k_in_channels != in_channels {
             crate::bail!(
-                "kernel in_channels mismatch: expected {}, got {}",
-                in_channels,
-                kernel_dims[0]
+                "kernel in_channels mismatch: expected {in_channels}, got {k_in_channels}",
             );
         }
 
