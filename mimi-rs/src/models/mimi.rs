@@ -297,6 +297,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConv1d<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConv1d<T, B> {
+    #[tracing::instrument(name = "streamable-conv1d", skip_all)]
     fn step(&mut self, xs: &StreamTensor<T, B>, _mask: &StreamMask) -> Result<StreamTensor<T, B>> {
         let xs = match xs.as_option() {
             None => return Ok(StreamTensor::empty()),
@@ -386,6 +387,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConvTranspose1d<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConvTranspose1d<T, B> {
+    #[tracing::instrument(name = "streamable-convtr1d", skip_all)]
     fn step(&mut self, xs: &StreamTensor<T, B>, _mask: &StreamMask) -> Result<StreamTensor<T, B>> {
         let xs = match xs.as_option() {
             Some(xs) => xs,
@@ -600,6 +602,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetResnetBlock<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetResnetBlock<T, B> {
+    #[tracing::instrument(name = "seanet-resnet-block", skip_all)]
     fn step(&mut self, xs: &StreamTensor<T, B>, mask: &StreamMask) -> Result<StreamTensor<T, B>> {
         let xs = match xs.as_option() {
             None => return Ok(StreamTensor::empty()),
@@ -812,6 +815,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetEncoder<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetEncoder<T, B> {
+    #[tracing::instrument(name = "seanet-encoder", skip_all)]
     fn step(&mut self, xs: &StreamTensor<T, B>, mask: &StreamMask) -> Result<StreamTensor<T, B>> {
         let mut xs = self.init_conv.step(xs, mask)?;
         for layer in &mut self.layers {
@@ -1014,6 +1018,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetDecoder<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetDecoder<T, B> {
+    #[tracing::instrument(name = "seanet-decoder", skip_all)]
     fn step(&mut self, xs: &StreamTensor<T, B>, mask: &StreamMask) -> Result<StreamTensor<T, B>> {
         let mut xs = self.init_conv.step(xs, mask)?;
         for layer in &mut self.layers {
@@ -1244,6 +1249,7 @@ impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
         Ok(Self { linear1_weight, linear1_bias, linear2_weight, linear2_bias })
     }
 
+    #[tracing::instrument(name = "mlp-forward", skip_all)]
     fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // xs: [b, t, d_model]
         let mut xs = xs.matmul_t(&self.linear1_weight)?;
@@ -1468,7 +1474,11 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
     }
 
     fn current_seq_len(&self) -> usize {
-        if self.layers.is_empty() { 0 } else { self.layers[0].self_attn.kv_cache.current_seq_len() }
+        if self.layers.is_empty() {
+            0
+        } else {
+            self.layers[0].self_attn.kv_cache.current_seq_len()
+        }
     }
 
     fn reset_state(&mut self) {
@@ -1541,6 +1551,7 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for Transformer<T, B> {
+    #[tracing::instrument(name = "transformer", skip_all)]
     fn step(&mut self, xs: &StreamTensor<T, B>, _mask: &StreamMask) -> Result<StreamTensor<T, B>> {
         match xs.as_option() {
             None => Ok(StreamTensor::empty()),
@@ -1604,7 +1615,11 @@ impl<T: WithDTypeF, B: Backend> EuclideanCodebook<T, B> {
 
         // Argmin to get indices, then reshape to target_shape
         let codes = dists.argmin(1)?; // [N]
-        if target_shape.is_empty() { Ok(codes) } else { codes.reshape(target_shape) }
+        if target_shape.is_empty() {
+            Ok(codes)
+        } else {
+            codes.reshape(target_shape)
+        }
     }
 
     pub fn decode(&self, indices: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
@@ -1700,7 +1715,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
         for layer in &self.layers {
             let indices = layer.encode(&residual)?;
             let quantized = layer.decode(&indices)?;
-            residual = residual.add(&quantized.scale(T::from_f32(-1.0))?)?;
+            residual = residual.sub(&quantized)?;
             codes.push(indices);
         }
         // Stack codes: [n_q, B, T]
@@ -1823,6 +1838,7 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
         Ok(Self { rvq_first, rvq_rest, n_q })
     }
 
+    #[tracing::instrument(name = "rvq-encode", skip_all)]
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let codes = self.rvq_first.encode(xs)?;
         if self.n_q > 1 {
@@ -1834,6 +1850,7 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
         }
     }
 
+    #[tracing::instrument(name = "rvq-decode", skip_all)]
     pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
         let first_codes = codes.narrow(1, 0, 1)?;
         let quantized = self.rvq_first.decode(&first_codes)?;
