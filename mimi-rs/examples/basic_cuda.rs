@@ -135,6 +135,81 @@ fn main() -> Result<()> {
     println!("sqr(y) = {:?}", sqr_data);
     assert_eq!(sqr_data, vec![1.0, 16.0, 81.0, 256.0]);
 
+    // Test matrix multiplication (GEMM)
+    println!("\nTesting matrix multiplication (GEMM)...");
+
+    // Simple 2x3 @ 3x2 = 2x2 matmul
+    // A = [[1, 2, 3],
+    //      [4, 5, 6]]
+    // B = [[1, 2],
+    //      [3, 4],
+    //      [5, 6]]
+    // C = A @ B = [[1*1+2*3+3*5, 1*2+2*4+3*6],
+    //              [4*1+5*3+6*5, 4*2+5*4+6*6]]
+    //           = [[22, 28],
+    //              [49, 64]]
+    let mat_a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let mat_b: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![3, 2], &device)?;
+    let mat_c = mat_a.matmul(&mat_b)?;
+    let mat_c_data = mat_c.to_vec()?;
+    println!("A (2x3) @ B (3x2) = {:?}", mat_c_data);
+    println!("Result shape: {:?}", mat_c.dims());
+    assert_eq!(mat_c.dims(), &[2, 2]);
+    assert_eq!(mat_c_data, vec![22.0, 28.0, 49.0, 64.0]);
+
+    // Test with f16
+    println!("\nTesting f16 matmul...");
+    let mat_a_f16: Tensor<half::f16, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0].into_iter().map(half::f16::from_f32).collect(),
+        vec![2, 3],
+        &device,
+    )?;
+    let mat_b_f16: Tensor<half::f16, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0].into_iter().map(half::f16::from_f32).collect(),
+        vec![3, 2],
+        &device,
+    )?;
+    let mat_c_f16 = mat_a_f16.matmul(&mat_b_f16)?;
+    let mat_c_f16_data: Vec<f32> = mat_c_f16.to_vec()?.iter().map(|x| x.to_f32()).collect();
+    println!("F16 matmul result: {:?}", mat_c_f16_data);
+    assert!((mat_c_f16_data[0] - 22.0).abs() < 0.1);
+    assert!((mat_c_f16_data[1] - 28.0).abs() < 0.1);
+    assert!((mat_c_f16_data[2] - 49.0).abs() < 0.1);
+    assert!((mat_c_f16_data[3] - 64.0).abs() < 0.1);
+
+    // Test batched matmul
+    println!("\nTesting batched matmul...");
+    // Batch of 2: each batch is 2x3 @ 3x2
+    let batch_a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![
+            // Batch 0
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1 (all ones)
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        ],
+        vec![2, 2, 3],
+        &device,
+    )?;
+    let batch_b: Tensor<f32, Device> = Tensor::from_vec(
+        vec![
+            // Batch 0
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1 (all ones)
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        ],
+        vec![2, 3, 2],
+        &device,
+    )?;
+    let batch_c = batch_a.matmul(&batch_b)?;
+    let batch_c_data = batch_c.to_vec()?;
+    println!("Batched matmul result: {:?}", batch_c_data);
+    println!("Result shape: {:?}", batch_c.dims());
+    assert_eq!(batch_c.dims(), &[2, 2, 2]);
+    // Batch 0: same as before [22, 28, 49, 64]
+    // Batch 1: all ones @ all ones = [[3, 3], [3, 3]]
+    assert_eq!(batch_c_data[0], 22.0);
+    assert_eq!(batch_c_data[4], 3.0); // First element of batch 1
+
     println!("\nAll tests passed!");
     Ok(())
 }

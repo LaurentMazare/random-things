@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![allow(clippy::too_many_arguments)]
 use crate::{BinaryOp, DType, Result, UnaryOp, WithDType, WithDTypeF};
 use cudarc::cublas::{Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{
@@ -77,6 +78,197 @@ fn kernel_name<T: WithDType>(base_name: &str) -> String {
         DType::U8 => "u8",
     };
     format!("{base_name}_{dtype_str}")
+}
+
+/// Implementation of GEMM using cuBLAS for f32.
+fn gemm_f32(
+    dst: &mut Storage<f32>,
+    lhs: (&Storage<f32>, usize),
+    rhs: (&Storage<f32>, usize),
+    m: usize,
+    n: usize,
+    k: usize,
+    lhs_b: usize,
+    b_stride: usize,
+    (_dst_cs, dst_rs): (usize, usize),
+    (lhs_m1, lhs_m2): (usize, usize),
+    (rhs_m1, rhs_m2): (usize, usize),
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    // Determine transposition and leading dimension for rhs (A in cuBLAS terms)
+    let (lda, transa) = if (rhs_m1 == 1 || n == 1) && (rhs_m2 == n || k == 1) {
+        (n as i32, cublasOperation_t::CUBLAS_OP_N)
+    } else if (rhs_m1 == k || n == 1) && (rhs_m2 == 1 || k == 1) {
+        (k as i32, cublasOperation_t::CUBLAS_OP_T)
+    } else {
+        crate::bail!("non-contiguous matmul rhs m:{m} n:{n} k:{k} strides:({rhs_m1}, {rhs_m2})")
+    };
+
+    // Determine transposition and leading dimension for lhs (B in cuBLAS terms)
+    let (ldb, transb) = if (lhs_m1 == 1 || k == 1) && (lhs_m2 == k || m == 1) {
+        (k as i32, cublasOperation_t::CUBLAS_OP_N)
+    } else if (lhs_m1 == m || k == 1) && (lhs_m2 == 1 || m == 1) {
+        (m as i32, cublasOperation_t::CUBLAS_OP_T)
+    } else {
+        crate::bail!("non-contiguous matmul lhs m:{m} n:{n} k:{k} strides:({lhs_m1}, {lhs_m2})")
+    };
+
+    let gemm = GemmConfig {
+        alpha: 1.0f32,
+        beta: 0.0f32,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda,
+        ldb,
+        ldc: dst_rs as i32,
+        transa,
+        transb,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: lhs_b as i32,
+        gemm,
+        stride_a: b_stride as i64,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    let lhs_view = lhs.0.data.slice(lhs.1..);
+    let rhs_view = rhs.0.data.slice(rhs.1..);
+
+    unsafe {
+        dst.device.blas.gemm_strided_batched(cfg, &rhs_view, &lhs_view, &mut dst.data)?;
+    }
+
+    Ok(())
+}
+
+/// Implementation of GEMM using cuBLAS for f16.
+fn gemm_f16(
+    dst: &mut Storage<f16>,
+    lhs: (&Storage<f16>, usize),
+    rhs: (&Storage<f16>, usize),
+    m: usize,
+    n: usize,
+    k: usize,
+    lhs_b: usize,
+    b_stride: usize,
+    (_dst_cs, dst_rs): (usize, usize),
+    (lhs_m1, lhs_m2): (usize, usize),
+    (rhs_m1, rhs_m2): (usize, usize),
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    let (lda, transa) = if (rhs_m1 == 1 || n == 1) && (rhs_m2 == n || k == 1) {
+        (n as i32, cublasOperation_t::CUBLAS_OP_N)
+    } else if (rhs_m1 == k || n == 1) && (rhs_m2 == 1 || k == 1) {
+        (k as i32, cublasOperation_t::CUBLAS_OP_T)
+    } else {
+        crate::bail!("non-contiguous matmul rhs m:{m} n:{n} k:{k} strides:({rhs_m1}, {rhs_m2})")
+    };
+
+    let (ldb, transb) = if (lhs_m1 == 1 || k == 1) && (lhs_m2 == k || m == 1) {
+        (k as i32, cublasOperation_t::CUBLAS_OP_N)
+    } else if (lhs_m1 == m || k == 1) && (lhs_m2 == 1 || m == 1) {
+        (m as i32, cublasOperation_t::CUBLAS_OP_T)
+    } else {
+        crate::bail!("non-contiguous matmul lhs m:{m} n:{n} k:{k} strides:({lhs_m1}, {lhs_m2})")
+    };
+
+    let gemm = GemmConfig {
+        alpha: f16::ONE,
+        beta: f16::ZERO,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda,
+        ldb,
+        ldc: dst_rs as i32,
+        transa,
+        transb,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: lhs_b as i32,
+        gemm,
+        stride_a: b_stride as i64,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    let lhs_view = lhs.0.data.slice(lhs.1..);
+    let rhs_view = rhs.0.data.slice(rhs.1..);
+
+    unsafe {
+        dst.device.blas.gemm_strided_batched(cfg, &rhs_view, &lhs_view, &mut dst.data)?;
+    }
+
+    Ok(())
+}
+
+/// Implementation of GEMM using cuBLAS for bf16.
+fn gemm_bf16(
+    dst: &mut Storage<bf16>,
+    lhs: (&Storage<bf16>, usize),
+    rhs: (&Storage<bf16>, usize),
+    m: usize,
+    n: usize,
+    k: usize,
+    lhs_b: usize,
+    b_stride: usize,
+    (_dst_cs, dst_rs): (usize, usize),
+    (lhs_m1, lhs_m2): (usize, usize),
+    (rhs_m1, rhs_m2): (usize, usize),
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    let (lda, transa) = if (rhs_m1 == 1 || n == 1) && (rhs_m2 == n || k == 1) {
+        (n as i32, cublasOperation_t::CUBLAS_OP_N)
+    } else if (rhs_m1 == k || n == 1) && (rhs_m2 == 1 || k == 1) {
+        (k as i32, cublasOperation_t::CUBLAS_OP_T)
+    } else {
+        crate::bail!("non-contiguous matmul rhs m:{m} n:{n} k:{k} strides:({rhs_m1}, {rhs_m2})")
+    };
+
+    let (ldb, transb) = if (lhs_m1 == 1 || k == 1) && (lhs_m2 == k || m == 1) {
+        (k as i32, cublasOperation_t::CUBLAS_OP_N)
+    } else if (lhs_m1 == m || k == 1) && (lhs_m2 == 1 || m == 1) {
+        (m as i32, cublasOperation_t::CUBLAS_OP_T)
+    } else {
+        crate::bail!("non-contiguous matmul lhs m:{m} n:{n} k:{k} strides:({lhs_m1}, {lhs_m2})")
+    };
+
+    let gemm = GemmConfig {
+        alpha: bf16::ONE,
+        beta: bf16::ZERO,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda,
+        ldb,
+        ldc: dst_rs as i32,
+        transa,
+        transb,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: lhs_b as i32,
+        gemm,
+        stride_a: b_stride as i64,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    let lhs_view = lhs.0.data.slice(lhs.1..);
+    let rhs_view = rhs.0.data.slice(rhs.1..);
+
+    unsafe {
+        dst.device.blas.gemm_strided_batched(cfg, &rhs_view, &lhs_view, &mut dst.data)?;
+    }
+
+    Ok(())
 }
 
 // Reduced precision settings
@@ -380,7 +572,66 @@ impl crate::Backend for Device {
         lhs_strides: (usize, usize),
         rhs_strides: (usize, usize),
     ) -> Result<()> {
-        crate::bail!("gemm not implemented yet")
+        // Dispatch to type-specific GEMM implementations
+        // We use pointer casting since we know the exact type from DTYPE
+        match T::DTYPE {
+            DType::F32 => {
+                // SAFETY: T::DTYPE == F32 guarantees T is f32
+                let dst = unsafe { &mut *(dst as *mut Storage<T> as *mut Storage<f32>) };
+                let lhs_storage = unsafe { &*(lhs.0 as *const Storage<T> as *const Storage<f32>) };
+                let rhs_storage = unsafe { &*(rhs.0 as *const Storage<T> as *const Storage<f32>) };
+                gemm_f32(
+                    dst,
+                    (lhs_storage, lhs.1),
+                    (rhs_storage, rhs.1),
+                    m,
+                    n,
+                    k,
+                    lhs_b,
+                    b_stride,
+                    dst_strides,
+                    lhs_strides,
+                    rhs_strides,
+                )
+            }
+            DType::F16 => {
+                let dst = unsafe { &mut *(dst as *mut Storage<T> as *mut Storage<f16>) };
+                let lhs_storage = unsafe { &*(lhs.0 as *const Storage<T> as *const Storage<f16>) };
+                let rhs_storage = unsafe { &*(rhs.0 as *const Storage<T> as *const Storage<f16>) };
+                gemm_f16(
+                    dst,
+                    (lhs_storage, lhs.1),
+                    (rhs_storage, rhs.1),
+                    m,
+                    n,
+                    k,
+                    lhs_b,
+                    b_stride,
+                    dst_strides,
+                    lhs_strides,
+                    rhs_strides,
+                )
+            }
+            DType::BF16 => {
+                let dst = unsafe { &mut *(dst as *mut Storage<T> as *mut Storage<bf16>) };
+                let lhs_storage = unsafe { &*(lhs.0 as *const Storage<T> as *const Storage<bf16>) };
+                let rhs_storage = unsafe { &*(rhs.0 as *const Storage<T> as *const Storage<bf16>) };
+                gemm_bf16(
+                    dst,
+                    (lhs_storage, lhs.1),
+                    (rhs_storage, rhs.1),
+                    m,
+                    n,
+                    k,
+                    lhs_b,
+                    b_stride,
+                    dst_strides,
+                    lhs_strides,
+                    rhs_strides,
+                )
+            }
+            _ => crate::bail!("GEMM not supported for dtype {:?}", T::DTYPE),
+        }
     }
 
     fn index_select<T: WithDType>(
