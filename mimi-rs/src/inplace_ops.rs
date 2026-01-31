@@ -11,6 +11,7 @@ pub enum UnaryOp {
     GeluErf,
     Elu { alpha: f32 },
     Relu,
+    Silu,
     Tanh,
     Sigmoid,
 }
@@ -26,6 +27,7 @@ impl UnaryOp {
             UnaryOp::GeluErf => "gelu_erf",
             UnaryOp::Elu { .. } => "elu",
             UnaryOp::Relu => "relu",
+            UnaryOp::Silu => "silu",
             UnaryOp::Tanh => "tanh",
             UnaryOp::Sigmoid => "sigmoid",
         }
@@ -214,12 +216,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     pub fn silu_(&self, src: &Self) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "silu_")?;
-        let len = self.elem_count();
-        let mut dst = self.storage_mut()?;
-        let src_data = src.storage()?;
-        B::silu(&mut *dst, &*src_data, len)?;
-        Ok(())
+        self.unary_(src, UnaryOp::Silu)
     }
 
     pub fn softmax_(&self, src: &Self) -> Result<()> {

@@ -48,38 +48,80 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
-    fn inplace_unary<T: WithDType>(
+    fn inplace_unary<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         len: usize,
         op: UnaryOp,
     ) -> Result<()> {
         match op {
-            UnaryOp::Sqr => apply_inplace_unary(&mut dst[..len], |v| *v *= *v),
+            UnaryOp::Cos => apply_inplace_unary(&mut dst[..len], |v| *v = v.cos()),
+            UnaryOp::Sin => apply_inplace_unary(&mut dst[..len], |v| *v = v.sin()),
+            UnaryOp::Sqr => apply_inplace_unary(&mut dst[..len], |v| *v = *v * *v),
+            UnaryOp::Sqrt => apply_inplace_unary(&mut dst[..len], |v| *v = v.sqrt()),
+            UnaryOp::Abs => apply_inplace_unary(&mut dst[..len], |v| *v = v.abs()),
+            UnaryOp::GeluErf => {
+                let sqrt_2_inv = std::f32::consts::FRAC_1_SQRT_2;
+                apply_inplace_unary(&mut dst[..len], |v| {
+                    let x = v.to_f32();
+                    let erf_val = libm::erff(x * sqrt_2_inv);
+                    *v = T::from_f32(x * 0.5 * (1.0 + erf_val));
+                })
+            }
+            UnaryOp::Elu { alpha } => apply_inplace_unary(&mut dst[..len], |v| {
+                let x = v.to_f32();
+                *v = T::from_f32(if x > 0.0 { x } else { alpha * (x.exp() - 1.0) });
+            }),
             UnaryOp::Relu => apply_inplace_unary(&mut dst[..len], |v| {
                 if *v < T::zero() {
                     *v = T::zero()
                 }
             }),
-            // Operations requiring float - not supported for generic WithDType
-            _ => crate::bail!("unary operation {:?} requires float type", op),
+            UnaryOp::Silu => apply_inplace_unary(&mut dst[..len], |v| {
+                *v = *v / (T::one() + (T::zero() - *v).exp())
+            }),
+            UnaryOp::Tanh => apply_inplace_unary(&mut dst[..len], |v| *v = v.tanh()),
+            UnaryOp::Sigmoid => apply_inplace_unary(&mut dst[..len], |v| {
+                *v = T::one() / (T::one() + (T::zero() - *v).exp())
+            }),
         }
         Ok(())
     }
 
-    fn unary<T: WithDType>(
+    fn unary<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         len: usize,
         op: UnaryOp,
     ) -> Result<()> {
         match op {
+            UnaryOp::Cos => apply_unary(&mut dst[..len], &src[..len], |s| s.cos()),
+            UnaryOp::Sin => apply_unary(&mut dst[..len], &src[..len], |s| s.sin()),
             UnaryOp::Sqr => apply_unary(&mut dst[..len], &src[..len], |s| s * s),
+            UnaryOp::Sqrt => apply_unary(&mut dst[..len], &src[..len], |s| s.sqrt()),
+            UnaryOp::Abs => apply_unary(&mut dst[..len], &src[..len], |s| s.abs()),
+            UnaryOp::GeluErf => {
+                let sqrt_2_inv = std::f32::consts::FRAC_1_SQRT_2;
+                apply_unary(&mut dst[..len], &src[..len], |s| {
+                    let x = s.to_f32();
+                    let erf_val = libm::erff(x * sqrt_2_inv);
+                    T::from_f32(x * 0.5 * (1.0 + erf_val))
+                })
+            }
+            UnaryOp::Elu { alpha } => apply_unary(&mut dst[..len], &src[..len], |s| {
+                let x = s.to_f32();
+                T::from_f32(if x > 0.0 { x } else { alpha * (x.exp() - 1.0) })
+            }),
             UnaryOp::Relu => {
                 let zero = T::zero();
                 apply_unary(&mut dst[..len], &src[..len], |s| if s < zero { zero } else { s })
             }
-            // Operations requiring float - not supported for generic WithDType
-            _ => crate::bail!("unary operation {:?} requires float type", op),
+            UnaryOp::Silu => apply_unary(&mut dst[..len], &src[..len], |s| {
+                s / (T::one() + (T::zero() - s).exp())
+            }),
+            UnaryOp::Tanh => apply_unary(&mut dst[..len], &src[..len], |s| s.tanh()),
+            UnaryOp::Sigmoid => apply_unary(&mut dst[..len], &src[..len], |s| {
+                T::one() / (T::one() + (T::zero() - s).exp())
+            }),
         }
         Ok(())
     }
@@ -344,39 +386,6 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
-    fn cos<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = s.cos();
-        }
-        Ok(())
-    }
-
-    fn sin<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = s.sin();
-        }
-        Ok(())
-    }
-
-    fn silu<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = *s / (T::one() + (T::zero() - *s).exp())
-        }
-        Ok(())
-    }
-
     fn apply_causality_mask<T: WithDTypeF>(
         dst: &mut Self::Storage<T>,
         bh: usize,
@@ -477,100 +486,6 @@ impl crate::Backend for crate::CpuDevice {
                 dst[i] = T::from_f32(normalized * weight[i].to_f32() + bias[i].to_f32());
             }
         });
-        Ok(())
-    }
-
-    fn sqr<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = *s * *s;
-        }
-        Ok(())
-    }
-
-    fn sqrt<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = s.sqrt();
-        }
-        Ok(())
-    }
-
-    fn abs<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = s.abs();
-        }
-        Ok(())
-    }
-
-    fn gelu_erf<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        // GELU(x) = x * 0.5 * (1 + erf(x / sqrt(2)))
-        let sqrt_2_inv = std::f32::consts::FRAC_1_SQRT_2;
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            let x: f32 = <T as WithDTypeF>::to_f32(*s);
-            let erf_val = libm::erff(x * sqrt_2_inv);
-            *d = T::from_f32(x * 0.5 * (1.0 + erf_val));
-        }
-        Ok(())
-    }
-
-    fn elu<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        alpha: f32,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            let x: f32 = <T as WithDTypeF>::to_f32(*s);
-            *d = T::from_f32(if x > 0.0 { x } else { alpha * (x.exp() - 1.0) });
-        }
-        Ok(())
-    }
-
-    fn relu<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = T::max(*s, T::zero());
-        }
-        Ok(())
-    }
-
-    fn tanh<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = s.tanh();
-        }
-        Ok(())
-    }
-
-    fn sigmoid<T: WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        l: usize,
-    ) -> Result<()> {
-        for (d, s) in dst[..l].iter_mut().zip(&src[..l]) {
-            *d = T::one() / (T::one() + (T::zero() - *s).exp());
-        }
         Ok(())
     }
 

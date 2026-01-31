@@ -38,7 +38,7 @@ pub trait Backend: Sized + Clone + 'static {
         len: usize,
     ) -> Result<std::borrow::Cow<'_, [T]>>;
 
-    fn inplace_unary<T: crate::WithDType>(
+    fn inplace_unary<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         len: usize,
         op: UnaryOp,
@@ -51,7 +51,7 @@ pub trait Backend: Sized + Clone + 'static {
         op: BinaryOp,
     ) -> Result<()>;
 
-    fn unary<T: crate::WithDType>(
+    fn unary<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
         len: usize,
@@ -142,25 +142,6 @@ pub trait Backend: Sized + Clone + 'static {
         dims: &[usize],
     ) -> Result<()>;
 
-    // Methods requiring T: WithDTypeF
-    fn cos<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn sin<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn silu<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
     fn apply_causality_mask<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         bh: usize,
@@ -196,55 +177,6 @@ pub trait Backend: Sized + Clone + 'static {
         dim_m1: usize,
         d: usize,
         eps: f32,
-    ) -> Result<()>;
-
-    fn sqr<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn sqrt<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn abs<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn gelu_erf<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn elu<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        alpha: f32,
-        len: usize,
-    ) -> Result<()>;
-
-    fn relu<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn tanh<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<()>;
-
-    fn sigmoid<T: crate::WithDTypeF>(
-        dst: &mut Self::Storage<T>,
-        src: &Self::Storage<T>,
-        len: usize,
     ) -> Result<()>;
 
     /// Reduce max along a dimension.
