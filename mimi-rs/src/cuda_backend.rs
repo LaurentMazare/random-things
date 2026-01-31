@@ -145,7 +145,10 @@ impl crate::Backend for Device {
         src: &Self::Storage<T>,
         len: usize,
     ) -> Result<()> {
-        crate::bail!("copy not implemented yet")
+        let src_slice = src.data.slice(..len);
+        let mut dst_slice = dst.data.slice_mut(..len);
+        dst.device.stream.memcpy_dtod(&src_slice, &mut dst_slice)?;
+        Ok(())
     }
 
     fn data<T: WithDType>(src: &Self::Storage<T>, len: usize) -> Result<std::borrow::Cow<'_, [T]>> {
