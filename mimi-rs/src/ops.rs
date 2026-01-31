@@ -267,10 +267,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         self.matmul_with_t(other, true)
     }
 
-    // ========================================================================
-    // Convolution operations (todo stubs)
-    // ========================================================================
-
     /// 1D convolution.
     /// Input: (batch, in_channels, length)
     /// Kernel: (out_channels, in_channels/groups, kernel_size)
@@ -377,10 +373,6 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
         Ok(result)
     }
-
-    // ========================================================================
-    // Additional operations (todo stubs)
-    // ========================================================================
 
     /// Element-wise square.
     pub fn sqr(&self) -> Result<Self> {
