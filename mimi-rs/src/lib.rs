@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod cpu_backend;
+pub mod display;
 pub mod dtype;
 pub mod error;
 pub mod inplace_ops;
