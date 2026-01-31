@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use mimi::Tensor;
 use mimi::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
 use mimi::nn::VB;
-use mimi::Tensor;
 
 #[derive(Parser, Debug)]
 #[command(name = "mimi")]
@@ -27,7 +27,7 @@ struct Args {
 }
 
 fn download_model() -> Result<std::path::PathBuf> {
-    use hf_hub::{api::sync::Api, Repo, RepoType};
+    use hf_hub::{Repo, RepoType, api::sync::Api};
     let repo_id = "kyutai/moshiko-candle-q8";
     println!("Downloading model from {repo_id}...");
     let api = Api::new()?;

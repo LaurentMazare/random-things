@@ -144,11 +144,7 @@ impl crate::Backend for crate::CpuDevice {
                     &lhs[..len],
                     &rhs[..len],
                     |a, b| {
-                        if a > b {
-                            a
-                        } else {
-                            b
-                        }
+                        if a > b { a } else { b }
                     },
                 )
             }
@@ -158,11 +154,7 @@ impl crate::Backend for crate::CpuDevice {
                     &lhs[..len],
                     &rhs[..len],
                     |a, b| {
-                        if a < b {
-                            a
-                        } else {
-                            b
-                        }
+                        if a < b { a } else { b }
                     },
                 )
             }
@@ -617,20 +609,12 @@ impl crate::Backend for crate::CpuDevice {
             }
             BinaryOp::Maximum => {
                 broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
-                    if a > b {
-                        a
-                    } else {
-                        b
-                    }
+                    if a > b { a } else { b }
                 })
             }
             BinaryOp::Minimum => {
                 broadcast_binary_op(dst, lhs, rhs, dst_shape, lhs_strides, rhs_strides, |a, b| {
-                    if a < b {
-                        a
-                    } else {
-                        b
-                    }
+                    if a < b { a } else { b }
                 })
             }
         }
