@@ -56,6 +56,85 @@ fn main() -> Result<()> {
     let bf16_back = t_bf16.to_vec()?;
     println!("BF16 data roundtrip successful: {:?}", bf16_back);
 
+    // Test binary operations
+    println!("\nTesting binary operations...");
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![4], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![5.0, 6.0, 7.0, 8.0], vec![4], &device)?;
+
+    // Addition
+    let sum = a.add(&b)?;
+    let sum_data = sum.to_vec()?;
+    println!("a + b = {:?}", sum_data);
+    assert_eq!(sum_data, vec![6.0, 8.0, 10.0, 12.0]);
+
+    // Subtraction
+    let diff = b.sub(&a)?;
+    let diff_data = diff.to_vec()?;
+    println!("b - a = {:?}", diff_data);
+    assert_eq!(diff_data, vec![4.0, 4.0, 4.0, 4.0]);
+
+    // Multiplication
+    let prod = a.mul(&b)?;
+    let prod_data = prod.to_vec()?;
+    println!("a * b = {:?}", prod_data);
+    assert_eq!(prod_data, vec![5.0, 12.0, 21.0, 32.0]);
+
+    // Division
+    let quot = b.div(&a)?;
+    let quot_data = quot.to_vec()?;
+    println!("b / a = {:?}", quot_data);
+    assert_eq!(quot_data, vec![5.0, 3.0, 7.0 / 3.0, 2.0]);
+
+    // Scale
+    let scaled = a.scale(2.0)?;
+    let scaled_data = scaled.to_vec()?;
+    println!("a * 2 = {:?}", scaled_data);
+    assert_eq!(scaled_data, vec![2.0, 4.0, 6.0, 8.0]);
+
+    // Maximum
+    let c: Tensor<f32, Device> = Tensor::from_vec(vec![3.0, 1.0, 4.0, 2.0], vec![4], &device)?;
+    let max_ab = a.maximum(&c)?;
+    let max_data = max_ab.to_vec()?;
+    println!("max(a, c) = {:?}", max_data);
+    assert_eq!(max_data, vec![3.0, 2.0, 4.0, 4.0]);
+
+    // Minimum
+    let min_ab = a.minimum(&c)?;
+    let min_data = min_ab.to_vec()?;
+    println!("min(a, c) = {:?}", min_data);
+    assert_eq!(min_data, vec![1.0, 1.0, 3.0, 2.0]);
+
+    // Test unary operations
+    println!("\nTesting unary operations...");
+    let x: Tensor<f32, Device> = Tensor::from_vec(vec![0.0, 1.0, -1.0, 2.0], vec![4], &device)?;
+
+    // ReLU
+    let relu_x = x.relu()?;
+    let relu_data = relu_x.to_vec()?;
+    println!("relu(x) = {:?}", relu_data);
+    assert_eq!(relu_data, vec![0.0, 1.0, 0.0, 2.0]);
+
+    // SiLU (x * sigmoid(x))
+    let silu_x = x.silu()?;
+    let silu_data = silu_x.to_vec()?;
+    println!("silu(x) = {:?}", silu_data);
+    // silu(0) = 0, silu(1) ≈ 0.731, silu(-1) ≈ -0.269, silu(2) ≈ 1.762
+    assert!((silu_data[0] - 0.0).abs() < 1e-5);
+    assert!((silu_data[1] - 0.7310586).abs() < 1e-5);
+
+    // Sqrt
+    let y: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 4.0, 9.0, 16.0], vec![4], &device)?;
+    let sqrt_y = y.sqrt()?;
+    let sqrt_data = sqrt_y.to_vec()?;
+    println!("sqrt(y) = {:?}", sqrt_data);
+    assert_eq!(sqrt_data, vec![1.0, 2.0, 3.0, 4.0]);
+
+    // Sqr
+    let sqr_y = y.sqr()?;
+    let sqr_data = sqr_y.to_vec()?;
+    println!("sqr(y) = {:?}", sqr_data);
+    assert_eq!(sqr_data, vec![1.0, 16.0, 81.0, 256.0]);
+
     println!("\nAll tests passed!");
     Ok(())
 }

@@ -161,7 +161,29 @@ impl crate::Backend for Device {
         len: usize,
         op: UnaryOp,
     ) -> Result<()> {
-        crate::bail!("inplace_unary not implemented yet")
+        let (kname, alpha) = match op {
+            UnaryOp::Cos => (kernel_name::<T>("inplace_cos"), None),
+            UnaryOp::Sin => (kernel_name::<T>("inplace_sin"), None),
+            UnaryOp::Sqr => (kernel_name::<T>("inplace_sqr"), None),
+            UnaryOp::Sqrt => (kernel_name::<T>("inplace_sqrt"), None),
+            UnaryOp::Abs => (kernel_name::<T>("inplace_abs"), None),
+            UnaryOp::GeluErf => (kernel_name::<T>("inplace_gelu_erf"), None),
+            UnaryOp::Elu { alpha } => (kernel_name::<T>("inplace_elu"), Some(alpha)),
+            UnaryOp::Relu => (kernel_name::<T>("inplace_relu"), None),
+            UnaryOp::Silu => (kernel_name::<T>("inplace_silu"), None),
+            UnaryOp::Tanh => (kernel_name::<T>("inplace_tanh"), None),
+            UnaryOp::Sigmoid => (kernel_name::<T>("inplace_sigmoid"), None),
+        };
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let cfg = LaunchConfig::for_num_elems(len as u32);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&len);
+        launch_args.arg(&mut dst.data);
+        if let Some(ref alpha) = alpha {
+            launch_args.arg(alpha);
+        }
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn bin_assign<T: WithDType>(
@@ -170,7 +192,22 @@ impl crate::Backend for Device {
         len: usize,
         op: BinaryOp,
     ) -> Result<()> {
-        crate::bail!("bin_assign not implemented yet")
+        let kname = match op {
+            BinaryOp::Add => kernel_name::<T>("assign_add"),
+            BinaryOp::Sub => kernel_name::<T>("assign_sub"),
+            BinaryOp::Mul => kernel_name::<T>("assign_mul"),
+            BinaryOp::Div => kernel_name::<T>("assign_div"),
+            BinaryOp::Maximum => kernel_name::<T>("assign_maximum"),
+            BinaryOp::Minimum => kernel_name::<T>("assign_minimum"),
+        };
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let cfg = LaunchConfig::for_num_elems(len as u32);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&len);
+        launch_args.arg(&s.data);
+        launch_args.arg(&mut dst.data);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn unary<T: WithDTypeF>(
@@ -179,7 +216,30 @@ impl crate::Backend for Device {
         len: usize,
         op: UnaryOp,
     ) -> Result<()> {
-        crate::bail!("unary not implemented yet")
+        let (kname, alpha) = match op {
+            UnaryOp::Cos => (kernel_name::<T>("unary_cos"), None),
+            UnaryOp::Sin => (kernel_name::<T>("unary_sin"), None),
+            UnaryOp::Sqr => (kernel_name::<T>("unary_sqr"), None),
+            UnaryOp::Sqrt => (kernel_name::<T>("unary_sqrt"), None),
+            UnaryOp::Abs => (kernel_name::<T>("unary_abs"), None),
+            UnaryOp::GeluErf => (kernel_name::<T>("unary_gelu_erf"), None),
+            UnaryOp::Elu { alpha } => (kernel_name::<T>("unary_elu"), Some(alpha)),
+            UnaryOp::Relu => (kernel_name::<T>("unary_relu"), None),
+            UnaryOp::Silu => (kernel_name::<T>("unary_silu"), None),
+            UnaryOp::Tanh => (kernel_name::<T>("unary_tanh"), None),
+            UnaryOp::Sigmoid => (kernel_name::<T>("unary_sigmoid"), None),
+        };
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let cfg = LaunchConfig::for_num_elems(len as u32);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&len);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        if let Some(ref alpha) = alpha {
+            launch_args.arg(alpha);
+        }
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn binary<T: WithDType>(
@@ -189,7 +249,23 @@ impl crate::Backend for Device {
         len: usize,
         op: BinaryOp,
     ) -> Result<()> {
-        crate::bail!("binary not implemented yet")
+        let kname = match op {
+            BinaryOp::Add => kernel_name::<T>("binary_add"),
+            BinaryOp::Sub => kernel_name::<T>("binary_sub"),
+            BinaryOp::Mul => kernel_name::<T>("binary_mul"),
+            BinaryOp::Div => kernel_name::<T>("binary_div"),
+            BinaryOp::Maximum => kernel_name::<T>("binary_maximum"),
+            BinaryOp::Minimum => kernel_name::<T>("binary_minimum"),
+        };
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let cfg = LaunchConfig::for_num_elems(len as u32);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&len);
+        launch_args.arg(&lhs.data);
+        launch_args.arg(&rhs.data);
+        launch_args.arg(&mut dst.data);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn scale<T: WithDType>(
@@ -198,7 +274,16 @@ impl crate::Backend for Device {
         v: T,
         len: usize,
     ) -> Result<()> {
-        crate::bail!("scale not implemented yet")
+        let kname = kernel_name::<T>("scale");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let cfg = LaunchConfig::for_num_elems(len as u32);
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&len);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&v);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn transpose<T: WithDType>(
