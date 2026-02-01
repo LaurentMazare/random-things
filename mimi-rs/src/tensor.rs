@@ -2,7 +2,17 @@ use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
 use std::cell::{Ref, RefCell, RefMut};
 use std::sync::Arc;
 
-#[derive(Clone)]
+impl<T: WithDType, B: Backend> Clone for Tensor<T, B> {
+    fn clone(&self) -> Self {
+        Tensor {
+            data: Arc::clone(&self.data),
+            shape: self.shape.clone(),
+            device: self.device.clone(),
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
 pub struct Tensor<T: WithDType, B: Backend> {
     pub(crate) data: Arc<RefCell<B::Storage<T>>>,
     pub(crate) shape: Shape,

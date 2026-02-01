@@ -170,7 +170,7 @@ pub fn downsample2<T: WithDTypeF, B: Backend>(
         time += 1;
         x.pad_with_zeros(dims.len() - 1, 0, 1)?
     } else {
-        x.copy()?
+        x.clone()
     };
 
     // Extract even and odd samples
@@ -384,7 +384,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
         let batch = x.dim(1)?;
         let num_layers = self.forward_layers.len();
 
-        let mut layer_input = x.copy()?;
+        let mut layer_input = x.clone();
 
         for layer_idx in 0..num_layers {
             let input_size = layer_input.dim(2)?;
@@ -757,7 +757,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
             let std_out = std.narrow(1, 0, 1)?;
             (Some(std_out), mix_norm)
         } else {
-            (None, mix.copy()?)
+            (None, mix.clone())
         };
 
         let length = mix.dim(mix.rank() - 1)?;
@@ -778,7 +778,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
         let mut x = x;
         for enc in &self.encoder {
             x = enc.forward(&x)?;
-            skips.push(x.copy()?);
+            skips.push(x.clone());
         }
 
         // LSTM: (batch, channels, time) -> (time, batch, channels)
@@ -896,7 +896,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
 
         // Append to pending
         self.pending = if self.pending.dim(1)? == 0 {
-            wav.copy()?
+            wav.clone()
         } else {
             Tensor::cat(&[&self.pending, wav], 1)?
         };
@@ -1031,7 +1031,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
                 x = if encode.glu { glu(&x, 1)? } else { x.relu()? };
             } else {
                 // Use conv state for overlap
-                let (x_new, state_entry) = if let Some(ref mut conv_state) = self.conv_state {
+                let x_new = if let Some(ref mut conv_state) = self.conv_state {
                     let prev = conv_state.remove(0);
                     let prev = prev.narrow(2, stride, prev.dim(2)? - stride)?;
                     let tgt = (length - kernel_size) / conv_stride + 1;
@@ -1043,22 +1043,20 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
                         let x_enc = x_enc.relu()?;
                         let x_enc = fast_conv(&encode.conv2, &x_enc)?;
                         let x_enc = if encode.glu { glu(&x_enc, 1)? } else { x_enc.relu()? };
-                        let x_cat = Tensor::cat(&[&prev, &x_enc], 2)?;
-                        (x_cat.copy()?, x_cat)
+                        Tensor::cat(&[&prev, &x_enc], 2)?
                     } else {
-                        (prev.copy()?, prev)
+                        prev
                     }
                 } else {
                     let x_enc = encode.conv0.forward(&x)?;
                     let x_enc = x_enc.relu()?;
                     let x_enc = fast_conv(&encode.conv2, &x_enc)?;
-                    let x_enc = if encode.glu { glu(&x_enc, 1)? } else { x_enc.relu()? };
-                    (x_enc.copy()?, x_enc)
+                    if encode.glu { glu(&x_enc, 1)? } else { x_enc.relu()? }
                 };
-                next_state.push(state_entry);
+                next_state.push(x_new.clone());
                 x = x_new;
             }
-            skips.push(x.copy()?);
+            skips.push(x.clone());
         }
 
         // LSTM
@@ -1101,12 +1099,12 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             let x_len = x.dim(2)?;
             let state_entry = if let Some(ref bias) = decode.convtr.bias {
                 // state = x[..., -stride:] - bias
-                let bias_neg = bias.reshape((1, bias.elem_count(), 1))?.scale(T::from_f32(-1.0))?;
-                x.narrow(2, x_len - conv_stride, conv_stride)?.broadcast_add(&bias_neg)?
+                let bias_neg = bias.reshape((1, bias.elem_count(), 1))?;
+                x.narrow(2, x_len - conv_stride, conv_stride)?.broadcast_sub(&bias_neg)?
             } else {
                 x.narrow(2, x_len - conv_stride, conv_stride)?
             };
-            next_state.push(state_entry.copy()?);
+            next_state.push(state_entry.clone());
 
             let new_extra = match extra {
                 None => x.narrow(2, x_len - conv_stride, conv_stride)?,
