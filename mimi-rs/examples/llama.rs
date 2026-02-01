@@ -5,6 +5,11 @@ use mimi::nn::VB;
 use mimi::{Backend, Tensor};
 use rand::Rng;
 
+#[cfg(feature = "cuda")]
+type Dev = mimi::cuda_backend::Device;
+#[cfg(not(feature = "cuda"))]
+type Dev = mimi::CpuDevice;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ModelSize {
     /// Tiny test model (~1M params, 2 layers) - for quick testing (no weights)
@@ -184,9 +189,18 @@ fn main() -> Result<()> {
     println!("Model: {:?}", args.model_size);
     println!("Config: {:?}", config);
 
-    let dev = mimi::CPU;
+    #[cfg(feature = "cuda")]
+    let dev = {
+        println!("Using CUDA backend");
+        mimi::cuda_backend::Device::new(0)?
+    };
+    #[cfg(not(feature = "cuda"))]
+    let dev = {
+        println!("Using CPU backend");
+        mimi::CPU
+    };
 
-    let (model, tokenizer): (Llama<f32, mimi::CpuDevice>, _) =
+    let (model, tokenizer): (Llama<f32, Dev>, _) =
         if let Some(repo_id) = args.model_size.hf_repo() {
             let model_files = download_model(repo_id)?;
 
@@ -226,7 +240,7 @@ fn main() -> Result<()> {
 
     // Autoregressive generation loop
     let mut rng = rand::rng();
-    let mut kv_cache: Option<KvCache<f32, mimi::CpuDevice>> = None;
+    let mut kv_cache: Option<KvCache<f32, Dev>> = None;
     let mut pos = 0;
     let mut generated_tokens = Vec::new();
     let mut autoregressive_start: Option<std::time::Instant> = None;
