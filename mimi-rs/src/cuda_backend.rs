@@ -691,7 +691,25 @@ impl crate::Backend for Device {
         dim_m1: usize,
         d: usize,
     ) -> Result<()> {
-        crate::bail!("softmax not implemented yet")
+        // dim_m1 is ncols (last dimension), d is nrows
+        let ncols = dim_m1 as i32;
+        let nrows = d as u32;
+
+        let kname = kernel_name::<T>("softmax");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+
+        // Kernel uses: row = blockDim.x*blockIdx.x + threadIdx.x, tid = threadIdx.y
+        // One row per block, 32 threads per row for warp-based reduction
+        let block_dim = (1, 32, 1);
+        let grid_dim = (nrows, 1, 1);
+        let cfg = LaunchConfig { block_dim, grid_dim, shared_mem_bytes: 0 };
+
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&ncols);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn rms_norm<T: WithDTypeF>(
@@ -702,7 +720,32 @@ impl crate::Backend for Device {
         d: usize,
         eps: f32,
     ) -> Result<()> {
-        crate::bail!("rms_norm not implemented yet")
+        // dim_m1 is ncols (last dimension), d is nrows
+        let ncols = dim_m1 as i32;
+        let nrows = d;
+
+        let kname = kernel_name::<T>("rmsnorm");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+
+        // Kernel uses: row = blockIdx.x*blockDim.y + threadIdx.y, tid = threadIdx.x
+        // blockDim.x threads collaborate on each row
+        const WARP_SIZE: u32 = 32;
+        let block_size = WARP_SIZE;
+        let block_size_i32 = block_size as i32;
+        let rows_per_block = 4u32;
+        let block_dim = (block_size, rows_per_block, 1);
+        let grid_dim = (nrows.div_ceil(rows_per_block as usize) as u32, 1, 1);
+        let cfg = LaunchConfig { block_dim, grid_dim, shared_mem_bytes: 0 };
+
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&alpha.data);
+        launch_args.arg(&ncols);
+        launch_args.arg(&block_size_i32);
+        launch_args.arg(&eps);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn layer_norm<T: WithDTypeF>(
@@ -714,7 +757,33 @@ impl crate::Backend for Device {
         d: usize,
         eps: f32,
     ) -> Result<()> {
-        crate::bail!("layer_norm not implemented yet")
+        // dim_m1 is ncols (last dimension), d is nrows
+        let ncols = dim_m1 as i32;
+        let nrows = d;
+
+        let kname = kernel_name::<T>("layernorm");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+
+        // Kernel uses: row = blockIdx.x*blockDim.y + threadIdx.y, tid = threadIdx.x
+        // blockDim.x threads collaborate on each row
+        const WARP_SIZE: u32 = 32;
+        let block_size = WARP_SIZE;
+        let block_size_i32 = block_size as i32;
+        let rows_per_block = 4u32;
+        let block_dim = (block_size, rows_per_block, 1);
+        let grid_dim = (nrows.div_ceil(rows_per_block as usize) as u32, 1, 1);
+        let cfg = LaunchConfig { block_dim, grid_dim, shared_mem_bytes: 0 };
+
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&weight.data);
+        launch_args.arg(&bias.data);
+        launch_args.arg(&ncols);
+        launch_args.arg(&block_size_i32);
+        launch_args.arg(&eps);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn reduce_max<T: WithDTypeF>(

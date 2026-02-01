@@ -210,6 +210,74 @@ fn main() -> Result<()> {
     assert_eq!(batch_c_data[0], 22.0);
     assert_eq!(batch_c_data[4], 3.0); // First element of batch 1
 
+    // Test transpose
+    println!("\nTesting transpose...");
+    let t_2x3: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let t_3x2 = t_2x3.transpose(0, 1)?;
+    println!("Original shape: {:?}, Transposed shape: {:?}", t_2x3.dims(), t_3x2.dims());
+    assert_eq!(t_3x2.dims(), &[3, 2]);
+    let t_3x2_data = t_3x2.to_vec()?;
+    // Original: [[1, 2, 3], [4, 5, 6]]
+    // Transposed: [[1, 4], [2, 5], [3, 6]]
+    assert_eq!(t_3x2_data, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+    println!("Transpose correct!");
+
+    // Test softmax
+    println!("\nTesting softmax...");
+    let logits: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0], vec![2, 3], &device)?;
+    let probs = logits.softmax()?;
+    let probs_data = probs.to_vec()?;
+    println!("Softmax output: {:?}", probs_data);
+    // Each row should sum to 1.0
+    let row1_sum: f32 = probs_data[0..3].iter().sum();
+    let row2_sum: f32 = probs_data[3..6].iter().sum();
+    println!("Row sums: {}, {}", row1_sum, row2_sum);
+    assert!((row1_sum - 1.0).abs() < 1e-5);
+    assert!((row2_sum - 1.0).abs() < 1e-5);
+    // softmax([1,2,3]) = [e^1, e^2, e^3] / sum ≈ [0.090, 0.245, 0.665]
+    assert!((probs_data[0] - 0.0900306).abs() < 1e-4);
+    assert!((probs_data[1] - 0.2447285).abs() < 1e-4);
+    assert!((probs_data[2] - 0.6652409).abs() < 1e-4);
+    println!("Softmax correct!");
+
+    // Test RMS norm
+    println!("\nTesting RMS norm...");
+    let x_rms: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let alpha: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 1.0, 1.0], vec![3], &device)?;
+    let rms_out = x_rms.rms_norm(&alpha, 1e-5)?;
+    let rms_data = rms_out.to_vec()?;
+    println!("RMS norm output: {:?}", rms_data);
+    // RMS of [1,2,3] = sqrt((1+4+9)/3) = sqrt(14/3) ≈ 2.16
+    // Normalized: [1/2.16, 2/2.16, 3/2.16] ≈ [0.46, 0.93, 1.39]
+    let rms_row1 = (1.0f32 + 4.0 + 9.0) / 3.0;
+    let scale1 = 1.0 / (rms_row1 + 1e-5).sqrt();
+    assert!((rms_data[0] - 1.0 * scale1).abs() < 1e-4);
+    assert!((rms_data[1] - 2.0 * scale1).abs() < 1e-4);
+    assert!((rms_data[2] - 3.0 * scale1).abs() < 1e-4);
+    println!("RMS norm correct!");
+
+    // Test layer norm
+    println!("\nTesting layer norm...");
+    let x_ln: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let weight: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 1.0, 1.0], vec![3], &device)?;
+    let bias: Tensor<f32, Device> = Tensor::from_vec(vec![0.0, 0.0, 0.0], vec![3], &device)?;
+    let ln_out = x_ln.layer_norm(&weight, &bias, 1e-5)?;
+    let ln_data = ln_out.to_vec()?;
+    println!("Layer norm output: {:?}", ln_data);
+    // For [1,2,3]: mean=2, var=2/3, std≈0.816
+    // Normalized: [-1.22, 0, 1.22] approximately
+    let mean1 = 2.0f32;
+    let var1 = ((1.0 - mean1).powi(2) + (2.0 - mean1).powi(2) + (3.0 - mean1).powi(2)) / 3.0;
+    let inv_std1 = 1.0 / (var1 + 1e-5).sqrt();
+    assert!((ln_data[0] - (1.0 - mean1) * inv_std1).abs() < 1e-4);
+    assert!((ln_data[1] - (2.0 - mean1) * inv_std1).abs() < 1e-4);
+    assert!((ln_data[2] - (3.0 - mean1) * inv_std1).abs() < 1e-4);
+    println!("Layer norm correct!");
+
     println!("\nAll tests passed!");
     Ok(())
 }

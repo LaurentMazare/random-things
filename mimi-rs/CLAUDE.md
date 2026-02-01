@@ -57,7 +57,12 @@ Custom CUDA kernels compiled via `bindgen_cuda`:
 - `fill.cu` - memory fill
 - `indexing.cu` - index select operations
 - `layout.cu` - transpose
+- `reduce.cu` - softmax, rms_norm, layer_norm, reductions
 - `rope.cu` - rotary position embeddings
+
+Helper headers:
+- `cuda_utils.cuh` - strided indexing, math helpers
+- `compatibility.cuh` - CUDA FP16/BF16 includes
 
 PTX is loaded at runtime via `src/cuda_kernels.rs`.
 
