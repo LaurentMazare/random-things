@@ -561,23 +561,30 @@ impl crate::Backend for Device {
         h: usize,
         t: usize,
         d: usize,
-        _pos: usize,
+        pos: usize,
     ) -> Result<()> {
         let kname = kernel_name::<T>("rope");
         let func = dst.device.get_func(&kname, crate::cuda_kernels::ROPE)?;
         let bh = (b * h) as u32;
         let td = (t * d) as u32;
-        let d = d as u32;
+        let d_u32 = d as u32;
         // The kernel processes bh * td / 2 elements (each thread handles 2 elements)
         let cfg = LaunchConfig::for_num_elems(bh * td / 2);
+
+        // Slice cos/sin to start at the correct position (like CPU does)
+        let cos_offset = pos * d / 2;
+        let sin_offset = pos * d / 2;
+        let cos_slice = cos.data.slice(cos_offset..);
+        let sin_slice = sin.data.slice(sin_offset..);
+
         let mut launch_args = dst.device.stream.launch_builder(&func);
-        launch_args.arg(&cos.data);
-        launch_args.arg(&sin.data);
+        launch_args.arg(&cos_slice);
+        launch_args.arg(&sin_slice);
         launch_args.arg(&src.data);
         launch_args.arg(&mut dst.data);
         launch_args.arg(&bh);
         launch_args.arg(&td);
-        launch_args.arg(&d);
+        launch_args.arg(&d_u32);
         unsafe { launch_args.launch(cfg) }?;
         Ok(())
     }
@@ -591,7 +598,7 @@ impl crate::Backend for Device {
         h: usize,
         t: usize,
         d: usize,
-        _pos: usize,
+        pos: usize,
     ) -> Result<()> {
         let kname = kernel_name::<T>("rope_i");
         let func = dst.device.get_func(&kname, crate::cuda_kernels::ROPE)?;
@@ -599,9 +606,16 @@ impl crate::Backend for Device {
         let td = (t * d) as u32;
         // The kernel processes bh * td / 2 elements (each thread handles 2 elements)
         let cfg = LaunchConfig::for_num_elems(bh * td / 2);
+
+        // Slice cos/sin to start at the correct position (like CPU does)
+        let cos_offset = pos * d / 2;
+        let sin_offset = pos * d / 2;
+        let cos_slice = cos.data.slice(cos_offset..);
+        let sin_slice = sin.data.slice(sin_offset..);
+
         let mut launch_args = dst.device.stream.launch_builder(&func);
-        launch_args.arg(&cos.data);
-        launch_args.arg(&sin.data);
+        launch_args.arg(&cos_slice);
+        launch_args.arg(&sin_slice);
         launch_args.arg(&src.data);
         launch_args.arg(&mut dst.data);
         launch_args.arg(&bh);

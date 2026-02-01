@@ -816,3 +816,340 @@ fn test_apply_causality_mask_with_offset() -> Result<()> {
 
     Ok(())
 }
+
+// =============================================================================
+// KV cache style cat tests (4D tensors along dim 2)
+// =============================================================================
+
+#[test]
+fn test_cat_4d_dim2_kv_cache_shape() -> Result<()> {
+    // This replicates the exact shapes from the llama KV cache:
+    // prev_k: [1, 4, 5, 64] - cached keys from 5 positions
+    // k: [1, 4, 1, 64] - new key for 1 position
+    // cat along dim 2 -> [1, 4, 6, 64]
+    let device = get_device();
+
+    // Create prev_k with sequential values for easy verification
+    // Total elements: 1 * 4 * 5 * 64 = 1280
+    let prev_k_data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
+    let prev_k: Tensor<f32, Device> = Tensor::from_vec(prev_k_data.clone(), vec![1, 4, 5, 64], &device)?;
+
+    // Create k with offset values for easy verification
+    // Total elements: 1 * 4 * 1 * 64 = 256
+    let k_data: Vec<f32> = (10000..10256).map(|i| i as f32).collect();
+    let k: Tensor<f32, Device> = Tensor::from_vec(k_data.clone(), vec![1, 4, 1, 64], &device)?;
+
+    // Cat along dim 2
+    let result = Tensor::cat(&[&prev_k, &k], 2)?;
+    assert_eq!(result.dims(), &[1, 4, 6, 64]);
+
+    let result_data = result.to_vec()?;
+
+    // Verify layout: result should be laid out as [1, 4, 6, 64]
+    // For each of the 4 heads:
+    //   - First 5*64=320 elements from prev_k
+    //   - Then 1*64=64 elements from k
+    for head in 0..4 {
+        let result_head_start = head * 6 * 64;
+        let prev_k_head_start = head * 5 * 64;
+        let k_head_start = head * 1 * 64;
+
+        // Check first 320 elements of this head come from prev_k
+        for i in 0..(5 * 64) {
+            let result_idx = result_head_start + i;
+            let expected = prev_k_data[prev_k_head_start + i];
+            let actual = result_data[result_idx];
+            if (expected - actual).abs() > 1e-6 {
+                panic!(
+                    "Mismatch at head={}, pos within head={}: expected {} (from prev_k[{}]), got {} (result[{}])",
+                    head, i, expected, prev_k_head_start + i, actual, result_idx
+                );
+            }
+        }
+
+        // Check last 64 elements of this head come from k
+        for i in 0..64 {
+            let result_idx = result_head_start + 5 * 64 + i;
+            let expected = k_data[k_head_start + i];
+            let actual = result_data[result_idx];
+            if (expected - actual).abs() > 1e-6 {
+                panic!(
+                    "Mismatch at head={}, k element {}: expected {} (from k[{}]), got {} (result[{}])",
+                    head, i, expected, k_head_start + i, actual, result_idx
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_cat_4d_dim2_values_preserved() -> Result<()> {
+    // Simpler test: just check first 5 values are preserved after cat
+    let device = get_device();
+
+    let prev_k_data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
+    let prev_k: Tensor<f32, Device> = Tensor::from_vec(prev_k_data.clone(), vec![1, 4, 5, 64], &device)?;
+
+    let k: Tensor<f32, Device> = Tensor::full(9999.0, vec![1, 4, 1, 64], &device)?;
+
+    let result = Tensor::cat(&[&prev_k, &k], 2)?;
+    let result_data = result.to_vec()?;
+
+    // First 5 elements should be 0.0, 1.0, 2.0, 3.0, 4.0
+    assert_eq!(result_data[0], 0.0, "first element should be 0.0");
+    assert_eq!(result_data[1], 1.0, "second element should be 1.0");
+    assert_eq!(result_data[2], 2.0, "third element should be 2.0");
+    assert_eq!(result_data[3], 3.0, "fourth element should be 3.0");
+    assert_eq!(result_data[4], 4.0, "fifth element should be 4.0");
+
+    Ok(())
+}
+
+#[test]
+fn test_cat_4d_dim2_with_copy() -> Result<()> {
+    // Test that simulates the exact KV cache pattern:
+    // 1. Create k_cache from k.copy()
+    // 2. Cat k_cache with new k
+    // This is what happens in the attention layer
+    let device = get_device();
+
+    // Step 0: k is created and k_cache = k.copy()
+    let k_step0_data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
+    let k_step0: Tensor<f32, Device> = Tensor::from_vec(k_step0_data.clone(), vec![1, 4, 5, 64], &device)?;
+    let k_cache = k_step0.copy()?;
+
+    // Verify k_cache has correct values
+    let k_cache_data = k_cache.to_vec()?;
+    assert_eq!(k_cache_data[0..5], [0.0, 1.0, 2.0, 3.0, 4.0], "k_cache first 5 should match k_step0");
+
+    // Step 1: new k is created, cat with k_cache
+    let k_step1: Tensor<f32, Device> = Tensor::full(9999.0, vec![1, 4, 1, 64], &device)?;
+    let k_cat = Tensor::cat(&[&k_cache, &k_step1], 2)?;
+
+    // Verify k_cat preserves k_cache values
+    let k_cat_data = k_cat.to_vec()?;
+    assert_eq!(k_cat_data[0], 0.0, "after cat, first element should be 0.0");
+    assert_eq!(k_cat_data[1], 1.0, "after cat, second element should be 1.0");
+    assert_eq!(k_cat_data[2], 2.0, "after cat, third element should be 2.0");
+    assert_eq!(k_cat_data[3], 3.0, "after cat, fourth element should be 3.0");
+    assert_eq!(k_cat_data[4], 4.0, "after cat, fifth element should be 4.0");
+
+    // Also check the new values at position 5*64 = 320
+    assert_eq!(k_cat_data[320], 9999.0, "new value at pos 320 should be 9999.0");
+
+    // Step 2: new k_cache from k_cat.copy(), cat again
+    let k_cache_step1 = k_cat.copy()?;
+    let k_step2: Tensor<f32, Device> = Tensor::full(8888.0, vec![1, 4, 1, 64], &device)?;
+    let k_cat2 = Tensor::cat(&[&k_cache_step1, &k_step2], 2)?;
+
+    // Verify values are still preserved
+    let k_cat2_data = k_cat2.to_vec()?;
+    assert_eq!(k_cat2_data[0], 0.0, "after second cat, first element should be 0.0");
+    assert_eq!(k_cat2_data[1], 1.0, "after second cat, second element should be 1.0");
+    assert_eq!(k_cat2_data[320], 9999.0, "after second cat, pos 320 should be 9999.0");
+    // New position: 6*64 = 384
+    assert_eq!(k_cat2_data[384], 8888.0, "new value at pos 384 should be 8888.0");
+
+    Ok(())
+}
+
+#[test]
+fn test_cat_after_transpose() -> Result<()> {
+    // This test mimics the attention layer pattern more closely:
+    // k is created, reshaped, transposed, then cached
+    let device = get_device();
+
+    // Shape before reshape: [1, 5, 256] (batch, seq, num_kv_heads * head_dim)
+    let k_linear: Vec<f32> = (0..(1 * 5 * 256)).map(|i| i as f32).collect();
+    let k: Tensor<f32, Device> = Tensor::from_vec(k_linear, vec![1, 5, 256], &device)?;
+
+    // Reshape to [1, 5, 4, 64]
+    let k = k.reshape(vec![1, 5, 4, 64])?;
+
+    // Transpose (1, 2) to get [1, 4, 5, 64]
+    let k = k.transpose(1, 2)?;
+    assert_eq!(k.dims(), &[1, 4, 5, 64]);
+
+    // Create k_cache as a copy
+    let k_cache = k.copy()?;
+    let k_cache_data = k_cache.to_vec()?;
+
+    // Verify the first 5 values of k_cache
+    let first5: Vec<f32> = k_cache_data[0..5].to_vec();
+    eprintln!("After transpose, k_cache first5: {:?}", first5);
+
+    // Now simulate step 1: create a new k and cat
+    let k_new_linear: Vec<f32> = (9000..(9000 + 1 * 1 * 256)).map(|i| i as f32).collect();
+    let k_new: Tensor<f32, Device> = Tensor::from_vec(k_new_linear, vec![1, 1, 256], &device)?;
+    let k_new = k_new.reshape(vec![1, 1, 4, 64])?;
+    let k_new = k_new.transpose(1, 2)?;
+    assert_eq!(k_new.dims(), &[1, 4, 1, 64]);
+
+    // Cat k_cache with k_new
+    let k_cat = Tensor::cat(&[&k_cache, &k_new], 2)?;
+    assert_eq!(k_cat.dims(), &[1, 4, 6, 64]);
+
+    let k_cat_data = k_cat.to_vec()?;
+    let cat_first5: Vec<f32> = k_cat_data[0..5].to_vec();
+    eprintln!("After cat, k_cat first5: {:?}", cat_first5);
+
+    // The first 5 values should match k_cache first 5 values
+    for i in 0..5 {
+        assert_eq!(
+            k_cache_data[i], k_cat_data[i],
+            "Mismatch at position {}: k_cache has {}, k_cat has {}",
+            i, k_cache_data[i], k_cat_data[i]
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_cat_after_multiple_transpose() -> Result<()> {
+    // Even more complex: multiple transposes
+    let device = get_device();
+
+    let data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
+    let t: Tensor<f32, Device> = Tensor::from_vec(data, vec![1, 4, 5, 64], &device)?;
+
+    // Do a transpose, then transpose back (should be identity)
+    let t2 = t.transpose(1, 2)?;
+    assert_eq!(t2.dims(), &[1, 5, 4, 64]);
+
+    let t3 = t2.transpose(1, 2)?;
+    assert_eq!(t3.dims(), &[1, 4, 5, 64]);
+
+    // Copy and cat
+    let t_cache = t3.copy()?;
+    let t_new: Tensor<f32, Device> = Tensor::full(9999.0, vec![1, 4, 1, 64], &device)?;
+    let t_cat = Tensor::cat(&[&t_cache, &t_new], 2)?;
+
+    let t_cat_data = t_cat.to_vec()?;
+
+    // First 5 values should be preserved from original
+    assert_eq!(t_cat_data[0], 0.0);
+    assert_eq!(t_cat_data[1], 1.0);
+    assert_eq!(t_cat_data[2], 2.0);
+    assert_eq!(t_cat_data[3], 3.0);
+    assert_eq!(t_cat_data[4], 4.0);
+
+    Ok(())
+}
+
+#[test]
+fn test_cat_with_rope() -> Result<()> {
+    // Full test including rope, which is what the llama model does
+    let device = get_device();
+
+    // Shape: [b, h, t, d] = [1, 4, 5, 64], d_over_2 = 32
+    // Step 0: Create k, transpose, rope, copy
+    let k_data: Vec<f32> = (0..1280).map(|i| (i as f32) / 100.0).collect();
+    let k: Tensor<f32, Device> = Tensor::from_vec(k_data, vec![1, 5, 4, 64], &device)?;
+    let k = k.transpose(1, 2)?;  // -> [1, 4, 5, 64]
+
+    // Create cos/sin for rope - shape should be [max_pos, d/2] = [10, 32]
+    let cos: Tensor<f32, Device> = Tensor::full(1.0, vec![10, 32], &device)?;
+    let sin: Tensor<f32, Device> = Tensor::full(0.0, vec![10, 32], &device)?;
+
+    // Apply rope at pos=0, t=5 -> needs cos/sin from pos 0 to 4
+    let k = k.rope(&cos, &sin, 0)?;  // With cos=1, sin=0, rope should be identity
+
+    // Create cache
+    let k_cache = k.copy()?;
+    let k_cache_first5: Vec<f32> = k_cache.to_vec()?[0..5].to_vec();
+    eprintln!("Step 0 k_cache first5: {:?}", k_cache_first5);
+
+    // Step 1: Create new k, transpose, rope, cat with cache
+    let k_new_data: Vec<f32> = (9000..9256).map(|i| (i as f32) / 100.0).collect();
+    let k_new: Tensor<f32, Device> = Tensor::from_vec(k_new_data, vec![1, 1, 4, 64], &device)?;
+    let k_new = k_new.transpose(1, 2)?;  // -> [1, 4, 1, 64]
+
+    // Apply rope at pos=5, t=1 -> needs cos/sin at pos 5
+    let k_new = k_new.rope(&cos, &sin, 5)?;
+
+    // Cat
+    let k_cat = Tensor::cat(&[&k_cache, &k_new], 2)?;
+    let k_cat_first5: Vec<f32> = k_cat.to_vec()?[0..5].to_vec();
+    eprintln!("Step 1 k_cat first5: {:?}", k_cat_first5);
+
+    // First 5 values should match k_cache
+    for i in 0..5 {
+        assert!(
+            (k_cache_first5[i] - k_cat_first5[i]).abs() < 1e-5,
+            "Mismatch at {}: cache={}, cat={}",
+            i, k_cache_first5[i], k_cat_first5[i]
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_rope_position_offset() -> Result<()> {
+    // Test that rope correctly handles non-zero position offsets
+    // This tests the bug where CUDA rope ignores the pos parameter
+    let device = get_device();
+
+    // Create input tensor: [1, 1, 1, 4] (b=1, h=1, t=1, d=4)
+    let x: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![1, 1, 1, 4], &device)?;
+
+    // Create cos/sin with different values at different positions
+    // Shape: [10, 2] (max_pos=10, d/2=2)
+    // Position 0: cos=[1, 1], sin=[0, 0]  -> identity
+    // Position 1: cos=[0, 0], sin=[1, 1]  -> 90 degree rotation
+    let cos_data = vec![
+        1.0, 1.0,  // pos 0: identity
+        0.0, 0.0,  // pos 1: 90 degree
+        -1.0, -1.0, // pos 2: 180 degree
+        0.0, 0.0,  // pos 3
+        1.0, 1.0,  // pos 4
+        0.5, 0.5,  // pos 5
+        0.0, 0.0,  // pos 6
+        0.0, 0.0,  // pos 7
+        0.0, 0.0,  // pos 8
+        0.0, 0.0,  // pos 9
+    ];
+    let sin_data = vec![
+        0.0, 0.0,  // pos 0: identity
+        1.0, 1.0,  // pos 1: 90 degree
+        0.0, 0.0,  // pos 2
+        0.0, 0.0,  // pos 3
+        0.0, 0.0,  // pos 4
+        0.866, 0.866,  // pos 5: ~60 degree
+        0.0, 0.0,  // pos 6
+        0.0, 0.0,  // pos 7
+        0.0, 0.0,  // pos 8
+        0.0, 0.0,  // pos 9
+    ];
+    let cos: Tensor<f32, Device> = Tensor::from_vec(cos_data, vec![10, 2], &device)?;
+    let sin: Tensor<f32, Device> = Tensor::from_vec(sin_data, vec![10, 2], &device)?;
+
+    // Apply rope at position 0 (identity): dst = [x1, x2, x3, x4]
+    let y0 = x.rope(&cos, &sin, 0)?;
+    let y0_data = y0.to_vec()?;
+    eprintln!("rope at pos 0: {:?}", y0_data);
+    // With cos=1, sin=0, output should equal input
+    assert!((y0_data[0] - 1.0).abs() < 1e-5, "pos 0 element 0");
+    assert!((y0_data[1] - 2.0).abs() < 1e-5, "pos 0 element 1");
+    assert!((y0_data[2] - 3.0).abs() < 1e-5, "pos 0 element 2");
+    assert!((y0_data[3] - 4.0).abs() < 1e-5, "pos 0 element 3");
+
+    // Apply rope at position 1 (90 degree rotation):
+    // dst[0] = x1*0 - x3*1 = -3
+    // dst[2] = x1*1 + x3*0 = 1
+    // dst[1] = x2*0 - x4*1 = -4
+    // dst[3] = x2*1 + x4*0 = 2
+    let y1 = x.rope(&cos, &sin, 1)?;
+    let y1_data = y1.to_vec()?;
+    eprintln!("rope at pos 1: {:?}", y1_data);
+    // If the pos parameter works correctly, this should NOT equal the identity
+    // If CUDA ignores pos, it will still use pos=0 values (identity)
+    let is_identity = (y1_data[0] - 1.0).abs() < 1e-5 &&
+                      (y1_data[1] - 2.0).abs() < 1e-5;
+    assert!(!is_identity, "rope at pos=1 should NOT be identity, got {:?}", y1_data);
+
+    Ok(())
+}
