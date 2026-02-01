@@ -191,6 +191,9 @@ fn main() -> Result<()> {
         } else {
             println!("Using CUDA backend");
             let dev = mimi::cuda_backend::Device::new(0)?;
+            unsafe {
+                dev.disable_event_tracking();
+            }
             run_for_device(args, dev)?;
         }
     }

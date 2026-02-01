@@ -51,6 +51,28 @@ impl Device {
         let func = module.load_function(name)?;
         Ok(func)
     }
+
+    pub fn cuda_stream(&self) -> Arc<cudarc::driver::CudaStream> {
+        self.stream.clone()
+    }
+
+    /// When turned on, all cuda tensors **created after calling this function** will
+    /// not track uses via cuda events.
+    ///
+    /// # Safety
+    ///
+    /// It is up to the user to ensure proper synchronization between multiple streams:
+    /// - Ensure that no tensor is freed before a use on another stream is finished.
+    /// - Ensure that a tensor is not used on another stream before allocation on the
+    ///   allocating stream finishes.
+    /// - Ensure that a tensor is not written two concurrently by multiple streams.
+    pub unsafe fn disable_event_tracking(&self) {
+        unsafe { self.cuda.disable_event_tracking() }
+    }
+
+    pub fn is_event_tracking(&self) -> bool {
+        self.cuda.is_event_tracking()
+    }
 }
 
 /// CUDA storage that holds both the device data and a reference to the device.
