@@ -485,7 +485,38 @@ impl crate::Backend for Device {
         dim2: usize,
         dims: &[usize],
     ) -> Result<()> {
-        crate::bail!("transpose not implemented yet")
+        let numel: usize = dims.iter().product();
+        if dim1 == dim2 || dims.iter().filter(|v| **v != 1).count() <= 1 {
+            // Simple copy when no real transpose needed
+            let src_slice = src.data.slice(..numel);
+            let mut dst_slice = dst.data.slice_mut(..numel);
+            dst.device.stream.memcpy_dtod(&src_slice, &mut dst_slice)?;
+        } else {
+            let (dim1, dim2) = (usize::min(dim1, dim2), usize::max(dim1, dim2));
+            let d_i: usize = dims[..dim1].iter().product();
+            let d_j: usize = dims[dim1 + 1..dim2].iter().product();
+            let d_k: usize = dims[(dim2 + 1)..].iter().product();
+            let d1 = dims[dim1] as u32;
+            let d2 = dims[dim2] as u32;
+            let d_i = d_i as u32;
+            let d_j = d_j as u32;
+            let d_k = d_k as u32;
+
+            let kname = kernel_name::<T>("transpose");
+            let func = dst.device.get_func(&kname, crate::cuda_kernels::LAYOUT)?;
+            let cfg = LaunchConfig::for_num_elems(numel as u32);
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&d1);
+            launch_args.arg(&d2);
+            launch_args.arg(&d_i);
+            launch_args.arg(&d_j);
+            launch_args.arg(&d_k);
+            launch_args.arg(&src.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        }
+        Ok(())
     }
 
     fn copy2d<T: WithDType>(
