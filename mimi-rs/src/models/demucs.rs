@@ -217,8 +217,7 @@ pub fn downsample2<T: WithDTypeF, B: Backend>(
 pub struct LstmCell<T: WithDTypeF, B: Backend> {
     weight_ih: Tensor<T, B>,
     weight_hh: Tensor<T, B>,
-    bias_ih: Tensor<T, B>,
-    bias_hh: Tensor<T, B>,
+    sum_bias: Tensor<T, B>,
     hidden_size: usize,
 }
 
@@ -234,7 +233,8 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
             vb.tensor(&format!("weight_hh_l{layer}"), (4 * hidden_size, hidden_size))?;
         let bias_ih = vb.tensor(&format!("bias_ih_l{layer}"), (4 * hidden_size,))?;
         let bias_hh = vb.tensor(&format!("bias_hh_l{layer}"), (4 * hidden_size,))?;
-        Ok(Self { weight_ih, weight_hh, bias_ih, bias_hh, hidden_size })
+        let sum_bias = bias_ih.add(&bias_hh)?.reshape((1, 4 * hidden_size))?;
+        Ok(Self { weight_ih, weight_hh, sum_bias, hidden_size })
     }
 
     pub fn load_layer_reverse(
@@ -249,7 +249,8 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
             vb.tensor(&format!("weight_hh_l{layer}_reverse"), (4 * hidden_size, hidden_size))?;
         let bias_ih = vb.tensor(&format!("bias_ih_l{layer}_reverse"), (4 * hidden_size,))?;
         let bias_hh = vb.tensor(&format!("bias_hh_l{layer}_reverse"), (4 * hidden_size,))?;
-        Ok(Self { weight_ih, weight_hh, bias_ih, bias_hh, hidden_size })
+        let sum_bias = bias_ih.add(&bias_hh)?.reshape((1, 4 * hidden_size))?;
+        Ok(Self { weight_ih, weight_hh, sum_bias, hidden_size })
     }
 
     /// x: (batch, input), h: (batch, hidden), c: (batch, hidden)
@@ -262,9 +263,7 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
     ) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
         let gates_ih = x.matmul_t(&self.weight_ih)?;
         let gates_hh = h.matmul_t(&self.weight_hh)?;
-        let bias_ih = self.bias_ih.reshape((1, 4 * self.hidden_size))?;
-        let bias_hh = self.bias_hh.reshape((1, 4 * self.hidden_size))?;
-        let gates = gates_ih.add(&gates_hh)?.broadcast_add(&bias_ih)?.broadcast_add(&bias_hh)?;
+        let gates = gates_ih.add(&gates_hh)?.broadcast_add(&self.sum_bias)?;
 
         let i = gates.narrow(1, 0, self.hidden_size)?.sigmoid()?;
         let f = gates.narrow(1, self.hidden_size, self.hidden_size)?.sigmoid()?;
