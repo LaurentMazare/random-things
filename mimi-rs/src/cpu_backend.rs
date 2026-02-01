@@ -1172,6 +1172,26 @@ fn broadcast_binary_op<T: WithDType>(
         }
         return Ok(());
     }
+    if rhs_no_zero && lhs_strides == [0, 1] {
+        for idx0 in 0..dst_shape[0] {
+            for (idx1, lhs) in lhs.iter().enumerate().take(dst_shape[1]) {
+                let dst_idx = idx0 * dst_shape[1] + idx1;
+                let rhs_idx = idx0 * rhs_strides[0] + idx1;
+                dst[dst_idx] = op(*lhs, rhs[rhs_idx]);
+            }
+        }
+        return Ok(());
+    }
+    if rhs_no_zero && lhs_strides == [1, 0] {
+        for (idx0, lhs) in lhs.iter().enumerate().take(dst_shape[0]) {
+            for idx1 in 0..dst_shape[1] {
+                let dst_idx = idx0 * dst_shape[1] + idx1;
+                let rhs_idx = idx0 * rhs_strides[0] + idx1;
+                dst[dst_idx] = op(*lhs, rhs[rhs_idx]);
+            }
+        }
+        return Ok(());
+    }
 
     let total_elems: usize = dst_shape.iter().product();
     let rank = dst_shape.len();
