@@ -10,6 +10,14 @@ pub struct Tensor<T: WithDType, B: Backend> {
     _marker: std::marker::PhantomData<T>,
 }
 
+pub enum TypedTensor<'a, B: Backend> {
+    F16(&'a Tensor<half::f16, B>),
+    BF16(&'a Tensor<half::bf16, B>),
+    F32(&'a Tensor<f32, B>),
+    I64(&'a Tensor<i64, B>),
+    U8(&'a Tensor<u8, B>),
+}
+
 impl<T: WithDType, B: Backend> Tensor<T, B> {
     pub fn dtype(&self) -> DType {
         T::DTYPE
@@ -299,5 +307,18 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
             tensors.iter().map(|t| t.unsqueeze(dim)).collect::<Result<Vec<_>>>()?;
         let unsqueezed_refs: Vec<&Self> = unsqueezed.iter().collect();
         Self::cat(&unsqueezed_refs, dim)
+    }
+
+    pub fn downcast(&self) -> Result<TypedTensor<'_, B>> {
+        use crate::error::Context;
+        let slf = self as &dyn std::any::Any;
+        let tt = match T::DTYPE {
+            DType::F16 => TypedTensor::F16(slf.downcast_ref().context("downcast to f16")?),
+            DType::BF16 => TypedTensor::BF16(slf.downcast_ref().context("downcast to bf16")?),
+            DType::F32 => TypedTensor::F32(slf.downcast_ref().context("downcast to f32")?),
+            DType::I64 => TypedTensor::I64(slf.downcast_ref().context("downcast to i64")?),
+            DType::U8 => TypedTensor::U8(slf.downcast_ref().context("downcast to u8")?),
+        };
+        Ok(tt)
     }
 }
