@@ -7,6 +7,14 @@ const USE_COL2IM_CONV1D_TR: bool = true;
 impl crate::Backend for crate::CpuDevice {
     type Storage<T: WithDType> = Vec<T>;
 
+    fn name(&self) -> String {
+        "cpu".to_string()
+    }
+
+    fn synchronize(&self) -> Result<()> {
+        Ok(())
+    }
+
     fn storage_len<T: WithDType>(storage: &Self::Storage<T>) -> usize {
         storage.len()
     }

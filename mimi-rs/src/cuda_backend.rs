@@ -306,6 +306,15 @@ pub fn set_gemm_reduced_precision_bf16(b: bool) {
 impl crate::Backend for Device {
     type Storage<T: WithDType> = Storage<T>;
 
+    fn name(&self) -> String {
+        format!("CUDA Device {}", self.cuda.device_ordinal())
+    }
+
+    fn synchronize(&self) -> Result<()> {
+        self.stream.synchronize()?;
+        Ok(())
+    }
+
     fn storage_len<T: WithDType>(storage: &Self::Storage<T>) -> usize {
         storage.len()
     }

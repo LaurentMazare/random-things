@@ -44,6 +44,7 @@ pub trait WithDType:
 {
     const DTYPE: DType;
     const BYTE_SIZE: usize;
+    type Formatter: crate::display::TensorFormatter<Elem = Self>;
     /// Convert a little-endian byte slice to a Vec of Self.
     /// This handles alignment safely by reading bytes individually.
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self>;

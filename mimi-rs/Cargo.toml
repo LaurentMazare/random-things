@@ -46,3 +46,7 @@ cuda = ["dep:cudarc", "dep:bindgen_cuda"]
 [[example]]
 name = "basic_cuda"
 required-features = ["cuda"]
+
+[[example]]
+name = "cuda_thread_test"
+required-features = ["cuda"]

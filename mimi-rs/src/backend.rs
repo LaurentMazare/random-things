@@ -4,6 +4,9 @@ use crate::{BinaryOp, UnaryOp};
 pub trait Backend: Sized + Clone + 'static {
     type Storage<T: crate::WithDType>: Sized;
 
+    fn name(&self) -> String;
+    fn synchronize(&self) -> Result<()>;
+
     fn storage_len<T: crate::WithDType>(storage: &Self::Storage<T>) -> usize;
 
     fn storage_is_empty<T: crate::WithDType>(storage: &Self::Storage<T>) -> bool {
