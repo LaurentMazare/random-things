@@ -1032,8 +1032,7 @@ fn col2im1d<T: WithDTypeF>(
 ) {
     let l_out = (l_in - 1) * stride + k_size;
 
-    // Initialize output to zero
-    dst.iter_mut().for_each(|v| *v = T::zero());
+    dst.fill(T::zero());
 
     // Strides for destination [B, C_out, L_out]
     let (dst_s0, dst_s1) = (c_out * l_out, l_out);
@@ -1075,8 +1074,7 @@ fn conv_transpose1d_direct<T: WithDTypeF>(
     let in_c_per_group = in_channels / groups;
     let out_c_per_group = out_channels / groups;
 
-    // Initialize output to zero
-    dst.iter_mut().for_each(|v| *v = T::zero());
+    dst.fill(T::zero());
 
     // Reorder input from [B, C, L] to [B, L, C] for contiguous memory access
     let mut src_reordered = vec![T::zero(); batch * length * in_channels];
