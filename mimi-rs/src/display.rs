@@ -2,7 +2,7 @@
 //!
 //! This implementation should be in line with the [PyTorch version](https://github.com/pytorch/pytorch/blob/7b419e8513a024e172eae767e24ec1b849976b13/torch/_tensor_str.py).
 //!
-use crate::{Backend, Result, Tensor, WithDType};
+use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
 
 /// Options for Tensor pretty printing
 #[derive(Debug, Clone)]
@@ -97,8 +97,10 @@ impl std::fmt::Write for FmtSize {
     }
 }
 
-trait TensorFormatter {
+pub trait TensorFormatter: Sized {
     type Elem: WithDType;
+
+    fn new<B: Backend>(t: &Tensor<Self::Elem, B>, po: &PrinterOptions) -> Result<Self>;
 
     fn fmt<W: std::fmt::Write>(&self, v: Self::Elem, max_w: usize, f: &mut W) -> std::fmt::Result;
 
@@ -232,17 +234,19 @@ fn get_subtensor<T: WithDType, B: Backend>(t: &Tensor<T, B>, i: usize) -> Result
     if new_dims.is_empty() { slice.reshape(vec![1]) } else { slice.reshape(new_dims) }
 }
 
-struct FloatFormatter<S: WithDType> {
+pub struct FloatFormatter<S: WithDType> {
     int_mode: bool,
     sci_mode: bool,
     precision: usize,
     _phantom: std::marker::PhantomData<S>,
 }
 
-impl<S> FloatFormatter<S>
+impl<S> TensorFormatter for FloatFormatter<S>
 where
-    S: WithDType + num_traits::Float + std::fmt::Display,
+    S: WithDTypeF,
 {
+    type Elem = S;
+
     fn new<B: Backend>(t: &Tensor<S, B>, po: &PrinterOptions) -> Result<Self> {
         let mut int_mode = true;
         let mut sci_mode = false;
@@ -290,14 +294,6 @@ where
         }
         Ok(Self { int_mode, sci_mode, precision: po.precision, _phantom: std::marker::PhantomData })
     }
-}
-
-impl<S> TensorFormatter for FloatFormatter<S>
-where
-    S: WithDType + num_traits::Float + std::fmt::Display + std::fmt::LowerExp,
-{
-    type Elem = S;
-
     fn fmt<W: std::fmt::Write>(&self, v: Self::Elem, max_w: usize, f: &mut W) -> std::fmt::Result {
         if self.sci_mode {
             write!(f, "{v:width$.prec$e}", v = v, width = max_w, prec = self.precision)
@@ -313,14 +309,8 @@ where
     }
 }
 
-struct IntFormatter<S: WithDType> {
+pub struct IntFormatter<S: WithDType> {
     _phantom: std::marker::PhantomData<S>,
-}
-
-impl<S: WithDType> IntFormatter<S> {
-    fn new() -> Self {
-        Self { _phantom: std::marker::PhantomData }
-    }
 }
 
 impl<S> TensorFormatter for IntFormatter<S>
@@ -329,6 +319,9 @@ where
 {
     type Elem = S;
 
+    fn new<B: Backend>(_t: &Tensor<S, B>, _po: &PrinterOptions) -> Result<Self> {
+        Ok(Self { _phantom: std::marker::PhantomData })
+    }
     fn fmt<W: std::fmt::Write>(&self, v: Self::Elem, max_w: usize, f: &mut W) -> std::fmt::Result {
         write!(f, "{v:max_w$}")
     }
@@ -376,7 +369,7 @@ fn get_summarized_data<T: WithDType, B: Backend>(
 }
 
 // Debug implementation for all tensor types
-impl<T: WithDType + std::fmt::Display, B: Backend> std::fmt::Debug for Tensor<T, B> {
+impl<T: WithDType, B: Backend> std::fmt::Debug for Tensor<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "Tensor[")?;
         match self.dims() {
@@ -412,7 +405,7 @@ impl<T: WithDType + std::fmt::Display, B: Backend> std::fmt::Debug for Tensor<T,
 }
 
 // Display implementation for float types
-impl<B: Backend> std::fmt::Display for Tensor<f32, B> {
+impl<T: WithDType, B: Backend> std::fmt::Display for Tensor<T, B> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let po = PRINT_OPTS.lock().unwrap();
         let summarize = self.elem_count() > po.threshold;
@@ -427,106 +420,11 @@ impl<B: Backend> std::fmt::Display for Tensor<f32, B> {
                 Err(err) => return write!(f, "{err:?}"),
             }
         };
-        if let Ok(tf) = FloatFormatter::<f32>::new(&to_display, &po) {
+        if let Ok(tf) = T::Formatter::new(&to_display, &po) {
             let max_w = tf.max_width(&to_display);
             tf.fmt_tensor(self, 1, max_w, summarize, &po, f)?;
             writeln!(f)?;
         }
-        write!(f, "Tensor[{:?}, {:?}]", self.dims(), self.dtype())
-    }
-}
-
-impl<B: Backend> std::fmt::Display for Tensor<half::f16, B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let po = PRINT_OPTS.lock().unwrap();
-        let summarize = self.elem_count() > po.threshold;
-        let to_display = if summarize {
-            match get_summarized_data(self, po.edge_items) {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        } else {
-            match self.copy() {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        };
-        if let Ok(tf) = FloatFormatter::<half::f16>::new(&to_display, &po) {
-            let max_w = tf.max_width(&to_display);
-            tf.fmt_tensor(self, 1, max_w, summarize, &po, f)?;
-            writeln!(f)?;
-        }
-        write!(f, "Tensor[{:?}, {:?}]", self.dims(), self.dtype())
-    }
-}
-
-impl<B: Backend> std::fmt::Display for Tensor<half::bf16, B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let po = PRINT_OPTS.lock().unwrap();
-        let summarize = self.elem_count() > po.threshold;
-        let to_display = if summarize {
-            match get_summarized_data(self, po.edge_items) {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        } else {
-            match self.copy() {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        };
-        if let Ok(tf) = FloatFormatter::<half::bf16>::new(&to_display, &po) {
-            let max_w = tf.max_width(&to_display);
-            tf.fmt_tensor(self, 1, max_w, summarize, &po, f)?;
-            writeln!(f)?;
-        }
-        write!(f, "Tensor[{:?}, {:?}]", self.dims(), self.dtype())
-    }
-}
-
-// Display implementation for integer types
-impl<B: Backend> std::fmt::Display for Tensor<i64, B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let po = PRINT_OPTS.lock().unwrap();
-        let summarize = self.elem_count() > po.threshold;
-        let to_display = if summarize {
-            match get_summarized_data(self, po.edge_items) {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        } else {
-            match self.copy() {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        };
-        let tf: IntFormatter<i64> = IntFormatter::new();
-        let max_w = tf.max_width(&to_display);
-        tf.fmt_tensor(self, 1, max_w, summarize, &po, f)?;
-        writeln!(f)?;
-        write!(f, "Tensor[{:?}, {:?}]", self.dims(), self.dtype())
-    }
-}
-
-impl<B: Backend> std::fmt::Display for Tensor<u8, B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let po = PRINT_OPTS.lock().unwrap();
-        let summarize = self.elem_count() > po.threshold;
-        let to_display = if summarize {
-            match get_summarized_data(self, po.edge_items) {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        } else {
-            match self.copy() {
-                Ok(v) => v,
-                Err(err) => return write!(f, "{err:?}"),
-            }
-        };
-        let tf: IntFormatter<u8> = IntFormatter::new();
-        let max_w = tf.max_width(&to_display);
-        tf.fmt_tensor(self, 1, max_w, summarize, &po, f)?;
-        writeln!(f)?;
         write!(f, "Tensor[{:?}, {:?}]", self.dims(), self.dtype())
     }
 }

@@ -20,16 +20,27 @@ pub trait WithDType:
     + Send
     + Sync
     + std::fmt::Debug
+    + std::fmt::Display
     + cudarc::driver::DeviceRepr
 {
     const DTYPE: DType;
     const BYTE_SIZE: usize;
+    type Formatter: crate::display::TensorFormatter<Elem = Self>;
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self>;
 }
 
 #[cfg(not(feature = "cuda"))]
 pub trait WithDType:
-    Sized + Copy + num_traits::NumAssign + PartialOrd + 'static + Clone + Send + Sync + std::fmt::Debug
+    Sized
+    + Copy
+    + num_traits::NumAssign
+    + PartialOrd
+    + 'static
+    + Clone
+    + Send
+    + Sync
+    + std::fmt::Debug
+    + std::fmt::Display
 {
     const DTYPE: DType;
     const BYTE_SIZE: usize;
@@ -38,7 +49,7 @@ pub trait WithDType:
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self>;
 }
 
-pub trait WithDTypeF: WithDType + num_traits::Float {
+pub trait WithDTypeF: WithDType + num_traits::Float + std::fmt::LowerExp {
     fn to_f32(self) -> f32;
     fn from_f32(v: f32) -> Self;
 }
@@ -46,6 +57,7 @@ pub trait WithDTypeF: WithDType + num_traits::Float {
 impl WithDType for f16 {
     const DTYPE: DType = DType::F16;
     const BYTE_SIZE: usize = 2;
+    type Formatter = crate::display::FloatFormatter<Self>;
 
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
@@ -76,6 +88,7 @@ impl WithDTypeF for f16 {
 impl WithDType for bf16 {
     const DTYPE: DType = DType::BF16;
     const BYTE_SIZE: usize = 2;
+    type Formatter = crate::display::FloatFormatter<Self>;
 
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
@@ -106,6 +119,7 @@ impl WithDTypeF for bf16 {
 impl WithDType for f32 {
     const DTYPE: DType = DType::F32;
     const BYTE_SIZE: usize = 4;
+    type Formatter = crate::display::FloatFormatter<Self>;
 
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
@@ -136,6 +150,7 @@ impl WithDTypeF for f32 {
 impl WithDType for u8 {
     const DTYPE: DType = DType::U8;
     const BYTE_SIZE: usize = 1;
+    type Formatter = crate::display::IntFormatter<Self>;
 
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         src.to_vec()
@@ -145,6 +160,7 @@ impl WithDType for u8 {
 impl WithDType for i64 {
     const DTYPE: DType = DType::I64;
     const BYTE_SIZE: usize = 8;
+    type Formatter = crate::display::IntFormatter<Self>;
 
     fn vec_from_le_bytes(src: &[u8]) -> Vec<Self> {
         let len = src.len() / Self::BYTE_SIZE;
