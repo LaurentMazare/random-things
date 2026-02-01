@@ -10,13 +10,33 @@ use half::{bf16, f16};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum PTXModule {
+    Arithmetic,
+    Fill,
+    Indexing,
+    Layout,
+    Reduce,
+    Rope,
+}
+
+#[derive(Default)]
+struct ModuleCache {
+    arithmetic: Option<Arc<cudarc::driver::CudaModule>>,
+    fill: Option<Arc<cudarc::driver::CudaModule>>,
+    indexing: Option<Arc<cudarc::driver::CudaModule>>,
+    layout: Option<Arc<cudarc::driver::CudaModule>>,
+    reduce: Option<Arc<cudarc::driver::CudaModule>>,
+    rope: Option<Arc<cudarc::driver::CudaModule>>,
+}
+
 #[derive(Clone)]
 pub struct Device {
     cuda: Arc<CudaContext>,
     stream: Arc<CudaStream>,
     blas: Arc<cudarc::cublas::CudaBlas>,
     /// Cache for loaded PTX modules
-    modules: Arc<Mutex<HashMap<&'static str, Arc<cudarc::driver::CudaModule>>>>,
+    modules: Arc<Mutex<ModuleCache>>,
 }
 
 impl Device {
@@ -28,7 +48,7 @@ impl Device {
             cuda,
             stream,
             blas: Arc::new(blas),
-            modules: Arc::new(Mutex::new(HashMap::new())),
+            modules: Arc::new(Mutex::new(Default::default())),
         })
     }
 
@@ -36,18 +56,62 @@ impl Device {
         &self.stream
     }
 
-    fn get_or_load_module(&self, ptx: &'static str) -> Result<Arc<cudarc::driver::CudaModule>> {
+    fn get_or_load_module(&self, ptx: PTXModule) -> Result<Arc<cudarc::driver::CudaModule>> {
         let mut modules = self.modules.lock().unwrap();
-        if let Some(module) = modules.get(ptx) {
-            return Ok(module.clone());
+        match ptx {
+            PTXModule::Arithmetic => {
+                if let Some(ref m) = modules.arithmetic {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::ARITHMETIC.into())?;
+                modules.arithmetic = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Fill => {
+                if let Some(ref m) = modules.fill {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::FILL.into())?;
+                modules.fill = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Indexing => {
+                if let Some(ref m) = modules.indexing {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::INDEXING.into())?;
+                modules.indexing = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Layout => {
+                if let Some(ref m) = modules.layout {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::LAYOUT.into())?;
+                modules.layout = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Reduce => {
+                if let Some(ref m) = modules.reduce {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::REDUCE.into())?;
+                modules.reduce = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Rope => {
+                if let Some(ref m) = modules.rope {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::ROPE.into())?;
+                modules.rope = Some(m.clone());
+                Ok(m)
+            }
         }
-        let module = self.cuda.load_module(ptx.into())?;
-        modules.insert(ptx, module.clone());
-        Ok(module)
     }
 
-    fn get_func(&self, name: &str, ptx: &'static str) -> Result<CudaFunction> {
-        let module = self.get_or_load_module(ptx)?;
+    fn get_func(&self, name: &str, mdl: PTXModule) -> Result<CudaFunction> {
+        let module = self.get_or_load_module(mdl)?;
         let func = module.load_function(name)?;
         Ok(func)
     }
@@ -353,7 +417,7 @@ impl crate::Backend for Device {
 
     fn fill<T: WithDType>(dst: &mut Self::Storage<T>, elem: T, len: usize) -> Result<()> {
         let kname = kernel_name::<T>("fill");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::FILL)?;
+        let func = dst.device.get_func(&kname, PTXModule::Fill)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&mut dst.data);
@@ -397,7 +461,7 @@ impl crate::Backend for Device {
             UnaryOp::Tanh => (kernel_name::<T>("inplace_tanh"), None),
             UnaryOp::Sigmoid => (kernel_name::<T>("inplace_sigmoid"), None),
         };
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let func = dst.device.get_func(&kname, PTXModule::Arithmetic)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&len);
@@ -423,7 +487,7 @@ impl crate::Backend for Device {
             BinaryOp::Maximum => kernel_name::<T>("assign_maximum"),
             BinaryOp::Minimum => kernel_name::<T>("assign_minimum"),
         };
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let func = dst.device.get_func(&kname, PTXModule::Arithmetic)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&len);
@@ -452,7 +516,7 @@ impl crate::Backend for Device {
             UnaryOp::Tanh => (kernel_name::<T>("unary_tanh"), None),
             UnaryOp::Sigmoid => (kernel_name::<T>("unary_sigmoid"), None),
         };
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let func = dst.device.get_func(&kname, PTXModule::Arithmetic)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&len);
@@ -480,7 +544,7 @@ impl crate::Backend for Device {
             BinaryOp::Maximum => kernel_name::<T>("binary_maximum"),
             BinaryOp::Minimum => kernel_name::<T>("binary_minimum"),
         };
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let func = dst.device.get_func(&kname, PTXModule::Arithmetic)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&len);
@@ -498,7 +562,7 @@ impl crate::Backend for Device {
         len: usize,
     ) -> Result<()> {
         let kname = kernel_name::<T>("scale");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ARITHMETIC)?;
+        let func = dst.device.get_func(&kname, PTXModule::Arithmetic)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&len);
@@ -534,7 +598,7 @@ impl crate::Backend for Device {
             let d_k = d_k as u32;
 
             let kname = kernel_name::<T>("transpose");
-            let func = dst.device.get_func(&kname, crate::cuda_kernels::LAYOUT)?;
+            let func = dst.device.get_func(&kname, PTXModule::Layout)?;
             let cfg = LaunchConfig::for_num_elems(numel as u32);
             let mut launch_args = dst.device.stream.launch_builder(&func);
             launch_args.arg(&numel);
@@ -561,7 +625,7 @@ impl crate::Backend for Device {
         src_o: usize,
     ) -> Result<()> {
         let kname = kernel_name::<T>("copy2d");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::FILL)?;
+        let func = dst.device.get_func(&kname, PTXModule::Fill)?;
 
         let d1 = d1 as u32;
         let d2 = d2 as u32;
@@ -595,7 +659,7 @@ impl crate::Backend for Device {
         pos: usize,
     ) -> Result<()> {
         let kname = kernel_name::<T>("rope");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ROPE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Rope)?;
         let bh = (b * h) as u32;
         let td = (t * d) as u32;
         let d_u32 = d as u32;
@@ -632,7 +696,7 @@ impl crate::Backend for Device {
         pos: usize,
     ) -> Result<()> {
         let kname = kernel_name::<T>("rope_i");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::ROPE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Rope)?;
         let bh = (b * h) as u32;
         let td = (t * d) as u32;
         // The kernel processes bh * td / 2 elements (each thread handles 2 elements)
@@ -745,7 +809,7 @@ impl crate::Backend for Device {
         let ids_dev = dst.device.stream.clone_htod(ids)?;
 
         let kname = kernel_name::<T>("is_u32");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::INDEXING)?;
+        let func = dst.device.get_func(&kname, PTXModule::Indexing)?;
 
         const NUM_THREADS: u32 = 1024;
         let ids_len = ids.len() as u32;
@@ -791,7 +855,7 @@ impl crate::Backend for Device {
     ) -> Result<()> {
         let total = bh * t1 * t2;
         let kname = kernel_name::<T>("causality_mask");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::INDEXING)?;
+        let func = dst.device.get_func(&kname, PTXModule::Indexing)?;
 
         let cfg = LaunchConfig::for_num_elems(total as u32);
         let bh = bh as u32;
@@ -820,7 +884,7 @@ impl crate::Backend for Device {
         let nrows = d as u32;
 
         let kname = kernel_name::<T>("softmax");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
 
         // Kernel uses: row = blockDim.x*blockIdx.x + threadIdx.x, tid = threadIdx.y
         // One row per block, 32 threads per row for warp-based reduction
@@ -849,7 +913,7 @@ impl crate::Backend for Device {
         let nrows = d as i32;
 
         let kname = kernel_name::<T>("rmsnorm");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
         let block_size = if ncols < 1024 { 32 } else { 1024 };
         let cfg = LaunchConfig {
             grid_dim: (nrows as u32, 1, 1),
@@ -882,7 +946,7 @@ impl crate::Backend for Device {
         let nrows = d as i32;
 
         let kname = kernel_name::<T>("layernorm");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
         let block_size = if ncols < 1024 { 32 } else { 1024 };
         let cfg = LaunchConfig {
             grid_dim: (nrows as u32, 1, 1),
@@ -922,7 +986,7 @@ impl crate::Backend for Device {
         let info_dev = dst.device.stream.clone_htod(&info)?;
 
         let kname = kernel_name::<T>("fast_max");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
 
         const BLOCK_SIZE: u32 = 1024;
         let block_dim = (BLOCK_SIZE, 1, 1);
@@ -961,7 +1025,7 @@ impl crate::Backend for Device {
         let info_dev = dst.device.stream.clone_htod(&info)?;
 
         let kname = kernel_name::<T>("fast_min");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
 
         const BLOCK_SIZE: u32 = 1024;
         let block_dim = (BLOCK_SIZE, 1, 1);
@@ -1000,7 +1064,7 @@ impl crate::Backend for Device {
         let info_dev = dst.device.stream.clone_htod(&info)?;
 
         let kname = kernel_name::<T>("fast_argmin");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
 
         const BLOCK_SIZE: u32 = 1024;
         let block_dim = (BLOCK_SIZE, 1, 1);
@@ -1039,7 +1103,7 @@ impl crate::Backend for Device {
         let info_dev = dst.device.stream.clone_htod(&info)?;
 
         let kname = kernel_name::<T>("fast_sum");
-        let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
+        let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
 
         const BLOCK_SIZE: u32 = 1024;
         let block_dim = (BLOCK_SIZE, 1, 1);
