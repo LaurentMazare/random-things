@@ -832,7 +832,8 @@ fn test_cat_4d_dim2_kv_cache_shape() -> Result<()> {
     // Create prev_k with sequential values for easy verification
     // Total elements: 1 * 4 * 5 * 64 = 1280
     let prev_k_data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
-    let prev_k: Tensor<f32, Device> = Tensor::from_vec(prev_k_data.clone(), vec![1, 4, 5, 64], &device)?;
+    let prev_k: Tensor<f32, Device> =
+        Tensor::from_vec(prev_k_data.clone(), vec![1, 4, 5, 64], &device)?;
 
     // Create k with offset values for easy verification
     // Total elements: 1 * 4 * 1 * 64 = 256
@@ -862,7 +863,12 @@ fn test_cat_4d_dim2_kv_cache_shape() -> Result<()> {
             if (expected - actual).abs() > 1e-6 {
                 panic!(
                     "Mismatch at head={}, pos within head={}: expected {} (from prev_k[{}]), got {} (result[{}])",
-                    head, i, expected, prev_k_head_start + i, actual, result_idx
+                    head,
+                    i,
+                    expected,
+                    prev_k_head_start + i,
+                    actual,
+                    result_idx
                 );
             }
         }
@@ -875,7 +881,12 @@ fn test_cat_4d_dim2_kv_cache_shape() -> Result<()> {
             if (expected - actual).abs() > 1e-6 {
                 panic!(
                     "Mismatch at head={}, k element {}: expected {} (from k[{}]), got {} (result[{}])",
-                    head, i, expected, k_head_start + i, actual, result_idx
+                    head,
+                    i,
+                    expected,
+                    k_head_start + i,
+                    actual,
+                    result_idx
                 );
             }
         }
@@ -890,7 +901,8 @@ fn test_cat_4d_dim2_values_preserved() -> Result<()> {
     let device = get_device();
 
     let prev_k_data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
-    let prev_k: Tensor<f32, Device> = Tensor::from_vec(prev_k_data.clone(), vec![1, 4, 5, 64], &device)?;
+    let prev_k: Tensor<f32, Device> =
+        Tensor::from_vec(prev_k_data.clone(), vec![1, 4, 5, 64], &device)?;
 
     let k: Tensor<f32, Device> = Tensor::full(9999.0, vec![1, 4, 1, 64], &device)?;
 
@@ -917,12 +929,17 @@ fn test_cat_4d_dim2_with_copy() -> Result<()> {
 
     // Step 0: k is created and k_cache = k.copy()
     let k_step0_data: Vec<f32> = (0..1280).map(|i| i as f32).collect();
-    let k_step0: Tensor<f32, Device> = Tensor::from_vec(k_step0_data.clone(), vec![1, 4, 5, 64], &device)?;
+    let k_step0: Tensor<f32, Device> =
+        Tensor::from_vec(k_step0_data.clone(), vec![1, 4, 5, 64], &device)?;
     let k_cache = k_step0.copy()?;
 
     // Verify k_cache has correct values
     let k_cache_data = k_cache.to_vec()?;
-    assert_eq!(k_cache_data[0..5], [0.0, 1.0, 2.0, 3.0, 4.0], "k_cache first 5 should match k_step0");
+    assert_eq!(
+        k_cache_data[0..5],
+        [0.0, 1.0, 2.0, 3.0, 4.0],
+        "k_cache first 5 should match k_step0"
+    );
 
     // Step 1: new k is created, cat with k_cache
     let k_step1: Tensor<f32, Device> = Tensor::full(9999.0, vec![1, 4, 1, 64], &device)?;
@@ -1048,14 +1065,14 @@ fn test_cat_with_rope() -> Result<()> {
     // Step 0: Create k, transpose, rope, copy
     let k_data: Vec<f32> = (0..1280).map(|i| (i as f32) / 100.0).collect();
     let k: Tensor<f32, Device> = Tensor::from_vec(k_data, vec![1, 5, 4, 64], &device)?;
-    let k = k.transpose(1, 2)?;  // -> [1, 4, 5, 64]
+    let k = k.transpose(1, 2)?; // -> [1, 4, 5, 64]
 
     // Create cos/sin for rope - shape should be [max_pos, d/2] = [10, 32]
     let cos: Tensor<f32, Device> = Tensor::full(1.0, vec![10, 32], &device)?;
     let sin: Tensor<f32, Device> = Tensor::full(0.0, vec![10, 32], &device)?;
 
     // Apply rope at pos=0, t=5 -> needs cos/sin from pos 0 to 4
-    let k = k.rope(&cos, &sin, 0)?;  // With cos=1, sin=0, rope should be identity
+    let k = k.rope(&cos, &sin, 0)?; // With cos=1, sin=0, rope should be identity
 
     // Create cache
     let k_cache = k.copy()?;
@@ -1065,7 +1082,7 @@ fn test_cat_with_rope() -> Result<()> {
     // Step 1: Create new k, transpose, rope, cat with cache
     let k_new_data: Vec<f32> = (9000..9256).map(|i| (i as f32) / 100.0).collect();
     let k_new: Tensor<f32, Device> = Tensor::from_vec(k_new_data, vec![1, 1, 4, 64], &device)?;
-    let k_new = k_new.transpose(1, 2)?;  // -> [1, 4, 1, 64]
+    let k_new = k_new.transpose(1, 2)?; // -> [1, 4, 1, 64]
 
     // Apply rope at pos=5, t=1 -> needs cos/sin at pos 5
     let k_new = k_new.rope(&cos, &sin, 5)?;
@@ -1080,7 +1097,9 @@ fn test_cat_with_rope() -> Result<()> {
         assert!(
             (k_cache_first5[i] - k_cat_first5[i]).abs() < 1e-5,
             "Mismatch at {}: cache={}, cat={}",
-            i, k_cache_first5[i], k_cat_first5[i]
+            i,
+            k_cache_first5[i],
+            k_cat_first5[i]
         );
     }
 
@@ -1094,35 +1113,36 @@ fn test_rope_position_offset() -> Result<()> {
     let device = get_device();
 
     // Create input tensor: [1, 1, 1, 4] (b=1, h=1, t=1, d=4)
-    let x: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![1, 1, 1, 4], &device)?;
+    let x: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![1, 1, 1, 4], &device)?;
 
     // Create cos/sin with different values at different positions
     // Shape: [10, 2] (max_pos=10, d/2=2)
     // Position 0: cos=[1, 1], sin=[0, 0]  -> identity
     // Position 1: cos=[0, 0], sin=[1, 1]  -> 90 degree rotation
     let cos_data = vec![
-        1.0, 1.0,  // pos 0: identity
-        0.0, 0.0,  // pos 1: 90 degree
+        1.0, 1.0, // pos 0: identity
+        0.0, 0.0, // pos 1: 90 degree
         -1.0, -1.0, // pos 2: 180 degree
-        0.0, 0.0,  // pos 3
-        1.0, 1.0,  // pos 4
-        0.5, 0.5,  // pos 5
-        0.0, 0.0,  // pos 6
-        0.0, 0.0,  // pos 7
-        0.0, 0.0,  // pos 8
-        0.0, 0.0,  // pos 9
+        0.0, 0.0, // pos 3
+        1.0, 1.0, // pos 4
+        0.5, 0.5, // pos 5
+        0.0, 0.0, // pos 6
+        0.0, 0.0, // pos 7
+        0.0, 0.0, // pos 8
+        0.0, 0.0, // pos 9
     ];
     let sin_data = vec![
-        0.0, 0.0,  // pos 0: identity
-        1.0, 1.0,  // pos 1: 90 degree
-        0.0, 0.0,  // pos 2
-        0.0, 0.0,  // pos 3
-        0.0, 0.0,  // pos 4
-        0.866, 0.866,  // pos 5: ~60 degree
-        0.0, 0.0,  // pos 6
-        0.0, 0.0,  // pos 7
-        0.0, 0.0,  // pos 8
-        0.0, 0.0,  // pos 9
+        0.0, 0.0, // pos 0: identity
+        1.0, 1.0, // pos 1: 90 degree
+        0.0, 0.0, // pos 2
+        0.0, 0.0, // pos 3
+        0.0, 0.0, // pos 4
+        0.866, 0.866, // pos 5: ~60 degree
+        0.0, 0.0, // pos 6
+        0.0, 0.0, // pos 7
+        0.0, 0.0, // pos 8
+        0.0, 0.0, // pos 9
     ];
     let cos: Tensor<f32, Device> = Tensor::from_vec(cos_data, vec![10, 2], &device)?;
     let sin: Tensor<f32, Device> = Tensor::from_vec(sin_data, vec![10, 2], &device)?;
@@ -1147,8 +1167,7 @@ fn test_rope_position_offset() -> Result<()> {
     eprintln!("rope at pos 1: {:?}", y1_data);
     // If the pos parameter works correctly, this should NOT equal the identity
     // If CUDA ignores pos, it will still use pos=0 values (identity)
-    let is_identity = (y1_data[0] - 1.0).abs() < 1e-5 &&
-                      (y1_data[1] - 2.0).abs() < 1e-5;
+    let is_identity = (y1_data[0] - 1.0).abs() < 1e-5 && (y1_data[1] - 2.0).abs() < 1e-5;
     assert!(!is_identity, "rope at pos=1 should NOT be identity, got {:?}", y1_data);
 
     Ok(())

@@ -815,27 +815,23 @@ impl crate::Backend for Device {
     ) -> Result<()> {
         // dim_m1 is ncols (last dimension), d is nrows
         let ncols = dim_m1 as i32;
-        let nrows = d;
+        let nrows = d as i32;
 
         let kname = kernel_name::<T>("rmsnorm");
         let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
-
-        // Kernel uses: row = blockIdx.x*blockDim.y + threadIdx.y, tid = threadIdx.x
-        // blockDim.x threads collaborate on each row
-        const WARP_SIZE: u32 = 32;
-        let block_size = WARP_SIZE;
-        let block_size_i32 = block_size as i32;
-        let rows_per_block = 4u32;
-        let block_dim = (block_size, rows_per_block, 1);
-        let grid_dim = (nrows.div_ceil(rows_per_block as usize) as u32, 1, 1);
-        let cfg = LaunchConfig { block_dim, grid_dim, shared_mem_bytes: 0 };
+        let block_size = if ncols < 1024 { 32 } else { 1024 };
+        let cfg = LaunchConfig {
+            grid_dim: (nrows as u32, 1, 1),
+            block_dim: (block_size, 1, 1),
+            shared_mem_bytes: 0,
+        };
 
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&src.data);
         launch_args.arg(&mut dst.data);
         launch_args.arg(&alpha.data);
         launch_args.arg(&ncols);
-        launch_args.arg(&block_size_i32);
+        launch_args.arg(&block_size);
         launch_args.arg(&eps);
         unsafe { launch_args.launch(cfg) }?;
         Ok(())
@@ -852,20 +848,16 @@ impl crate::Backend for Device {
     ) -> Result<()> {
         // dim_m1 is ncols (last dimension), d is nrows
         let ncols = dim_m1 as i32;
-        let nrows = d;
+        let nrows = d as i32;
 
         let kname = kernel_name::<T>("layernorm");
         let func = dst.device.get_func(&kname, crate::cuda_kernels::REDUCE)?;
-
-        // Kernel uses: row = blockIdx.x*blockDim.y + threadIdx.y, tid = threadIdx.x
-        // blockDim.x threads collaborate on each row
-        const WARP_SIZE: u32 = 32;
-        let block_size = WARP_SIZE;
-        let block_size_i32 = block_size as i32;
-        let rows_per_block = 4u32;
-        let block_dim = (block_size, rows_per_block, 1);
-        let grid_dim = (nrows.div_ceil(rows_per_block as usize) as u32, 1, 1);
-        let cfg = LaunchConfig { block_dim, grid_dim, shared_mem_bytes: 0 };
+        let block_size = if ncols < 1024 { 32 } else { 1024 };
+        let cfg = LaunchConfig {
+            grid_dim: (nrows as u32, 1, 1),
+            block_dim: (block_size, 1, 1),
+            shared_mem_bytes: 0,
+        };
 
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&src.data);
@@ -873,7 +865,7 @@ impl crate::Backend for Device {
         launch_args.arg(&weight.data);
         launch_args.arg(&bias.data);
         launch_args.arg(&ncols);
-        launch_args.arg(&block_size_i32);
+        launch_args.arg(&block_size);
         launch_args.arg(&eps);
         unsafe { launch_args.launch(cfg) }?;
         Ok(())
