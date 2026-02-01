@@ -369,18 +369,18 @@ fast_min(const size_t src_numel, const size_t el_to_sum_per_block,
 template <typename T>
 __device__ void
 fast_argmin(const size_t src_numel, const size_t el_to_sum_per_block,
-         const size_t num_dims, const size_t *info, const T *src, uint32_t *dst) {
+         const size_t num_dims, const size_t *info, const T *src, int64_t *dst) {
   const size_t *dims = info;
   const size_t *strides = info + num_dims;
 
   __shared__ T shr[BLOCK_SIZE];
-  __shared__ uint32_t shr_index[BLOCK_SIZE];
+  __shared__ int64_t shr_index[BLOCK_SIZE];
   size_t tid = threadIdx.x;
   size_t dst_id = blockIdx.x;
 
   // Not sure how that works on uint32_t and uint8_t but it seems to do ok.
   shr[tid] = INFINITY;
-  shr_index[tid] = 0xFFFFFFFF;
+  shr_index[tid] = -1;
   bool not_set = true;
   // Elements summed in this block range from dst_id * el_to_sum_per_block
   // to (dst_id + 1) * el_to_sum_per_block.
@@ -418,17 +418,17 @@ fast_argmin(const size_t src_numel, const size_t el_to_sum_per_block,
 template <typename T>
 __device__ void
 fast_argmax(const size_t src_numel, const size_t el_to_sum_per_block,
-         const size_t num_dims, const size_t *info, const T *src, uint32_t *dst) {
+         const size_t num_dims, const size_t *info, const T *src, int64_t *dst) {
   const size_t *dims = info;
   const size_t *strides = info + num_dims;
 
   __shared__ T shr[BLOCK_SIZE];
-  __shared__ uint32_t shr_index[BLOCK_SIZE];
+  __shared__ int64_t shr_index[BLOCK_SIZE];
   size_t tid = threadIdx.x;
   size_t dst_id = blockIdx.x;
 
   shr[tid] = -INFINITY;
-  shr_index[tid] = 0xFFFFFFFF;
+  shr_index[tid] = -1;
   bool not_set = true;
   // Elements summed in this block range from dst_id * el_to_sum_per_block
   // to (dst_id + 1) * el_to_sum_per_block.
@@ -467,13 +467,13 @@ fast_argmax(const size_t src_numel, const size_t el_to_sum_per_block,
   extern "C" __global__ void ARGMIN_NAME(                                      \
       const size_t src_numel, const size_t el_to_sum_per_block,                \
       const size_t num_dims, const size_t *info, const TYPENAME *src,          \
-      uint32_t *dst) {                                                         \
+      int64_t *dst) {                                                          \
     fast_argmin(src_numel, el_to_sum_per_block, num_dims, info, src, dst);     \
   }                                                                            \
   extern "C" __global__ void ARGMAX_NAME(                                     \
       const size_t src_numel, const size_t el_to_sum_per_block,                \
       const size_t num_dims, const size_t *info, const TYPENAME *src,          \
-      uint32_t *dst) {                                                         \
+      int64_t *dst) {                                                          \
     fast_argmax(src_numel, el_to_sum_per_block, num_dims, info, src, dst);     \
   }                                                                            \
   extern "C" __global__ void MIN_NAME(                                         \

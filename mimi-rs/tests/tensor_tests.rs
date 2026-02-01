@@ -602,3 +602,63 @@ fn test_pad_with_same_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 2., 1., 2., 3., 4., 3., 4., 5., 6., 5., 6., 7., 8., 7., 8.]);
     Ok(())
 }
+
+#[test]
+fn test_sum_keepdim_1d() -> Result<()> {
+    // [5] -> sum_keepdim(0) -> [1]
+    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (5,), &CPU)?;
+    let b = a.sum_keepdim(vec![0])?;
+    assert_eq!(b.dims(), &[1]);
+    assert_eq!(b.to_vec()?, vec![15.]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_2d_dim0() -> Result<()> {
+    // [3, 4] -> sum_keepdim(0) -> [1, 4]
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (3, 4), &CPU)?;
+    let b = a.sum_keepdim(vec![0])?;
+    assert_eq!(b.dims(), &[1, 4]);
+    // Column sums: 1+5+9=15, 2+6+10=18, 3+7+11=21, 4+8+12=24
+    assert_eq!(b.to_vec()?, vec![15., 18., 21., 24.]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_2d_dim1() -> Result<()> {
+    // [3, 4] -> sum_keepdim(1) -> [3, 1]
+    let a: CpuTensor<f32> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (3, 4), &CPU)?;
+    let b = a.sum_keepdim(vec![1])?;
+    assert_eq!(b.dims(), &[3, 1]);
+    // Row sums: 1+2+3+4=10, 5+6+7+8=26, 9+10+11+12=42
+    assert_eq!(b.to_vec()?, vec![10., 26., 42.]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_3d() -> Result<()> {
+    // [2, 3, 2] -> sum_keepdim(1) -> [2, 1, 2]
+    let a: CpuTensor<f32> =
+        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &CPU)?;
+    let b = a.sum_keepdim(vec![1])?;
+    assert_eq!(b.dims(), &[2, 1, 2]);
+    // Batch 0: [[1,2], [3,4], [5,6]] -> sum along dim 1 -> [9, 12]
+    // Batch 1: [[7,8], [9,10], [11,12]] -> sum along dim 1 -> [27, 30]
+    assert_eq!(b.to_vec()?, vec![9., 12., 27., 30.]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_multiple_dims() -> Result<()> {
+    // [2, 3, 4] -> sum_keepdim([1, 2]) -> [2, 1, 1]
+    let a: CpuTensor<f32> =
+        Tensor::from_vec((1..=24).map(|x| x as f32).collect(), (2, 3, 4), &CPU)?;
+    let b = a.sum_keepdim(vec![1, 2])?;
+    assert_eq!(b.dims(), &[2, 1, 1]);
+    // Batch 0: sum of 1..12 = 78
+    // Batch 1: sum of 13..24 = 222
+    assert_eq!(b.to_vec()?, vec![78., 222.]);
+    Ok(())
+}

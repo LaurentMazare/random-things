@@ -193,12 +193,12 @@ fn main() -> Result<()> {
             let dev = mimi::cuda_backend::Device::new(0)?;
             run_for_device(args, dev)?;
         }
-    };
+    }
     #[cfg(not(feature = "cuda"))]
     {
         println!("Using CPU backend");
         run_for_device(args, mimi::CPU)?;
-    };
+    }
 
     Ok(())
 }

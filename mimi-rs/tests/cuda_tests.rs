@@ -853,7 +853,7 @@ fn test_cat_4d_dim2_kv_cache_shape() -> Result<()> {
     for head in 0..4 {
         let result_head_start = head * 6 * 64;
         let prev_k_head_start = head * 5 * 64;
-        let k_head_start = head * 1 * 64;
+        let k_head_start = head * 64;
 
         // Check first 320 elements of this head come from prev_k
         for i in 0..(5 * 64) {
@@ -979,7 +979,7 @@ fn test_cat_after_transpose() -> Result<()> {
     let device = get_device();
 
     // Shape before reshape: [1, 5, 256] (batch, seq, num_kv_heads * head_dim)
-    let k_linear: Vec<f32> = (0..(1 * 5 * 256)).map(|i| i as f32).collect();
+    let k_linear: Vec<f32> = (0..(5 * 256)).map(|i| i as f32).collect();
     let k: Tensor<f32, Device> = Tensor::from_vec(k_linear, vec![1, 5, 256], &device)?;
 
     // Reshape to [1, 5, 4, 64]
@@ -998,7 +998,7 @@ fn test_cat_after_transpose() -> Result<()> {
     eprintln!("After transpose, k_cache first5: {:?}", first5);
 
     // Now simulate step 1: create a new k and cat
-    let k_new_linear: Vec<f32> = (9000..(9000 + 1 * 1 * 256)).map(|i| i as f32).collect();
+    let k_new_linear: Vec<f32> = (9000..(9000 + 256)).map(|i| i as f32).collect();
     let k_new: Tensor<f32, Device> = Tensor::from_vec(k_new_linear, vec![1, 1, 256], &device)?;
     let k_new = k_new.reshape(vec![1, 1, 4, 64])?;
     let k_new = k_new.transpose(1, 2)?;
@@ -1170,5 +1170,155 @@ fn test_rope_position_offset() -> Result<()> {
     let is_identity = (y1_data[0] - 1.0).abs() < 1e-5 && (y1_data[1] - 2.0).abs() < 1e-5;
     assert!(!is_identity, "rope at pos=1 should NOT be identity, got {:?}", y1_data);
 
+    Ok(())
+}
+
+// =============================================================================
+// Argmin operations
+// =============================================================================
+
+#[test]
+fn test_argmin_1d() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![3.0, 1.0, 4.0, 1.0, 5.0], vec![5], &device)?;
+    let argmin = a.argmin(0)?;
+    assert_eq!(argmin.dims(), &[1]);
+    // First occurrence of min value 1.0 is at index 1
+    assert_eq!(argmin.to_vec()?, vec![1i64]);
+    Ok(())
+}
+
+#[test]
+fn test_argmin_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 5.0, 3.0, 4.0, 8.0, 2.0, 7.0, 6.0, 9.0, 0.0, 1.0, 2.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Argmin along dim 0 -> [4]
+    // col 0: argmin(1, 8, 9) = 0
+    // col 1: argmin(5, 2, 0) = 2
+    // col 2: argmin(3, 7, 1) = 2
+    // col 3: argmin(4, 6, 2) = 2
+    let argmin = a.argmin(0)?;
+    assert_eq!(argmin.dims(), &[4]);
+    assert_eq!(argmin.to_vec()?, vec![0i64, 2, 2, 2]);
+    Ok(())
+}
+
+#[test]
+fn test_argmin_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 5.0, 3.0, 4.0, 8.0, 2.0, 7.0, 6.0, 9.0, 0.0, 1.0, 2.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Argmin along dim 1 -> [3]
+    // row 0: argmin(1, 5, 3, 4) = 0
+    // row 1: argmin(8, 2, 7, 6) = 1
+    // row 2: argmin(9, 0, 1, 2) = 1
+    let argmin = a.argmin(1)?;
+    assert_eq!(argmin.dims(), &[3]);
+    assert_eq!(argmin.to_vec()?, vec![0i64, 1, 1]);
+    Ok(())
+}
+
+#[test]
+fn test_argmin_3d() -> Result<()> {
+    let device = get_device();
+    // Shape [2, 3, 4]
+    let data: Vec<f32> = (1..=24).map(|x| x as f32).collect();
+    let a: Tensor<f32, Device> = Tensor::from_vec(data, vec![2, 3, 4], &device)?;
+
+    // Argmin along dim 1 (middle dimension) -> [2, 4]
+    let argmin = a.argmin(1)?;
+    assert_eq!(argmin.dims(), &[2, 4]);
+    // For each position, the min is in the first row (index 0)
+    assert_eq!(argmin.to_vec()?, vec![0i64, 0, 0, 0, 0, 0, 0, 0]);
+    Ok(())
+}
+
+// =============================================================================
+// Sum operations
+// =============================================================================
+
+#[test]
+fn test_sum_keepdim_1d() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5], &device)?;
+    let sum = a.sum_keepdim(vec![0])?;
+    assert_eq!(sum.dims(), &[1]);
+    assert_eq!(sum.to_vec()?, vec![15.0]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Sum along dim 0 -> [1, 4]
+    let sum = a.sum_keepdim(vec![0])?;
+    assert_eq!(sum.dims(), &[1, 4]);
+    // Column sums: 1+5+9=15, 2+6+10=18, 3+7+11=21, 4+8+12=24
+    assert_eq!(sum.to_vec()?, vec![15.0, 18.0, 21.0, 24.0]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Sum along dim 1 -> [3, 1]
+    let sum = a.sum_keepdim(vec![1])?;
+    assert_eq!(sum.dims(), &[3, 1]);
+    // Row sums: 1+2+3+4=10, 5+6+7+8=26, 9+10+11+12=42
+    assert_eq!(sum.to_vec()?, vec![10.0, 26.0, 42.0]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_3d() -> Result<()> {
+    let device = get_device();
+    // Shape [2, 3, 4]
+    let data: Vec<f32> = (1..=24).map(|x| x as f32).collect();
+    let a: Tensor<f32, Device> = Tensor::from_vec(data, vec![2, 3, 4], &device)?;
+
+    // Sum along dim 1 -> [2, 1, 4]
+    let sum = a.sum_keepdim(vec![1])?;
+    assert_eq!(sum.dims(), &[2, 1, 4]);
+    // Batch 0: [[1,2,3,4], [5,6,7,8], [9,10,11,12]] -> sum = [15, 18, 21, 24]
+    // Batch 1: [[13,14,15,16], [17,18,19,20], [21,22,23,24]] -> sum = [51, 54, 57, 60]
+    assert_eq!(sum.to_vec()?, vec![15.0, 18.0, 21.0, 24.0, 51.0, 54.0, 57.0, 60.0]);
+    Ok(())
+}
+
+#[test]
+fn test_sum_keepdim_f16() -> Result<()> {
+    let device = get_device();
+    let data: Vec<half::f16> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        .into_iter()
+        .map(half::f16::from_f32)
+        .collect();
+    let a: Tensor<half::f16, Device> = Tensor::from_vec(data, vec![2, 3], &device)?;
+    let sum = a.sum_keepdim(vec![1])?;
+    assert_eq!(sum.dims(), &[2, 1]);
+    let result: Vec<f32> = sum.to_vec()?.iter().map(|x| x.to_f32()).collect();
+    // Row 0: 1+2+3=6, Row 1: 4+5+6=15
+    assert!((result[0] - 6.0).abs() < 0.1);
+    assert!((result[1] - 15.0).abs() < 0.1);
     Ok(())
 }
