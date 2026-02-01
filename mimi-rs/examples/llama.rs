@@ -5,11 +5,6 @@ use mimi::nn::VB;
 use mimi::{Backend, Tensor};
 use rand::Rng;
 
-#[cfg(feature = "cuda")]
-type Dev = mimi::cuda_backend::Device;
-#[cfg(not(feature = "cuda"))]
-type Dev = mimi::CpuDevice;
-
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ModelSize {
     /// Tiny test model (~1M params, 2 layers) - for quick testing (no weights)
@@ -61,6 +56,10 @@ struct Args {
     /// Interpret prompt as comma-separated token IDs instead of text
     #[arg(long, default_value_t = false)]
     raw_tokens: bool,
+
+    /// Use the cpu device even if cuda is available.
+    #[arg(long, default_value_t = false)]
+    cpu: bool,
 
     /// Sampling temperature (0 = greedy/argmax, higher = more random)
     #[arg(short, long, default_value_t = 0.7)]
@@ -184,21 +183,31 @@ fn sample_token<B: Backend>(
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    #[cfg(feature = "cuda")]
+    {
+        if args.cpu {
+            println!("Using CPU despite CUDA being available");
+            run_for_device(args, mimi::CPU)?;
+        } else {
+            println!("Using CUDA backend");
+            let dev = mimi::cuda_backend::Device::new(0)?;
+            run_for_device(args, dev)?;
+        }
+    };
+    #[cfg(not(feature = "cuda"))]
+    {
+        println!("Using CPU backend");
+        run_for_device(args, mimi::CPU)?;
+    };
+
+    Ok(())
+}
+
+fn run_for_device<Dev: mimi::Backend>(args: Args, dev: Dev) -> Result<()> {
     let config = args.model_size.config();
 
     println!("Model: {:?}", args.model_size);
     println!("Config: {:?}", config);
-
-    #[cfg(feature = "cuda")]
-    let dev = {
-        println!("Using CUDA backend");
-        mimi::cuda_backend::Device::new(0)?
-    };
-    #[cfg(not(feature = "cuda"))]
-    let dev = {
-        println!("Using CPU backend");
-        mimi::CPU
-    };
 
     let (model, tokenizer): (Llama<f32, Dev>, _) = if let Some(repo_id) = args.model_size.hf_repo()
     {
