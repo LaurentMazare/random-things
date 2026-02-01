@@ -748,3 +748,71 @@ fn test_cat_2d_dim1() -> Result<()> {
     assert_eq!(c.to_vec()?, vec![1.0, 2.0, 5.0, 6.0, 7.0, 3.0, 4.0, 8.0, 9.0, 10.0]);
     Ok(())
 }
+
+// =============================================================================
+// Causality mask
+// =============================================================================
+
+#[test]
+fn test_apply_causality_mask() -> Result<()> {
+    let device = get_device();
+    // Shape [1, 3, 4] - 1 batch*head, 3 query positions, 4 key positions
+    // All ones initially
+    let a: Tensor<f32, Device> = Tensor::full(1.0, vec![1, 3, 4], &device)?;
+
+    // With offset=0:
+    // Query 0 can attend to keys 0..=0 (mask keys 1,2,3)
+    // Query 1 can attend to keys 0..=1 (mask keys 2,3)
+    // Query 2 can attend to keys 0..=2 (mask key 3)
+    let masked = a.apply_causality_mask(0)?;
+    let result = masked.to_vec()?;
+
+    // Expected pattern (1.0 = can attend, -inf = masked):
+    // Row 0: [1, -inf, -inf, -inf]
+    // Row 1: [1, 1, -inf, -inf]
+    // Row 2: [1, 1, 1, -inf]
+    assert_eq!(result[0], 1.0);
+    assert!(result[1].is_infinite() && result[1] < 0.0);
+    assert!(result[2].is_infinite() && result[2] < 0.0);
+    assert!(result[3].is_infinite() && result[3] < 0.0);
+
+    assert_eq!(result[4], 1.0);
+    assert_eq!(result[5], 1.0);
+    assert!(result[6].is_infinite() && result[6] < 0.0);
+    assert!(result[7].is_infinite() && result[7] < 0.0);
+
+    assert_eq!(result[8], 1.0);
+    assert_eq!(result[9], 1.0);
+    assert_eq!(result[10], 1.0);
+    assert!(result[11].is_infinite() && result[11] < 0.0);
+
+    Ok(())
+}
+
+#[test]
+fn test_apply_causality_mask_with_offset() -> Result<()> {
+    let device = get_device();
+    // Shape [1, 2, 4] - simulating KV cache scenario
+    // offset=2 means query tokens start at position 2
+    let a: Tensor<f32, Device> = Tensor::full(1.0, vec![1, 2, 4], &device)?;
+
+    // With offset=2:
+    // Query 0 (position 2) can attend to keys 0..=2 (mask key 3)
+    // Query 1 (position 3) can attend to keys 0..=3 (no mask)
+    let masked = a.apply_causality_mask(2)?;
+    let result = masked.to_vec()?;
+
+    // Row 0: [1, 1, 1, -inf]
+    assert_eq!(result[0], 1.0);
+    assert_eq!(result[1], 1.0);
+    assert_eq!(result[2], 1.0);
+    assert!(result[3].is_infinite() && result[3] < 0.0);
+
+    // Row 1: [1, 1, 1, 1]
+    assert_eq!(result[4], 1.0);
+    assert_eq!(result[5], 1.0);
+    assert_eq!(result[6], 1.0);
+    assert_eq!(result[7], 1.0);
+
+    Ok(())
+}

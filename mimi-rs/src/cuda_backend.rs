@@ -744,7 +744,24 @@ impl crate::Backend for Device {
         t2: usize,
         offset: usize,
     ) -> Result<()> {
-        crate::bail!("apply_causality_mask not implemented yet")
+        let total = bh * t1 * t2;
+        let kname = kernel_name::<T>("causality_mask");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::INDEXING)?;
+
+        let cfg = LaunchConfig::for_num_elems(total as u32);
+        let bh = bh as u32;
+        let t1 = t1 as u32;
+        let t2 = t2 as u32;
+        let offset = offset as u32;
+
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&bh);
+        launch_args.arg(&t1);
+        launch_args.arg(&t2);
+        launch_args.arg(&offset);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn softmax<T: WithDTypeF>(
