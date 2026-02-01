@@ -5,7 +5,7 @@
 template <typename T>
 __device__ void transpose(const size_t numel, const uint32_t d1, const uint32_t d2, const uint32_t d_i, const uint32_t d_j, const uint32_t d_k, const T * src, T * dst) {
     const size_t dst_idx = blockIdx.x * blockDim.x + threadIdx.x;
-
+    if (dst_idx >= numel) return;
 
     // The implementation below is very slow as it computes lots of divisions and multiplications.
     // TODO: Replace it with an optimized implementation and/or process data by blocks.

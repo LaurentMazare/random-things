@@ -1,6 +1,6 @@
 #![cfg(feature = "cuda")]
 
-use mimi::{cuda_backend::Device, Result, Tensor};
+use mimi::{Result, Tensor, cuda_backend::Device};
 
 fn get_device() -> Device {
     Device::new(0).expect("Failed to initialize CUDA device")
@@ -136,7 +136,8 @@ fn test_minimum() -> Result<()> {
 #[test]
 fn test_relu() -> Result<()> {
     let device = get_device();
-    let x: Tensor<f32, Device> = Tensor::from_vec(vec![0.0, 1.0, -1.0, 2.0, -2.0], vec![5], &device)?;
+    let x: Tensor<f32, Device> =
+        Tensor::from_vec(vec![0.0, 1.0, -1.0, 2.0, -2.0], vec![5], &device)?;
     let y = x.relu()?;
     assert_eq!(y.to_vec()?, vec![0.0, 1.0, 0.0, 2.0, 0.0]);
     Ok(())
@@ -254,8 +255,7 @@ fn test_matmul_batched() -> Result<()> {
     let a: Tensor<f32, Device> = Tensor::from_vec(
         vec![
             // Batch 0: [[1,2,3], [4,5,6]]
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
-            // Batch 1: all ones
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1: all ones
             1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
         ],
         vec![2, 2, 3],
@@ -264,8 +264,7 @@ fn test_matmul_batched() -> Result<()> {
     let b: Tensor<f32, Device> = Tensor::from_vec(
         vec![
             // Batch 0
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
-            // Batch 1: all ones
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1: all ones
             1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
         ],
         vec![2, 3, 2],
