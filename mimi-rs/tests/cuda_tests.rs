@@ -663,3 +663,88 @@ fn test_index_select_3d() -> Result<()> {
     );
     Ok(())
 }
+
+// =============================================================================
+// Narrow and Cat operations (use copy2d internally)
+// =============================================================================
+
+#[test]
+fn test_narrow_1d() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5], &device)?;
+    let narrowed = a.narrow(0, 1, 3)?;
+    assert_eq!(narrowed.dims(), &[3]);
+    assert_eq!(narrowed.to_vec()?, vec![2.0, 3.0, 4.0]);
+    Ok(())
+}
+
+#[test]
+fn test_narrow_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [4, 3]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![4, 3],
+        &device,
+    )?;
+    // Take rows 1..3 (2 rows)
+    let narrowed = a.narrow(0, 1, 2)?;
+    assert_eq!(narrowed.dims(), &[2, 3]);
+    assert_eq!(narrowed.to_vec()?, vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    Ok(())
+}
+
+#[test]
+fn test_narrow_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Take columns 1..3 (2 columns)
+    let narrowed = a.narrow(1, 1, 2)?;
+    assert_eq!(narrowed.dims(), &[3, 2]);
+    assert_eq!(narrowed.to_vec()?, vec![2.0, 3.0, 6.0, 7.0, 10.0, 11.0]);
+    Ok(())
+}
+
+#[test]
+fn test_cat_1d() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0], vec![3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![4.0, 5.0], vec![2], &device)?;
+    let c = Tensor::cat(&[&a, &b], 0)?;
+    assert_eq!(c.dims(), &[5]);
+    assert_eq!(c.to_vec()?, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+    Ok(())
+}
+
+#[test]
+fn test_cat_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [2, 3]
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    // Shape [1, 3]
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![7.0, 8.0, 9.0], vec![1, 3], &device)?;
+    let c = Tensor::cat(&[&a, &b], 0)?;
+    assert_eq!(c.dims(), &[3, 3]);
+    assert_eq!(c.to_vec()?, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    Ok(())
+}
+
+#[test]
+fn test_cat_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [2, 2]
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], &device)?;
+    // Shape [2, 3]
+    let b: Tensor<f32, Device> =
+        Tensor::from_vec(vec![5.0, 6.0, 7.0, 8.0, 9.0, 10.0], vec![2, 3], &device)?;
+    let c = Tensor::cat(&[&a, &b], 1)?;
+    assert_eq!(c.dims(), &[2, 5]);
+    assert_eq!(c.to_vec()?, vec![1.0, 2.0, 5.0, 6.0, 7.0, 3.0, 4.0, 8.0, 9.0, 10.0]);
+    Ok(())
+}

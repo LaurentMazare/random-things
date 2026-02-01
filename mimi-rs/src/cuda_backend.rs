@@ -529,7 +529,27 @@ impl crate::Backend for Device {
         dst_o: usize,
         src_o: usize,
     ) -> Result<()> {
-        crate::bail!("copy2d not implemented yet")
+        let kname = kernel_name::<T>("copy2d");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::FILL)?;
+
+        let d1 = d1 as u32;
+        let d2 = d2 as u32;
+        let src_s = src_s as u32;
+        let dst_s = dst_s as u32;
+
+        let cfg = LaunchConfig::for_num_elems(d1 * d2);
+        let src_slice = src.data.slice(src_o..);
+        let mut dst_slice = dst.data.slice_mut(dst_o..);
+
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&src_slice);
+        launch_args.arg(&mut dst_slice);
+        launch_args.arg(&d1);
+        launch_args.arg(&d2);
+        launch_args.arg(&src_s);
+        launch_args.arg(&dst_s);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
     }
 
     fn rope<T: WithDTypeF>(
