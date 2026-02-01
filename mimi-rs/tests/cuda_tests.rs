@@ -486,3 +486,107 @@ fn test_reshape_with_hole() -> Result<()> {
     assert_eq!(c.dims(), &[3, 2]);
     Ok(())
 }
+
+// =============================================================================
+// Reduce operations
+// =============================================================================
+
+#[test]
+fn test_reduce_max_1d() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 5.0, 2.0, 8.0, 3.0], vec![5], &device)?;
+    let max_val = a.max(0)?;
+    assert_eq!(max_val.dims(), &[1]);
+    assert_eq!(max_val.to_vec()?, vec![8.0]);
+    Ok(())
+}
+
+#[test]
+fn test_reduce_min_1d() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![3.0, 1.0, 4.0, 1.0, 5.0], vec![5], &device)?;
+    let min_val = a.min(0)?;
+    assert_eq!(min_val.dims(), &[1]);
+    assert_eq!(min_val.to_vec()?, vec![1.0]);
+    Ok(())
+}
+
+#[test]
+fn test_reduce_max_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Max along dim 0 -> [4]
+    let max_val = a.max(0)?;
+    assert_eq!(max_val.dims(), &[4]);
+    assert_eq!(max_val.to_vec()?, vec![9.0, 10.0, 11.0, 12.0]);
+    Ok(())
+}
+
+#[test]
+fn test_reduce_max_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Max along dim 1 -> [3]
+    let max_val = a.max(1)?;
+    assert_eq!(max_val.dims(), &[3]);
+    assert_eq!(max_val.to_vec()?, vec![4.0, 8.0, 12.0]);
+    Ok(())
+}
+
+#[test]
+fn test_reduce_min_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Min along dim 0 -> [4]
+    let min_val = a.min(0)?;
+    assert_eq!(min_val.dims(), &[4]);
+    assert_eq!(min_val.to_vec()?, vec![1.0, 2.0, 3.0, 4.0]);
+    Ok(())
+}
+
+#[test]
+fn test_reduce_min_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4]
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    // Min along dim 1 -> [3]
+    let min_val = a.min(1)?;
+    assert_eq!(min_val.dims(), &[3]);
+    assert_eq!(min_val.to_vec()?, vec![1.0, 5.0, 9.0]);
+    Ok(())
+}
+
+#[test]
+fn test_reduce_max_3d() -> Result<()> {
+    let device = get_device();
+    // Shape [2, 3, 4]
+    let data: Vec<f32> = (1..=24).map(|x| x as f32).collect();
+    let a: Tensor<f32, Device> = Tensor::from_vec(data, vec![2, 3, 4], &device)?;
+
+    // Max along dim 1 (middle dimension) -> [2, 4]
+    let max_val = a.max(1)?;
+    assert_eq!(max_val.dims(), &[2, 4]);
+    // For first batch: max over rows [[1,2,3,4], [5,6,7,8], [9,10,11,12]] = [9,10,11,12]
+    // For second batch: max over rows [[13,14,15,16], [17,18,19,20], [21,22,23,24]] = [21,22,23,24]
+    assert_eq!(max_val.to_vec()?, vec![9.0, 10.0, 11.0, 12.0, 21.0, 22.0, 23.0, 24.0]);
+    Ok(())
+}
