@@ -200,22 +200,22 @@ fn main() -> Result<()> {
         mimi::CPU
     };
 
-    let (model, tokenizer): (Llama<f32, Dev>, _) =
-        if let Some(repo_id) = args.model_size.hf_repo() {
-            let model_files = download_model(repo_id)?;
+    let (model, tokenizer): (Llama<f32, Dev>, _) = if let Some(repo_id) = args.model_size.hf_repo()
+    {
+        let model_files = download_model(repo_id)?;
 
-            println!("Loading tokenizer...");
-            let tokenizer = tokenizers::Tokenizer::from_file(&model_files.tokenizer_path)
-                .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
+        println!("Loading tokenizer...");
+        let tokenizer = tokenizers::Tokenizer::from_file(&model_files.tokenizer_path)
+            .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
-            println!("Loading weights...");
-            let vb = VB::load(&model_files.safetensor_paths, dev)?;
-            let model = Llama::load(&vb.root(), &config)?;
+        println!("Loading weights...");
+        let vb = VB::load(&model_files.safetensor_paths, dev)?;
+        let model = Llama::load(&vb.root(), &config)?;
 
-            (model, Some(tokenizer))
-        } else {
-            anyhow::bail!("Test mode not supported without weights");
-        };
+        (model, Some(tokenizer))
+    } else {
+        anyhow::bail!("Test mode not supported without weights");
+    };
 
     // Tokenize the prompt
     let mut tokens: Vec<u32> = if args.raw_tokens {

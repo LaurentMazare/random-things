@@ -590,3 +590,76 @@ fn test_reduce_max_3d() -> Result<()> {
     assert_eq!(max_val.to_vec()?, vec![9.0, 10.0, 11.0, 12.0, 21.0, 22.0, 23.0, 24.0]);
     Ok(())
 }
+
+// =============================================================================
+// Index select operations
+// =============================================================================
+
+#[test]
+fn test_index_select_1d() -> Result<()> {
+    let device = get_device();
+    // Shape [5]
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![10.0, 20.0, 30.0, 40.0, 50.0], vec![5], &device)?;
+    let indices = vec![0u32, 2, 4];
+    let selected = a.index_select(&indices, 0)?;
+    assert_eq!(selected.dims(), &[3]);
+    assert_eq!(selected.to_vec()?, vec![10.0, 30.0, 50.0]);
+    Ok(())
+}
+
+#[test]
+fn test_index_select_2d_dim0() -> Result<()> {
+    let device = get_device();
+    // Shape [4, 3] - select rows
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![4, 3],
+        &device,
+    )?;
+    let indices = vec![0u32, 2, 3];
+    let selected = a.index_select(&indices, 0)?;
+    assert_eq!(selected.dims(), &[3, 3]);
+    // Rows 0, 2, 3
+    assert_eq!(selected.to_vec()?, vec![1.0, 2.0, 3.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
+    Ok(())
+}
+
+#[test]
+fn test_index_select_2d_dim1() -> Result<()> {
+    let device = get_device();
+    // Shape [3, 4] - select columns
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![3, 4],
+        &device,
+    )?;
+    let indices = vec![1u32, 3];
+    let selected = a.index_select(&indices, 1)?;
+    assert_eq!(selected.dims(), &[3, 2]);
+    // Columns 1, 3 from each row
+    assert_eq!(selected.to_vec()?, vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0]);
+    Ok(())
+}
+
+#[test]
+fn test_index_select_3d() -> Result<()> {
+    let device = get_device();
+    // Shape [2, 3, 4] - embedding-style lookup on dim 1
+    let data: Vec<f32> = (1..=24).map(|x| x as f32).collect();
+    let a: Tensor<f32, Device> = Tensor::from_vec(data, vec![2, 3, 4], &device)?;
+
+    let indices = vec![0u32, 2];
+    let selected = a.index_select(&indices, 1)?;
+    assert_eq!(selected.dims(), &[2, 2, 4]);
+    // From first batch [1-12]: rows 0 and 2 -> [1,2,3,4] and [9,10,11,12]
+    // From second batch [13-24]: rows 0 and 2 -> [13,14,15,16] and [21,22,23,24]
+    assert_eq!(
+        selected.to_vec()?,
+        vec![
+            1.0, 2.0, 3.0, 4.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 21.0, 22.0, 23.0,
+            24.0
+        ]
+    );
+    Ok(())
+}

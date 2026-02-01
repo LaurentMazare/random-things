@@ -672,7 +672,49 @@ impl crate::Backend for Device {
         dim: usize,
         dims: &[usize],
     ) -> Result<()> {
-        crate::bail!("index_select not implemented yet")
+        let left_size: usize = dims[..dim].iter().product();
+        let right_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
+
+        // The kernel handles selection along the first dimension.
+        // For dim > 0, we loop over left positions.
+        let ids_dev = dst.device.stream.clone_htod(ids)?;
+
+        let kname = kernel_name::<T>("is_u32");
+        let func = dst.device.get_func(&kname, crate::cuda_kernels::INDEXING)?;
+
+        const NUM_THREADS: u32 = 1024;
+        let ids_len = ids.len() as u32;
+        let right_size_u32 = right_size as u32;
+        let threads_x = u32::min(NUM_THREADS, ids_len);
+        let threads_y = u32::min(NUM_THREADS / threads_x, right_size_u32).max(1);
+        let num_blocks_x = ids_len.div_ceil(threads_x);
+        let num_blocks_y = right_size_u32.div_ceil(threads_y);
+
+        let cfg = LaunchConfig {
+            block_dim: (threads_x, threads_y, 1),
+            grid_dim: (num_blocks_x, num_blocks_y, 1),
+            shared_mem_bytes: 0,
+        };
+
+        let ids_len_i32 = ids.len() as i32;
+        let right_size_i32 = right_size as i32;
+        let src_dim_size = dims[dim];
+
+        for left in 0..left_size {
+            let src_offset = left * src_dim_size * right_size;
+            let dst_offset = left * ids.len() * right_size;
+            let src_slice = src.data.slice(src_offset..);
+            let mut dst_slice = dst.data.slice_mut(dst_offset..);
+
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&ids_len_i32);
+            launch_args.arg(&right_size_i32);
+            launch_args.arg(&ids_dev);
+            launch_args.arg(&src_slice);
+            launch_args.arg(&mut dst_slice);
+            unsafe { launch_args.launch(cfg) }?;
+        }
+        Ok(())
     }
 
     fn apply_causality_mask<T: WithDTypeF>(
