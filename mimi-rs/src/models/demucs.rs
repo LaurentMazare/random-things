@@ -746,10 +746,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
             let mean_sq_neg = mean.sqr()?.scale(T::from_f32(-1.0))?;
             let var = mean_sq.add(&mean_sq_neg)?;
             let std = var.sqrt()?;
-
-            let floor =
-                Tensor::full(T::from_f32(self.config.floor), std.shape().clone(), mix.device())?;
-            let denom = std.add(&floor)?;
+            let denom = std.add_scalar(T::from_f32(self.config.floor))?;
             let mix_norm = mix.broadcast_div(&denom)?;
             let std_out = std.narrow(1, 0, 1)?;
             (Some(std_out), mix_norm)
@@ -915,18 +912,11 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
                 let one_minus_decay = T::from_f32(1.0 - self.mean_decay);
                 self.mean_variance =
                     self.mean_variance.scale(decay)?.add(&variance.scale(one_minus_decay)?)?;
-                self.mean_total = self.mean_total.scale(decay)?.broadcast_add(&Tensor::full(
-                    one_minus_decay,
-                    (1, 1),
-                    frame.device(),
-                )?)?;
-
+                self.mean_total = self.mean_total.scale_add(decay, one_minus_decay)?;
                 // frame = frame / (floor + sqrt(variance))
                 let running_var = self.variance()?;
                 let std = running_var.sqrt()?;
-                let floor =
-                    Tensor::full(T::from_f32(config.floor), std.shape().clone(), frame.device())?;
-                frame.broadcast_div(&std.add(&floor)?)?
+                frame.broadcast_div(&std.add_scalar(T::from_f32(config.floor))?)?
             } else {
                 frame
             };
