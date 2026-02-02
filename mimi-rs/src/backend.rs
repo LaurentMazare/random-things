@@ -69,10 +69,11 @@ pub trait Backend: Sized + Clone + 'static {
         op: BinaryOp,
     ) -> Result<()>;
 
-    fn scale<T: crate::WithDType>(
+    fn scale_add<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
-        v: T,
+        scale: T,
+        add: T,
         len: usize,
     ) -> Result<()>;
 

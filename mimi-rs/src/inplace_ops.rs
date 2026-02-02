@@ -150,11 +150,19 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     pub fn scale_(&self, src: &Self, m: T) -> Result<()> {
-        check_same_shape(&self.shape, &src.shape, "scale_")?;
+        self.scale_add_(src, m, T::zero())
+    }
+
+    pub fn add_scalar_(&self, src: &Self, a: T) -> Result<()> {
+        self.scale_add_(src, T::one(), a)
+    }
+
+    pub fn scale_add_(&self, src: &Self, scale: T, add: T) -> Result<()> {
+        check_same_shape(&self.shape, &src.shape, "scale_add_")?;
         let len = self.elem_count();
         let mut dst = self.storage_mut()?;
         let src_data = src.storage()?;
-        B::scale(&mut *dst, &*src_data, m, len)?;
+        B::scale_add(&mut *dst, &*src_data, scale, add, len)?;
         Ok(())
     }
 }

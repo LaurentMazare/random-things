@@ -555,20 +555,27 @@ impl crate::Backend for Device {
         Ok(())
     }
 
-    fn scale<T: WithDType>(
+    fn scale_add<T: WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
-        v: T,
+        scale: T,
+        add: T,
         len: usize,
     ) -> Result<()> {
-        let kname = kernel_name::<T>("scale");
+        let zero = T::zero();
+        let one = T::one();
+        if add == zero && scale == one {
+            return Self::copy(dst, src, len);
+        }
+        let kname = kernel_name::<T>("scale_add");
         let func = dst.device.get_func(&kname, PTXModule::Arithmetic)?;
         let cfg = LaunchConfig::for_num_elems(len as u32);
         let mut launch_args = dst.device.stream.launch_builder(&func);
         launch_args.arg(&len);
         launch_args.arg(&src.data);
         launch_args.arg(&mut dst.data);
-        launch_args.arg(&v);
+        launch_args.arg(&scale);
+        launch_args.arg(&add);
         unsafe { launch_args.launch(cfg) }?;
         Ok(())
     }

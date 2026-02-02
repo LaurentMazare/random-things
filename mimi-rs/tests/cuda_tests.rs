@@ -1309,10 +1309,8 @@ fn test_sum_keepdim_3d() -> Result<()> {
 #[test]
 fn test_sum_keepdim_f16() -> Result<()> {
     let device = get_device();
-    let data: Vec<half::f16> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-        .into_iter()
-        .map(half::f16::from_f32)
-        .collect();
+    let data: Vec<half::f16> =
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0].into_iter().map(half::f16::from_f32).collect();
     let a: Tensor<half::f16, Device> = Tensor::from_vec(data, vec![2, 3], &device)?;
     let sum = a.sum_keepdim(vec![1])?;
     assert_eq!(sum.dims(), &[2, 1]);

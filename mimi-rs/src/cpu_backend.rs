@@ -170,14 +170,27 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
-    fn scale<T: WithDType>(
+    fn scale_add<T: WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
-        m: T,
+        scale: T,
+        add: T,
         len: usize,
     ) -> Result<()> {
-        apply_unary(&mut dst[..len], &src[..len], |s| s * m);
-        Ok(())
+        let zero = T::zero();
+        let one = T::one();
+        if add == zero && scale == one {
+            Self::copy(dst, src, len)
+        } else if add == zero {
+            apply_unary(&mut dst[..len], &src[..len], |s| s * scale);
+            Ok(())
+        } else if scale == one {
+            apply_unary(&mut dst[..len], &src[..len], |s| s + add);
+            Ok(())
+        } else {
+            apply_unary(&mut dst[..len], &src[..len], |s| s * scale + add);
+            Ok(())
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

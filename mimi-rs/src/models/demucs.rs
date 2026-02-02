@@ -380,7 +380,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
     #[tracing::instrument(name = "bilstm_forward", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let (seq_len, batch, _input) = x.dims3()?;
-   
+
         let num_layers = self.forward_layers.len();
         let mut layer_input = x.clone();
 

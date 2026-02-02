@@ -103,6 +103,18 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    pub fn add_scalar(&self, a: T) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.add_scalar_(self, a)?;
+        Ok(result)
+    }
+
+    pub fn scale_add(&self, scale: T, add: T) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.scale_add_(self, scale, add)?;
+        Ok(result)
+    }
+
     /// Flatten all dimensions into a single dimension.
     pub fn flatten_all(&self) -> Result<Self> {
         self.reshape(vec![self.elem_count()])

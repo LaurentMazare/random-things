@@ -24,14 +24,14 @@ template<> __device__ __forceinline__ __nv_bfloat16 from_float(float v) { return
 #endif
 
 // ============================================================================
-// Scale operation (out-of-place: dst = src * v)
+// Scale-add operation (out-of-place: dst = src * scale + add)
 // ============================================================================
 
 template <typename T>
-__device__ void scale_op(const size_t numel, const T * src, T * dst, const T v) {
+__device__ void scale_add_op(const size_t numel, const T * src, T * dst, const T scale, const T add) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
-    dst[idx] = src[idx] * v;
+    dst[idx] = src[idx] * scale + add;
 }
 
 // ============================================================================
@@ -464,10 +464,10 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
     inplace_sigmoid<TYPENAME>(numel, dst); \
   } \
 
-#define SCALE_OP(TYPENAME, RUST_NAME) \
-  extern "C" __global__ void scale_##RUST_NAME( \
-      const size_t numel, const TYPENAME *src, TYPENAME *dst, const TYPENAME v) { \
-    scale_op<TYPENAME>(numel, src, dst, v); \
+#define SCALE_ADD_OP(TYPENAME, RUST_NAME) \
+  extern "C" __global__ void scale_add_##RUST_NAME( \
+      const size_t numel, const TYPENAME *src, TYPENAME *dst, const TYPENAME scale, const TYPENAME add) { \
+    scale_add_op<TYPENAME>(numel, src, dst, scale, add); \
   } \
 
 #define ALL_OPS(TYPENAME, RUST_NAME) \
@@ -475,7 +475,7 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
   ASSIGN_OPS(TYPENAME, RUST_NAME) \
   UNARY_OPS(TYPENAME, RUST_NAME) \
   INPLACE_UNARY_OPS(TYPENAME, RUST_NAME) \
-  SCALE_OP(TYPENAME, RUST_NAME) \
+  SCALE_ADD_OP(TYPENAME, RUST_NAME) \
 
 #if __CUDA_ARCH__ >= 800
 ALL_OPS(__nv_bfloat16, bf16)
