@@ -1,6 +1,5 @@
 use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
-use std::cell::{Ref, RefCell, RefMut};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 impl<T: WithDType, B: Backend> Clone for Tensor<T, B> {
     fn clone(&self) -> Self {
@@ -14,7 +13,7 @@ impl<T: WithDType, B: Backend> Clone for Tensor<T, B> {
 }
 
 pub struct Tensor<T: WithDType, B: Backend> {
-    pub(crate) data: Arc<RefCell<B::Storage<T>>>,
+    pub(crate) data: Arc<RwLock<B::Storage<T>>>,
     pub(crate) shape: Shape,
     pub(crate) device: B,
     _marker: std::marker::PhantomData<T>,
@@ -59,23 +58,20 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
     /// Borrow the underlying storage immutably.
     /// Returns an error if the storage is currently mutably borrowed.
-    pub fn storage(&self) -> Result<Ref<'_, B::Storage<T>>> {
-        self.data.try_borrow().map_err(|_| {
-            crate::Error::Msg("tensor storage is currently mutably borrowed".to_string()).bt()
-        })
+    pub fn storage(&self) -> Result<std::sync::RwLockReadGuard<'_, B::Storage<T>>> {
+        let s = self.data.read().map_err(|e| {
+            crate::Error::msg(format!("failed to borrow tensor storage immutably: {}", e))
+        })?;
+        Ok(s)
     }
 
     /// Borrow the underlying storage mutably.
     /// Returns an error if the storage is currently borrowed (mutably or immutably).
-    pub fn storage_mut(&self) -> Result<RefMut<'_, B::Storage<T>>> {
-        self.data
-            .try_borrow_mut()
-            .map_err(|_| crate::Error::Msg("tensor storage is currently borrowed".to_string()).bt())
-    }
-
-    /// Get the raw Arc<RefCell<...>> for direct access.
-    pub fn storage_arc(&self) -> &Arc<RefCell<B::Storage<T>>> {
-        &self.data
+    pub fn storage_mut(&self) -> Result<std::sync::RwLockWriteGuard<'_, B::Storage<T>>> {
+        let s = self.data.write().map_err(|e| {
+            crate::Error::msg(format!("failed to borrow tensor storage mutably: {}", e))
+        })?;
+        Ok(s)
     }
 
     pub fn zeros(shape: impl Into<Shape>, device: &B) -> Result<Self> {
@@ -95,7 +91,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let mut data = unsafe { B::alloc_uninit(size, device)? };
         B::fill(&mut data, value, size)?;
         Ok(Tensor {
-            data: Arc::new(RefCell::new(data)),
+            data: Arc::new(RwLock::new(data)),
             shape,
             device: device.clone(),
             _marker: std::marker::PhantomData,
@@ -172,7 +168,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let size = shape.elem_count();
         let data = unsafe { B::alloc_uninit(size, dev)? };
         Ok(Tensor {
-            data: Arc::new(RefCell::new(data)),
+            data: Arc::new(RwLock::new(data)),
             shape,
             device: dev.clone(),
             _marker: std::marker::PhantomData,
@@ -218,7 +214,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         }
         let data = B::from_vec(data, dev)?;
         Ok(Tensor {
-            data: Arc::new(RefCell::new(data)),
+            data: Arc::new(RwLock::new(data)),
             shape,
             device: dev.clone(),
             _marker: std::marker::PhantomData,
