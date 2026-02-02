@@ -915,7 +915,7 @@ fn im2col1d<T: WithDTypeF>(
                 let src_c_offset = src_b_offset + c_idx * length;
                 let dst_c_offset = dst_l_offset + c_idx * l_k;
 
-                for l_k_idx in 0..l_k {
+                for (l_k_idx, dst) in dst[dst_c_offset..dst_c_offset + l_k].iter_mut().enumerate() {
                     let src_l = l_idx * stride + l_k_idx * dilation;
 
                     // Handle padding
@@ -924,10 +924,8 @@ fn im2col1d<T: WithDTypeF>(
                         continue;
                     }
                     let src_l = src_l - padding;
-
                     let src_idx = src_c_offset + src_l;
-                    let dst_idx = dst_c_offset + l_k_idx;
-                    dst[dst_idx] = src[src_idx];
+                    *dst = src[src_idx];
                 }
             }
         }
@@ -1034,8 +1032,7 @@ fn col2im1d<T: WithDTypeF>(
 ) {
     let l_out = (l_in - 1) * stride + k_size;
 
-    // Initialize output to zero
-    dst.iter_mut().for_each(|v| *v = T::zero());
+    dst.fill(T::zero());
 
     // Strides for destination [B, C_out, L_out]
     let (dst_s0, dst_s1) = (c_out * l_out, l_out);
@@ -1077,8 +1074,7 @@ fn conv_transpose1d_direct<T: WithDTypeF>(
     let in_c_per_group = in_channels / groups;
     let out_c_per_group = out_channels / groups;
 
-    // Initialize output to zero
-    dst.iter_mut().for_each(|v| *v = T::zero());
+    dst.fill(T::zero());
 
     // Reorder input from [B, C, L] to [B, L, C] for contiguous memory access
     let mut src_reordered = vec![T::zero(); batch * length * in_channels];

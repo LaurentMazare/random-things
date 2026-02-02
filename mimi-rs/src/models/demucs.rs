@@ -305,8 +305,8 @@ impl<T: WithDTypeF, B: Backend> Lstm<T, B> {
         x: &Tensor<T, B>,
         state: Option<(Tensor<T, B>, Tensor<T, B>)>,
     ) -> Result<(Tensor<T, B>, (Tensor<T, B>, Tensor<T, B>))> {
-        let seq_len = x.dim(0)?;
-        let batch = x.dim(1)?;
+        let (seq_len, batch, _input) = x.dims3()?;
+
         let num_layers = self.layers.len();
 
         let (mut h, mut c) = match state {
@@ -379,10 +379,9 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
     #[tracing::instrument(skip_all)]
     #[tracing::instrument(name = "bilstm_forward", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        let seq_len = x.dim(0)?;
-        let batch = x.dim(1)?;
+        let (seq_len, batch, _input) = x.dims3()?;
+   
         let num_layers = self.forward_layers.len();
-
         let mut layer_input = x.clone();
 
         for layer_idx in 0..num_layers {
@@ -627,8 +626,7 @@ fn fast_conv<T: WithDTypeF, B: Backend>(
     conv: &Conv1d<T, B>,
     x: &Tensor<T, B>,
 ) -> Result<Tensor<T, B>> {
-    let batch = x.dim(0)?;
-    let length = x.dim(2)?;
+    let (batch, _ch_in, length) = x.dims3()?;
     let kernel = conv.kernel_size;
 
     if batch != 1 {
