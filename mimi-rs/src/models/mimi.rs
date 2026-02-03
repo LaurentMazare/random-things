@@ -1350,7 +1350,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
 
         // Attention: Q @ K^T / sqrt(head_dim)
         let scale = T::from_f32(1.0 / (self.head_dim as f32).sqrt());
-        let attn_weights = q.matmul(&k.t()?)?.scale(scale)?;
+        let attn_weights = q.matmul_t(&k)?.scale(scale)?;
 
         // Apply causal mask
         let attn_weights = attn_weights.apply_causality_mask(offset)?;

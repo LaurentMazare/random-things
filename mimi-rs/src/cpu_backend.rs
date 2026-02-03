@@ -237,20 +237,16 @@ impl crate::Backend for crate::CpuDevice {
                     // j: mid
                     for j in 0..d_j {
                         for a2 in 0..d2 {
-                            // k: post
-                            for k in 0..d_k {
-                                let src_idx = i * d1 * d_j * d2 * d_k
-                                    + a1 * d_j * d2 * d_k
-                                    + j * d2 * d_k
-                                    + a2 * d_k
-                                    + k;
-                                let dst_idx = i * d2 * d_j * d1 * d_k
-                                    + a2 * d_j * d1 * d_k
-                                    + j * d1 * d_k
-                                    + a1 * d_k
-                                    + k;
-                                dst[dst_idx] = src[src_idx]
-                            }
+                            let src_idx = i * d1 * d_j * d2 * d_k
+                                + a1 * d_j * d2 * d_k
+                                + j * d2 * d_k
+                                + a2 * d_k;
+                            let dst_idx = i * d2 * d_j * d1 * d_k
+                                + a2 * d_j * d1 * d_k
+                                + j * d1 * d_k
+                                + a1 * d_k;
+                            dst[dst_idx..dst_idx + d_k]
+                                .copy_from_slice(&src[src_idx..src_idx + d_k]);
                         }
                     }
                 }
