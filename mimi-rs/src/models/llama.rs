@@ -175,14 +175,14 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
             Some((prev_k, prev_v)) => {
                 let k_cat = Tensor::cat(&[prev_k, &k], 2)?;
                 let v_cat = Tensor::cat(&[prev_v, &v], 2)?;
-                (k_cat.copy()?, v_cat.copy()?, k_cat, v_cat)
+                (k_cat.clone(), v_cat.clone(), k_cat, v_cat)
             }
-            None => (k.copy()?, v.copy()?, k, v),
+            None => (k.clone(), v.clone(), k, v),
         };
 
         // Repeat KV heads for grouped query attention
-        let k = self.repeat_kv(&k)?;
-        let v = self.repeat_kv(&v)?;
+        let k = self.repeat_kv(k)?;
+        let v = self.repeat_kv(v)?;
 
         // Scaled dot-product attention
         // Q: (b, num_heads, seq_len, head_dim)
@@ -214,9 +214,9 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         Ok((output, k_cache, v_cache))
     }
 
-    fn repeat_kv(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    fn repeat_kv(&self, x: Tensor<T, B>) -> Result<Tensor<T, B>> {
         if self.num_kv_groups == 1 {
-            return x.copy();
+            return Ok(x);
         }
         // x shape: (batch, num_kv_heads, seq_len, head_dim)
         // output shape: (batch, num_heads, seq_len, head_dim)
@@ -356,7 +356,7 @@ impl<T: WithDTypeF, B: Backend> Llama<T, B> {
         // lm_head might be tied to embed_tokens in some models
         let lm_head = match vb.get_tensor("lm_head.weight") {
             Some(_) => Linear::load(&vb.pp("lm_head"), config.hidden_size, config.vocab_size)?,
-            None => Linear::new(embed_tokens.copy()?),
+            None => Linear::new(embed_tokens.clone()),
         };
 
         let (cos_cache, sin_cache) = precompute_freqs_cis(
