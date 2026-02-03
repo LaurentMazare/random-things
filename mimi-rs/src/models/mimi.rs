@@ -1306,7 +1306,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
             out_proj_bias,
             num_heads,
             head_dim,
-            kv_cache: KvCache::new(cfg.context + cfg.max_seq_len),
+            kv_cache: KvCache::new(cfg.context),
         })
     }
 

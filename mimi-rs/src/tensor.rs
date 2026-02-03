@@ -175,6 +175,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         })
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn index_select(&self, indices: &[u32], dim: impl Dim) -> Result<Self> {
         let dim = dim.to_index(self.shape(), "index_select dim")?;
         let dim_size = self.dim(dim)?;
@@ -222,6 +223,7 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Concatenate tensors along a given dimension.
+    #[tracing::instrument(skip_all)]
     pub fn cat(tensors: &[&Self], dim: impl Dim) -> Result<Self> {
         if tensors.is_empty() {
             crate::bail!("cat requires at least one tensor");
