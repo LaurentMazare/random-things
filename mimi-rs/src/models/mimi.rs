@@ -306,7 +306,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConv1d<T, B>
 
         // Apply left padding on first step if not done yet
         let xs = if self.left_pad_applied {
-            xs.copy()?
+            xs.clone()
         } else {
             self.left_pad_applied = true;
             self.pad1d(xs, self.padding_total(), 0)?
@@ -405,7 +405,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConvTranspos
                 let pt = prev_ys.dim(2)?;
                 // Subtract bias from prev (as it will be added again)
                 let prev_ys = match &self.convtr.bias {
-                    None => prev_ys.copy()?,
+                    None => prev_ys.clone(),
                     Some(bias) => {
                         let bias = bias.reshape((1, bias.elem_count(), 1))?;
                         prev_ys.broadcast_sub(&bias)?
@@ -589,7 +589,7 @@ impl<T: WithDTypeF, B: Backend> SeaNetResnetBlock<T, B> {
     }
 
     pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        let mut ys = xs.copy()?;
+        let mut ys = xs.clone();
         for conv in &self.block {
             ys = self.activation.apply(&ys)?;
             ys = conv.forward(&ys)?;
@@ -609,7 +609,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetResnetBlock<T, B
             Some(xs) => xs,
         };
 
-        let mut ys = StreamTensor::from_tensor(xs.copy()?);
+        let mut ys = StreamTensor::from_tensor(xs.clone());
         for conv in &mut self.block {
             if let Some(y) = ys.as_option() {
                 let y = self.activation.apply(y)?;
@@ -625,7 +625,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetResnetBlock<T, B
         let result = match &mut self.shortcut {
             None => ys.add(xs)?,
             Some(shortcut) => {
-                let short = shortcut.step(&StreamTensor::from_tensor(xs.copy()?), mask)?;
+                let short = shortcut.step(&StreamTensor::from_tensor(xs.clone()), mask)?;
                 match short.as_option() {
                     Some(s) => ys.add(s)?,
                     None => return Ok(StreamTensor::empty()),
@@ -1032,7 +1032,7 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for SeaNetDecoder<T, B> {
         }
         if let Some(x) = xs.as_option() {
             let mut x = self.activation.apply(x)?;
-            let result = self.final_conv.step(&StreamTensor::from_tensor(x.copy()?), mask)?;
+            let result = self.final_conv.step(&StreamTensor::from_tensor(x.clone()), mask)?;
             if let (Some(r), Some(act)) = (result.as_option(), &self.final_activation) {
                 x = act.apply(r)?;
                 return Ok(StreamTensor::from_tensor(x));
@@ -1131,7 +1131,7 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
                 let v = Tensor::cat(&[prev_v, new_v], 2)?;
                 (k, v)
             }
-            _ => (new_k.copy()?, new_v.copy()?),
+            _ => (new_k.clone(), new_v.clone()),
         };
 
         // Trim if exceeds max_seq_len
@@ -1143,8 +1143,8 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
             (k, v)
         };
 
-        self.k = Some(k.copy()?);
-        self.v = Some(v.copy()?);
+        self.k = Some(k.clone());
+        self.v = Some(v.clone());
         Ok((k, v))
     }
 }
@@ -1466,7 +1466,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
 
     fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let offset = self.current_seq_len();
-        let mut xs = xs.copy()?;
+        let mut xs = xs.clone();
         for layer in &mut self.layers {
             xs = layer.forward(&xs, self.rope.as_ref(), offset)?;
         }
@@ -1518,7 +1518,7 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
 
     pub fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Vec<Tensor<T, B>>> {
         // Apply conv_layout transpose if needed
-        let xs = if self.conv_layout { xs.transpose(1, 2)? } else { xs.copy()? };
+        let xs = if self.conv_layout { xs.transpose(1, 2)? } else { xs.clone() };
 
         // Apply input projection
         let xs = match &self.input_proj {
@@ -1706,7 +1706,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
 
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
         let mut codes = Vec::with_capacity(self.layers.len());
-        let mut residual = xs.copy()?;
+        let mut residual = xs.clone();
         for layer in &self.layers {
             let indices = layer.encode(&residual)?;
             let quantized = layer.decode(&indices)?;
@@ -1777,7 +1777,7 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
                 // proj is stored as [out_dim, in_dim, 1] - conv1d weight format
                 xs.conv1d(proj, None, 1, 0, 1, 1)?
             }
-            None => xs.copy()?,
+            None => xs.clone(),
         };
         let codes = self.vq.encode(&xs)?;
         codes.transpose(0, 1) // [n_q, B, T] -> [B, n_q, T]

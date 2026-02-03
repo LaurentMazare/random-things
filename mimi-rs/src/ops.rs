@@ -178,6 +178,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn softmax(&self) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.softmax_(self)?;
@@ -188,30 +189,35 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     /// Shape: (batch * heads, seq_q, seq_kv) or (batch, heads, seq_q, seq_kv)
     /// Masks positions where key position > query position + offset (sets to -inf).
     /// offset: starting position of the first query token (for KV cache generation).
+    #[tracing::instrument(skip_all)]
     pub fn apply_causality_mask(&self, offset: usize) -> Result<Self> {
         let result = self.copy()?;
         result.apply_causality_mask_(offset)?;
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn rms_norm(&self, alpha: &Self, eps: f32) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rms_norm_(self, alpha, eps)?;
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn layer_norm(&self, weight: &Self, bias: &Self, eps: f32) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.layer_norm_(self, weight, bias, eps)?;
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn rope(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_(self, cos, sin, pos)?;
         Ok(result)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn rope_i(&self, cos: &Self, sin: &Self, pos: usize) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.rope_i_(self, cos, sin, pos)?;
