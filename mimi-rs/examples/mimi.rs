@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use mimi::Tensor;
 use mimi::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
 use mimi::nn::VB;
+use mimi::{Backend, Tensor};
 
 #[derive(Parser, Debug)]
 #[command(name = "mimi")]
@@ -22,6 +22,10 @@ struct Args {
     /// Batch size for processing (duplicates input to simulate higher batch sizes)
     #[arg(short, long, default_value_t = 1)]
     batch_size: usize,
+
+    /// Use the cpu device even if cuda is available.
+    #[arg(long, default_value_t = false)]
+    cpu: bool,
 
     #[arg(long)]
     chrome_tracing: bool,
@@ -58,6 +62,30 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
 
+    #[cfg(feature = "cuda")]
+    {
+        if args.cpu {
+            println!("Using CPU despite CUDA being available");
+            run_for_device(args, mimi::CPU)?;
+        } else {
+            println!("Using CUDA backend");
+            let dev = mimi::cuda_backend::Device::new(0)?;
+            unsafe {
+                dev.disable_event_tracking();
+            }
+            run_for_device(args, dev)?;
+        }
+    }
+    #[cfg(not(feature = "cuda"))]
+    {
+        println!("Using CPU backend");
+        run_for_device(args, mimi::CPU)?;
+    }
+
+    Ok(())
+}
+
+fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     println!("Mimi Audio Tokenizer Example");
     println!("============================");
     println!("Input file: {}", args.input.display());
@@ -93,15 +121,13 @@ fn main() -> Result<()> {
     // Download model weights
     let model_path = download_model()?;
 
-    let dev = mimi::CPU;
-
     // Load model
     println!("\nLoading model weights...");
-    let vb = VB::load(&[model_path], dev)?;
+    let vb = VB::load(&[model_path], dev.clone())?;
     let config = Config::v0_1_no_weight_norm(Some(args.codebooks));
     println!("Config: sample_rate={}, frame_rate={}", config.sample_rate, config.frame_rate);
 
-    let mut model: Mimi<f32, mimi::CpuDevice> = Mimi::load(&vb.root(), config, &dev)?;
+    let mut model: Mimi<f32, Dev> = Mimi::load(&vb.root(), config, &dev)?;
     println!("Model loaded successfully!");
 
     // Process audio in chunks of 1920 samples
@@ -120,7 +146,7 @@ fn main() -> Result<()> {
     let mask = StreamMask::empty();
 
     let encode_start = std::time::Instant::now();
-    let mut all_codes: Vec<Tensor<i64, mimi::CpuDevice>> = Vec::with_capacity(num_chunks);
+    let mut all_codes: Vec<Tensor<i64, Dev>> = Vec::with_capacity(num_chunks);
 
     for chunk_idx in 0..num_chunks {
         let start_idx = chunk_idx * chunk_size;
@@ -136,7 +162,7 @@ fn main() -> Result<()> {
         let batch_data: Vec<f32> = chunk_data.repeat(args.batch_size);
 
         // Create tensor: shape [batch=batch_size, channels=1, time=1920]
-        let audio: Tensor<f32, mimi::CpuDevice> =
+        let audio: Tensor<f32, Dev> =
             Tensor::from_vec(batch_data, (args.batch_size, 1, chunk_size), &dev)?;
         let audio_stream = StreamTensor::from_tensor(audio);
 
@@ -175,7 +201,7 @@ fn main() -> Result<()> {
 
     // Concatenate all codes along the time dimension
     println!("\nConcatenating codes...");
-    let code_refs: Vec<&Tensor<i64, mimi::CpuDevice>> = all_codes.iter().collect();
+    let code_refs: Vec<&Tensor<i64, Dev>> = all_codes.iter().collect();
     let all_codes = Tensor::cat(&code_refs, 2)?; // dim 2 is time
     let total_code_frames = all_codes.dims()[2];
     println!("  Total codes shape: {:?}", all_codes.dims());
@@ -185,13 +211,12 @@ fn main() -> Result<()> {
     println!("\nDecoding codes to audio ({} frames)...", total_code_frames);
     model.reset_state();
     let decode_start = std::time::Instant::now();
-    let mut all_decoded: Vec<Tensor<f32, mimi::CpuDevice>> = Vec::with_capacity(total_code_frames);
+    let mut all_decoded: Vec<Tensor<f32, Dev>> = Vec::with_capacity(total_code_frames);
 
     for frame_idx in 0..total_code_frames {
         // Extract single frame: [B, n_q, 1]
         let codes_frame = all_codes.narrow(2, frame_idx, 1)?;
-        let codes_stream: StreamTensor<i64, mimi::CpuDevice> =
-            StreamTensor::from_tensor(codes_frame);
+        let codes_stream: StreamTensor<i64, Dev> = StreamTensor::from_tensor(codes_frame);
 
         let decoded_stream = model.decode_step(&codes_stream, &mask)?;
         if let Some(decoded) = decoded_stream.as_option() {
@@ -211,7 +236,7 @@ fn main() -> Result<()> {
     );
 
     // Concatenate all decoded audio
-    let decoded_refs: Vec<&Tensor<f32, mimi::CpuDevice>> = all_decoded.iter().collect();
+    let decoded_refs: Vec<&Tensor<f32, Dev>> = all_decoded.iter().collect();
     let decoded_audio = Tensor::cat(&decoded_refs, 2)?; // dim 2 is time
     println!("  Decoded shape: {:?}", decoded_audio.dims());
 
