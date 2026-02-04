@@ -1474,3 +1474,204 @@ fn test_broadcast_f16() -> Result<()> {
     }
     Ok(())
 }
+
+// =============================================================================
+// Conv1d operations
+// =============================================================================
+
+#[test]
+fn test_conv1d_simple() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=1, in_channels=1, length=5)
+    // Kernel: (out_channels=1, in_channels=1, kernel_size=3)
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5.], vec![1, 1, 5], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 0., -1.], vec![1, 1, 3], &device)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // output[i] = input[i]*1 + input[i+1]*0 + input[i+2]*(-1)
+    assert_eq!(output.to_vec()?, vec![-2., -2., -2.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_with_padding() -> Result<()> {
+    let device = get_device();
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4.], vec![1, 1, 4], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 1., 1.], vec![1, 1, 3], &device)?;
+
+    let output = input.conv1d(&kernel, None, 1, 1, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 4]);
+    // With padding=1: [0, 1, 2, 3, 4, 0]
+    assert_eq!(output.to_vec()?, vec![3., 6., 9., 7.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_with_stride() -> Result<()> {
+    let device = get_device();
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], vec![1, 1, 6], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 1.], vec![1, 1, 2], &device)?;
+
+    let output = input.conv1d(&kernel, None, 2, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    assert_eq!(output.to_vec()?, vec![3., 7., 11.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_multi_channel() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=1, in_channels=2, length=4)
+    // Kernel: (out_channels=1, in_channels=2, kernel_size=2)
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], vec![1, 2, 4], &device)?;
+    let kernel: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 1., 1., 1.], vec![1, 2, 2], &device)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // out[0] = (1+2) + (5+6) = 14
+    // out[1] = (2+3) + (6+7) = 18
+    // out[2] = (3+4) + (7+8) = 22
+    assert_eq!(output.to_vec()?, vec![14., 18., 22.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_batch() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=2, in_channels=1, length=4)
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], vec![2, 1, 4], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 1.], vec![1, 1, 2], &device)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[2, 1, 3]);
+    // Batch 0: [1+2, 2+3, 3+4] = [3, 5, 7]
+    // Batch 1: [5+6, 6+7, 7+8] = [11, 13, 15]
+    assert_eq!(output.to_vec()?, vec![3., 5., 7., 11., 13., 15.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv1d_f16() -> Result<()> {
+    let device = get_device();
+    let input_data: Vec<half::f16> =
+        vec![1., 2., 3., 4., 5.].into_iter().map(half::f16::from_f32).collect();
+    let kernel_data: Vec<half::f16> =
+        vec![1., 0., -1.].into_iter().map(half::f16::from_f32).collect();
+    let input: Tensor<half::f16, Device> = Tensor::from_vec(input_data, vec![1, 1, 5], &device)?;
+    let kernel: Tensor<half::f16, Device> = Tensor::from_vec(kernel_data, vec![1, 1, 3], &device)?;
+
+    let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    let result: Vec<f32> = output.to_vec()?.iter().map(|x| x.to_f32()).collect();
+    for (r, e) in result.iter().zip([-2., -2., -2.].iter()) {
+        assert!((r - e).abs() < 0.1, "Expected {} but got {}", e, r);
+    }
+    Ok(())
+}
+
+// =============================================================================
+// Conv transpose 1d operations
+// =============================================================================
+
+#[test]
+fn test_conv_transpose1d_simple() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=1, in_channels=1, length=3)
+    // Kernel: (in_channels=1, out_channels=1, kernel_size=3)
+    let input: Tensor<f32, Device> = Tensor::from_vec(vec![1., 2., 3.], vec![1, 1, 3], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 1., 1.], vec![1, 1, 3], &device)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    // out_length = (3 - 1) * 1 + 3 = 5
+    assert_eq!(output.dims(), &[1, 1, 5]);
+    // Each input contributes to 3 output positions
+    // out[0] = 1*1 = 1
+    // out[1] = 1*1 + 2*1 = 3
+    // out[2] = 1*1 + 2*1 + 3*1 = 6
+    // out[3] = 2*1 + 3*1 = 5
+    // out[4] = 3*1 = 3
+    assert_eq!(output.to_vec()?, vec![1., 3., 6., 5., 3.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_with_stride() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=1, in_channels=1, length=2)
+    // Kernel: (in_channels=1, out_channels=1, kernel_size=2)
+    // Stride=2
+    let input: Tensor<f32, Device> = Tensor::from_vec(vec![1., 2.], vec![1, 1, 2], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 1.], vec![1, 1, 2], &device)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 2, 0, 0, 1)?;
+    // out_length = (2 - 1) * 2 + 2 = 4
+    assert_eq!(output.dims(), &[1, 1, 4]);
+    // out[0] = 1*1 = 1
+    // out[1] = 1*1 = 1
+    // out[2] = 2*1 = 2
+    // out[3] = 2*1 = 2
+    assert_eq!(output.to_vec()?, vec![1., 1., 2., 2.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_multi_channel() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=1, in_channels=2, length=2)
+    // Kernel: (in_channels=2, out_channels=1, kernel_size=2)
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4.], vec![1, 2, 2], &device)?;
+    let kernel: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 1., 1., 1.], vec![2, 1, 2], &device)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 3]);
+    // Channel 0 contributes: [1, 1+2, 2] = [1, 3, 2]
+    // Channel 1 contributes: [3, 3+4, 4] = [3, 7, 4]
+    // Total: [4, 10, 6]
+    assert_eq!(output.to_vec()?, vec![4., 10., 6.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_batch() -> Result<()> {
+    let device = get_device();
+    // Input: (batch=2, in_channels=1, length=2)
+    let input: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1., 2., 3., 4.], vec![2, 1, 2], &device)?;
+    let kernel: Tensor<f32, Device> = Tensor::from_vec(vec![1., 1.], vec![1, 1, 2], &device)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    assert_eq!(output.dims(), &[2, 1, 3]);
+    // Batch 0: [1, 1+2, 2] = [1, 3, 2]
+    // Batch 1: [3, 3+4, 4] = [3, 7, 4]
+    assert_eq!(output.to_vec()?, vec![1., 3., 2., 3., 7., 4.]);
+    Ok(())
+}
+
+#[test]
+fn test_conv_transpose1d_f16() -> Result<()> {
+    let device = get_device();
+    let input_data: Vec<half::f16> =
+        vec![1., 2., 3.].into_iter().map(half::f16::from_f32).collect();
+    let kernel_data: Vec<half::f16> =
+        vec![1., 1., 1.].into_iter().map(half::f16::from_f32).collect();
+    let input: Tensor<half::f16, Device> = Tensor::from_vec(input_data, vec![1, 1, 3], &device)?;
+    let kernel: Tensor<half::f16, Device> = Tensor::from_vec(kernel_data, vec![1, 1, 3], &device)?;
+
+    let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
+    assert_eq!(output.dims(), &[1, 1, 5]);
+    let result: Vec<f32> = output.to_vec()?.iter().map(|x| x.to_f32()).collect();
+    let expected = [1., 3., 6., 5., 3.];
+    for (r, e) in result.iter().zip(expected.iter()) {
+        assert!((r - e).abs() < 0.1, "Expected {} but got {}", e, r);
+    }
+    Ok(())
+}
