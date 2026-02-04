@@ -1,13 +1,10 @@
-#![allow(unused)]
 #![allow(clippy::too_many_arguments)]
 use crate::{BinaryOp, DType, Result, UnaryOp, WithDType, WithDTypeF};
 use cudarc::cublas::{Gemm, GemmConfig, StridedBatchedConfig};
 use cudarc::driver::{
-    CudaContext, CudaFunction, CudaSlice, CudaStream, CudaView, DeviceRepr, DeviceSlice,
-    LaunchConfig, PushKernelArg,
+    CudaContext, CudaFunction, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
 };
 use half::{bf16, f16};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -131,8 +128,10 @@ impl Device {
     }
 
     fn get_func(&self, name: &str, mdl: PTXModule) -> Result<CudaFunction> {
-        let module = self.get_or_load_module(mdl)?;
-        let func = module.load_function(name)?;
+        let module = self.get_or_load_module(mdl).map_err(|e| e.context(format!("{mdl:?}")))?;
+        let func = module
+            .load_function(name)
+            .map_err(|e| crate::Error::from(e).context(format!("{mdl:?} {name}")))?;
         Ok(func)
     }
 
@@ -458,7 +457,10 @@ impl crate::Backend for Device {
         Ok(())
     }
 
-    fn data<T: WithDType>(src: &Self::Storage<T>, len: usize) -> Result<std::borrow::Cow<'_, [T]>> {
+    fn data<T: WithDType>(
+        src: &Self::Storage<T>,
+        _len: usize,
+    ) -> Result<std::borrow::Cow<'_, [T]>> {
         let data = src.device.stream.clone_dtoh(&src.data)?;
         Ok(std::borrow::Cow::Owned(data))
     }
@@ -1376,7 +1378,6 @@ impl crate::Backend for Device {
 // Conv1d implementation using im2col + cuBLAS gemm
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
 fn conv1d_im2col<T: WithDTypeF>(
     dst: &mut Storage<T>,
     src: &Storage<T>,
@@ -1625,7 +1626,6 @@ fn conv1d_gemm_bf16(
 // Conv1d direct implementation (fallback for grouped convolutions)
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
 fn conv1d_direct<T: WithDTypeF>(
     dst: &mut Storage<T>,
     src: &Storage<T>,
@@ -1671,7 +1671,6 @@ fn conv1d_direct<T: WithDTypeF>(
 // Conv transpose 1d implementation using col2im
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
 fn conv_transpose1d_col2im<T: WithDTypeF>(
     dst: &mut Storage<T>,
     src: &Storage<T>,
@@ -1929,7 +1928,6 @@ fn conv_transpose1d_gemm_bf16(
 // Conv transpose 1d direct implementation (fallback)
 // ============================================================================
 
-#[allow(clippy::too_many_arguments)]
 fn conv_transpose1d_direct<T: WithDTypeF>(
     dst: &mut Storage<T>,
     src: &Storage<T>,
