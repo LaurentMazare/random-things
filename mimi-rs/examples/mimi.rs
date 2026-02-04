@@ -19,6 +19,10 @@ struct Args {
     #[arg(short, long, default_value_t = 16)]
     codebooks: usize,
 
+    /// Batch size for processing (duplicates input to simulate higher batch sizes)
+    #[arg(short, long, default_value_t = 1)]
+    batch_size: usize,
+
     #[arg(long)]
     chrome_tracing: bool,
 
@@ -59,6 +63,7 @@ fn main() -> Result<()> {
     println!("Input file: {}", args.input.display());
     println!("Output file: {}", args.output.display());
     println!("Codebooks: {}", args.codebooks);
+    println!("Batch size: {}", args.batch_size);
 
     // Load and resample audio
     println!("\nLoading audio file...");
@@ -127,9 +132,12 @@ fn main() -> Result<()> {
             chunk_data.resize(chunk_size, 0.0);
         }
 
-        // Create tensor: shape [batch=1, channels=1, time=1920]
+        // Duplicate chunk data for batch dimension
+        let batch_data: Vec<f32> = chunk_data.repeat(args.batch_size);
+
+        // Create tensor: shape [batch=batch_size, channels=1, time=1920]
         let audio: Tensor<f32, mimi::CpuDevice> =
-            Tensor::from_vec(chunk_data, (1, 1, chunk_size), &dev)?;
+            Tensor::from_vec(batch_data, (args.batch_size, 1, chunk_size), &dev)?;
         let audio_stream = StreamTensor::from_tensor(audio);
 
         // Encode the audio to codes using streaming API
@@ -207,7 +215,8 @@ fn main() -> Result<()> {
     let decoded_audio = Tensor::cat(&decoded_refs, 2)?; // dim 2 is time
     println!("  Decoded shape: {:?}", decoded_audio.dims());
 
-    // Extract PCM data from decoded tensor
+    // Extract PCM data from first batch element only
+    let decoded_audio = decoded_audio.narrow(0, 0, 1)?; // [1, 1, time]
     let decoded_pcm = decoded_audio.to_vec()?;
 
     // Trim to original length (remove padding)
