@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 enum PTXModule {
     Arithmetic,
     Broadcast,
+    Conv,
     Fill,
     Indexing,
     Layout,
@@ -25,6 +26,7 @@ enum PTXModule {
 struct ModuleCache {
     arithmetic: Option<Arc<cudarc::driver::CudaModule>>,
     broadcast: Option<Arc<cudarc::driver::CudaModule>>,
+    conv: Option<Arc<cudarc::driver::CudaModule>>,
     fill: Option<Arc<cudarc::driver::CudaModule>>,
     indexing: Option<Arc<cudarc::driver::CudaModule>>,
     layout: Option<Arc<cudarc::driver::CudaModule>>,
@@ -75,6 +77,14 @@ impl Device {
                 }
                 let m = self.cuda.load_module(crate::cuda_kernels::BROADCAST.into())?;
                 modules.broadcast = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Conv => {
+                if let Some(ref m) = modules.conv {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::CONV.into())?;
+                modules.conv = Some(m.clone());
                 Ok(m)
             }
             PTXModule::Fill => {
@@ -1267,7 +1277,43 @@ impl crate::Backend for Device {
         dilation: usize,
         groups: usize,
     ) -> Result<()> {
-        crate::bail!("conv1d not implemented yet")
+        if groups == 1 {
+            // IM2COL approach: transform conv1d into matrix multiplication
+            // 1. Im2Col: transform input [B, C, L] -> [B, L_out, C * K]
+            // 2. Matmul: [B, L_out, C*K] x [C*K, out_channels] -> [B, L_out, out_channels]
+            // 3. Transpose result to [B, out_channels, L_out]
+            conv1d_im2col(
+                dst,
+                src,
+                kernel,
+                batch,
+                in_channels,
+                out_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+            )
+        } else {
+            // Direct kernel for grouped convolutions
+            conv1d_direct(
+                dst,
+                src,
+                kernel,
+                batch,
+                in_channels,
+                out_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+                padding,
+                dilation,
+                groups,
+            )
+        }
     }
 
     fn conv_transpose1d<T: WithDTypeF>(
@@ -1285,6 +1331,646 @@ impl crate::Backend for Device {
         output_padding: usize,
         groups: usize,
     ) -> Result<()> {
-        crate::bail!("conv_transpose1d not implemented yet")
+        // COL2IM approach can be used when:
+        // - groups == 1
+        // - padding == 0
+        // - output_padding == 0
+        let can_use_col2im = groups == 1 && padding == 0 && output_padding == 0;
+
+        if can_use_col2im {
+            // COL2IM approach: matmul + col2im transformation
+            conv_transpose1d_col2im(
+                dst,
+                src,
+                kernel,
+                batch,
+                in_channels,
+                out_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+            )
+        } else {
+            // Direct kernel for grouped convolutions or with padding
+            conv_transpose1d_direct(
+                dst,
+                src,
+                kernel,
+                batch,
+                in_channels,
+                out_channels,
+                length,
+                out_length,
+                kernel_size,
+                stride,
+                padding,
+                output_padding,
+                groups,
+            )
+        }
     }
+}
+
+// ============================================================================
+// Conv1d implementation using im2col + cuBLAS gemm
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn conv1d_im2col<T: WithDTypeF>(
+    dst: &mut Storage<T>,
+    src: &Storage<T>,
+    kernel: &Storage<T>,
+    batch: usize,
+    in_channels: usize,
+    out_channels: usize,
+    length: usize,
+    out_length: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: usize,
+    dilation: usize,
+) -> Result<()> {
+    let k = in_channels * kernel_size;
+    let col_numel = batch * out_length * k;
+
+    // Step 1: Im2Col transformation
+    // Allocate temporary buffer for col data [B, L_out, C_in * K]
+    let mut col: CudaSlice<T> = unsafe { dst.device.stream.alloc(col_numel) }?;
+
+    let kname = format!("im2col1d_{}", T::DTYPE.cuda_name());
+    let func = dst.device.get_func(&kname, PTXModule::Conv)?;
+    let cfg = LaunchConfig::for_num_elems(col_numel as u32);
+
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&col_numel);
+    launch_args.arg(&batch);
+    launch_args.arg(&in_channels);
+    launch_args.arg(&length);
+    launch_args.arg(&out_length);
+    launch_args.arg(&kernel_size);
+    launch_args.arg(&stride);
+    launch_args.arg(&padding);
+    launch_args.arg(&dilation);
+    launch_args.arg(&src.data);
+    launch_args.arg(&mut col);
+    unsafe { launch_args.launch(cfg) }?;
+
+    // Step 2: Matrix multiplication using cuBLAS
+    // col: [B, L_out, K] where K = in_channels * kernel_size
+    // kernel: [out_channels, K] (stored as [out_channels, in_channels, kernel_size])
+    // result: [B, L_out, out_channels]
+    //
+    // We need to allocate a temporary buffer for the result since it's in a different layout
+    let result_numel = batch * out_length * out_channels;
+    let mut result: CudaSlice<T> = unsafe { dst.device.stream.alloc(result_numel) }?;
+
+    // For each batch, perform: result[b] = col[b] @ kernel^T
+    // col[b]: [L_out, K], kernel: [out_channels, K], result[b]: [L_out, out_channels]
+    // Using cuBLAS: C = alpha * A * B + beta * C
+    // We want: result = col @ kernel^T
+    // cuBLAS uses column-major, so we compute: result^T = kernel @ col^T
+    // Which gives us result in row-major as [L_out, out_channels]
+    conv1d_gemm(&dst.device, &col, &kernel.data, &mut result, batch, out_length, out_channels, k)?;
+
+    // Step 3: Transpose from [B, L_out, out_channels] to [B, out_channels, L_out]
+    let kname = format!("transpose_blc_bcl_{}", T::DTYPE.cuda_name());
+    let func = dst.device.get_func(&kname, PTXModule::Conv)?;
+    let cfg = LaunchConfig::for_num_elems(result_numel as u32);
+
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&result_numel);
+    launch_args.arg(&batch);
+    launch_args.arg(&out_length);
+    launch_args.arg(&out_channels);
+    launch_args.arg(&result);
+    launch_args.arg(&mut dst.data);
+    unsafe { launch_args.launch(cfg) }?;
+
+    Ok(())
+}
+
+/// Batched GEMM for conv1d: result[b] = col[b] @ kernel^T
+/// col: [B, M, K], kernel: [N, K], result: [B, M, N]
+fn conv1d_gemm<T: WithDTypeF>(
+    device: &Device,
+    col: &CudaSlice<T>,
+    kernel: &CudaSlice<T>,
+    result: &mut CudaSlice<T>,
+    batch: usize,
+    m: usize, // out_length
+    n: usize, // out_channels
+    k: usize, // in_channels * kernel_size
+) -> Result<()> {
+    match T::DTYPE {
+        DType::F32 => {
+            let col = unsafe { &*(col as *const CudaSlice<T> as *const CudaSlice<f32>) };
+            let kernel = unsafe { &*(kernel as *const CudaSlice<T> as *const CudaSlice<f32>) };
+            let result = unsafe { &mut *(result as *mut CudaSlice<T> as *mut CudaSlice<f32>) };
+            conv1d_gemm_f32(device, col, kernel, result, batch, m, n, k)
+        }
+        DType::F16 => {
+            let col = unsafe { &*(col as *const CudaSlice<T> as *const CudaSlice<f16>) };
+            let kernel = unsafe { &*(kernel as *const CudaSlice<T> as *const CudaSlice<f16>) };
+            let result = unsafe { &mut *(result as *mut CudaSlice<T> as *mut CudaSlice<f16>) };
+            conv1d_gemm_f16(device, col, kernel, result, batch, m, n, k)
+        }
+        DType::BF16 => {
+            let col = unsafe { &*(col as *const CudaSlice<T> as *const CudaSlice<bf16>) };
+            let kernel = unsafe { &*(kernel as *const CudaSlice<T> as *const CudaSlice<bf16>) };
+            let result = unsafe { &mut *(result as *mut CudaSlice<T> as *mut CudaSlice<bf16>) };
+            conv1d_gemm_bf16(device, col, kernel, result, batch, m, n, k)
+        }
+        _ => crate::bail!("conv1d GEMM not supported for dtype {:?}", T::DTYPE),
+    }
+}
+
+fn conv1d_gemm_f32(
+    device: &Device,
+    col: &CudaSlice<f32>,
+    kernel: &CudaSlice<f32>,
+    result: &mut CudaSlice<f32>,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    // We compute: result = col @ kernel^T (row-major)
+    // col[b]: [M, K] row-major, kernel: [N, K] row-major
+    // result[b]: [M, N] row-major
+    //
+    // cuBLAS is column-major. Row-major [R, C] with stride C is seen as column-major [C, R]:
+    // - kernel stored [N, K] row-major -> cuBLAS sees [K, N], lda = K
+    // - col stored [M, K] row-major -> cuBLAS sees [K, M], ldb = K
+    // - result stored [M, N] row-major -> cuBLAS sees [N, M], ldc = N
+    //
+    // We want: result = col @ kernel^T (row-major)
+    // Taking transpose: result^T = kernel @ col^T
+    // In cuBLAS terms for C = op(A) * op(B) where C is [N, M]:
+    // - A = kernel, seen as [K, N], with transa=T gives [N, K]
+    // - B = col, seen as [K, M], with transb=N gives [K, M]
+    // - Result: [N, K] @ [K, M] = [N, M] ✓
+
+    let gemm = GemmConfig {
+        alpha: 1.0f32,
+        beta: 0.0f32,
+        m: n as i32,   // rows of C (N = out_channels)
+        n: m as i32,   // cols of C (M = out_length)
+        k: k as i32,   // inner dimension
+        lda: k as i32, // leading dim of A (row stride of kernel)
+        ldb: k as i32, // leading dim of B (row stride of col)
+        ldc: n as i32, // leading dim of C (row stride of result)
+        transa: cublasOperation_t::CUBLAS_OP_T,
+        transb: cublasOperation_t::CUBLAS_OP_N,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: batch as i32,
+        gemm,
+        stride_a: 0,              // kernel is shared across batches
+        stride_b: (m * k) as i64, // col stride per batch
+        stride_c: (m * n) as i64, // result stride per batch
+    };
+
+    unsafe {
+        device.blas.gemm_strided_batched(cfg, kernel, col, result)?;
+    }
+
+    Ok(())
+}
+
+fn conv1d_gemm_f16(
+    device: &Device,
+    col: &CudaSlice<f16>,
+    kernel: &CudaSlice<f16>,
+    result: &mut CudaSlice<f16>,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    let gemm = GemmConfig {
+        alpha: f16::ONE,
+        beta: f16::ZERO,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda: k as i32,
+        ldb: k as i32,
+        ldc: n as i32,
+        transa: cublasOperation_t::CUBLAS_OP_T,
+        transb: cublasOperation_t::CUBLAS_OP_N,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: batch as i32,
+        gemm,
+        stride_a: 0,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    unsafe {
+        device.blas.gemm_strided_batched(cfg, kernel, col, result)?;
+    }
+
+    Ok(())
+}
+
+fn conv1d_gemm_bf16(
+    device: &Device,
+    col: &CudaSlice<bf16>,
+    kernel: &CudaSlice<bf16>,
+    result: &mut CudaSlice<bf16>,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    let gemm = GemmConfig {
+        alpha: bf16::ONE,
+        beta: bf16::ZERO,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda: k as i32,
+        ldb: k as i32,
+        ldc: n as i32,
+        transa: cublasOperation_t::CUBLAS_OP_T,
+        transb: cublasOperation_t::CUBLAS_OP_N,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: batch as i32,
+        gemm,
+        stride_a: 0,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    unsafe {
+        device.blas.gemm_strided_batched(cfg, kernel, col, result)?;
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Conv1d direct implementation (fallback for grouped convolutions)
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn conv1d_direct<T: WithDTypeF>(
+    dst: &mut Storage<T>,
+    src: &Storage<T>,
+    kernel: &Storage<T>,
+    batch: usize,
+    in_channels: usize,
+    out_channels: usize,
+    length: usize,
+    out_length: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: usize,
+    dilation: usize,
+    groups: usize,
+) -> Result<()> {
+    let dst_numel = batch * out_channels * out_length;
+
+    let kname = format!("conv1d_direct_{}", T::DTYPE.cuda_name());
+    let func = dst.device.get_func(&kname, PTXModule::Conv)?;
+    let cfg = LaunchConfig::for_num_elems(dst_numel as u32);
+
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&dst_numel);
+    launch_args.arg(&batch);
+    launch_args.arg(&in_channels);
+    launch_args.arg(&length);
+    launch_args.arg(&out_channels);
+    launch_args.arg(&out_length);
+    launch_args.arg(&kernel_size);
+    launch_args.arg(&stride);
+    launch_args.arg(&padding);
+    launch_args.arg(&dilation);
+    launch_args.arg(&groups);
+    launch_args.arg(&src.data);
+    launch_args.arg(&kernel.data);
+    launch_args.arg(&mut dst.data);
+    unsafe { launch_args.launch(cfg) }?;
+
+    Ok(())
+}
+
+// ============================================================================
+// Conv transpose 1d implementation using col2im
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn conv_transpose1d_col2im<T: WithDTypeF>(
+    dst: &mut Storage<T>,
+    src: &Storage<T>,
+    kernel: &Storage<T>,
+    batch: usize,
+    in_channels: usize,
+    out_channels: usize,
+    length: usize,     // input length
+    out_length: usize, // output length
+    kernel_size: usize,
+    stride: usize,
+) -> Result<()> {
+    // COL2IM approach:
+    // 1. Transpose input from [B, C_in, L_in] to [B, L_in, C_in]
+    // 2. Matmul: [B, L_in, C_in] @ [C_in, C_out * K] -> [B, L_in, C_out * K]
+    // 3. Col2Im: [B, L_in, C_out, K] -> [B, C_out, L_out]
+
+    let src_numel = batch * in_channels * length;
+    let n = out_channels * kernel_size;
+    let col_numel = batch * length * n;
+    let dst_numel = batch * out_channels * out_length;
+
+    // Step 1: Transpose input from [B, C_in, L_in] to [B, L_in, C_in]
+    let mut src_transposed: CudaSlice<T> = unsafe { dst.device.stream.alloc(src_numel) }?;
+
+    let kname = format!("transpose_bcl_blc_{}", T::DTYPE.cuda_name());
+    let func = dst.device.get_func(&kname, PTXModule::Conv)?;
+    let cfg = LaunchConfig::for_num_elems(src_numel as u32);
+
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&src_numel);
+    launch_args.arg(&batch);
+    launch_args.arg(&in_channels);
+    launch_args.arg(&length);
+    launch_args.arg(&src.data);
+    launch_args.arg(&mut src_transposed);
+    unsafe { launch_args.launch(cfg) }?;
+
+    // Step 2: Matrix multiplication
+    // src_transposed: [B, L_in, C_in]
+    // kernel: [C_in, C_out, K] stored row-major, treat as [C_in, C_out * K]
+    // result (col): [B, L_in, C_out * K]
+    let mut col: CudaSlice<T> = unsafe { dst.device.stream.alloc(col_numel) }?;
+
+    conv_transpose1d_gemm(
+        &dst.device,
+        &src_transposed,
+        &kernel.data,
+        &mut col,
+        batch,
+        length,
+        n,
+        in_channels,
+    )?;
+
+    // Step 3: Col2Im transformation
+    // col: [B, L_in, C_out * K] = [B, L_in, C_out, K]
+    // output: [B, C_out, L_out]
+    let kname = format!("col2im1d_{}", T::DTYPE.cuda_name());
+    let func = dst.device.get_func(&kname, PTXModule::Conv)?;
+    let cfg = LaunchConfig::for_num_elems(dst_numel as u32);
+
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&dst_numel);
+    launch_args.arg(&batch);
+    launch_args.arg(&length);
+    launch_args.arg(&out_channels);
+    launch_args.arg(&out_length);
+    launch_args.arg(&kernel_size);
+    launch_args.arg(&stride);
+    launch_args.arg(&col);
+    launch_args.arg(&mut dst.data);
+    unsafe { launch_args.launch(cfg) }?;
+
+    Ok(())
+}
+
+/// Batched GEMM for conv_transpose1d: result[b] = src[b] @ kernel
+/// src: [B, M, K], kernel: [K, N], result: [B, M, N]
+fn conv_transpose1d_gemm<T: WithDTypeF>(
+    device: &Device,
+    src: &CudaSlice<T>,
+    kernel: &CudaSlice<T>,
+    result: &mut CudaSlice<T>,
+    batch: usize,
+    m: usize, // length (L_in)
+    n: usize, // out_channels * kernel_size
+    k: usize, // in_channels
+) -> Result<()> {
+    match T::DTYPE {
+        DType::F32 => {
+            let src = unsafe { &*(src as *const CudaSlice<T> as *const CudaSlice<f32>) };
+            let kernel = unsafe { &*(kernel as *const CudaSlice<T> as *const CudaSlice<f32>) };
+            let result = unsafe { &mut *(result as *mut CudaSlice<T> as *mut CudaSlice<f32>) };
+            conv_transpose1d_gemm_f32(device, src, kernel, result, batch, m, n, k)
+        }
+        DType::F16 => {
+            let src = unsafe { &*(src as *const CudaSlice<T> as *const CudaSlice<f16>) };
+            let kernel = unsafe { &*(kernel as *const CudaSlice<T> as *const CudaSlice<f16>) };
+            let result = unsafe { &mut *(result as *mut CudaSlice<T> as *mut CudaSlice<f16>) };
+            conv_transpose1d_gemm_f16(device, src, kernel, result, batch, m, n, k)
+        }
+        DType::BF16 => {
+            let src = unsafe { &*(src as *const CudaSlice<T> as *const CudaSlice<bf16>) };
+            let kernel = unsafe { &*(kernel as *const CudaSlice<T> as *const CudaSlice<bf16>) };
+            let result = unsafe { &mut *(result as *mut CudaSlice<T> as *mut CudaSlice<bf16>) };
+            conv_transpose1d_gemm_bf16(device, src, kernel, result, batch, m, n, k)
+        }
+        _ => crate::bail!("conv_transpose1d GEMM not supported for dtype {:?}", T::DTYPE),
+    }
+}
+
+fn conv_transpose1d_gemm_f32(
+    device: &Device,
+    src: &CudaSlice<f32>,
+    kernel: &CudaSlice<f32>,
+    result: &mut CudaSlice<f32>,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    // We compute: result = src @ kernel (row-major)
+    // src[b]: [M, K] row-major, kernel: [K, N] row-major
+    // result[b]: [M, N] row-major
+    //
+    // cuBLAS is column-major. Row-major data appears transposed:
+    // - src stored [M, K] -> cuBLAS sees [K, M]
+    // - kernel stored [K, N] -> cuBLAS sees [N, K]
+    // - result stored [M, N] -> cuBLAS sees [N, M]
+    //
+    // For row-major C = A @ B: C^T = B^T @ A^T in column-major
+    // So: result^T[N, M] = kernel^T[N, K] @ src^T[K, M]
+    //
+    // cuBLAS sees kernel as [N, K] and src as [K, M], no transpose needed
+    // Row-major [R, C] has row stride C, cuBLAS sees as col-major [C, R] with ld = C
+    // - kernel [K, N] row-major -> cuBLAS [N, K], lda = N
+    // - src [M, K] row-major -> cuBLAS [K, M], ldb = K
+    // transa = N, transb = N
+
+    let gemm = GemmConfig {
+        alpha: 1.0f32,
+        beta: 0.0f32,
+        m: n as i32,   // rows of C = N
+        n: m as i32,   // cols of C = M
+        k: k as i32,   // inner dimension = K
+        lda: n as i32, // leading dim of kernel (row stride N)
+        ldb: k as i32, // leading dim of src (row stride K)
+        ldc: n as i32, // leading dim of result (row stride N)
+        transa: cublasOperation_t::CUBLAS_OP_N,
+        transb: cublasOperation_t::CUBLAS_OP_N,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: batch as i32,
+        gemm,
+        stride_a: 0,              // kernel is shared across batches
+        stride_b: (m * k) as i64, // src stride per batch
+        stride_c: (m * n) as i64, // result stride per batch
+    };
+
+    unsafe {
+        device.blas.gemm_strided_batched(cfg, kernel, src, result)?;
+    }
+
+    Ok(())
+}
+
+fn conv_transpose1d_gemm_f16(
+    device: &Device,
+    src: &CudaSlice<f16>,
+    kernel: &CudaSlice<f16>,
+    result: &mut CudaSlice<f16>,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    let gemm = GemmConfig {
+        alpha: f16::ONE,
+        beta: f16::ZERO,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda: n as i32,
+        ldb: k as i32,
+        ldc: n as i32,
+        transa: cublasOperation_t::CUBLAS_OP_N,
+        transb: cublasOperation_t::CUBLAS_OP_N,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: batch as i32,
+        gemm,
+        stride_a: 0,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    unsafe {
+        device.blas.gemm_strided_batched(cfg, kernel, src, result)?;
+    }
+
+    Ok(())
+}
+
+fn conv_transpose1d_gemm_bf16(
+    device: &Device,
+    src: &CudaSlice<bf16>,
+    kernel: &CudaSlice<bf16>,
+    result: &mut CudaSlice<bf16>,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    use cudarc::cublas::sys::cublasOperation_t;
+
+    // Row-major [R, C] has row stride C, cuBLAS sees as col-major [C, R] with ld = C
+    // - kernel [K, N] row-major -> cuBLAS [N, K], lda = N
+    // - src [M, K] row-major -> cuBLAS [K, M], ldb = K
+    let gemm = GemmConfig {
+        alpha: bf16::ONE,
+        beta: bf16::ZERO,
+        m: n as i32,
+        n: m as i32,
+        k: k as i32,
+        lda: n as i32,
+        ldb: k as i32,
+        ldc: n as i32,
+        transa: cublasOperation_t::CUBLAS_OP_N,
+        transb: cublasOperation_t::CUBLAS_OP_N,
+    };
+
+    let cfg = StridedBatchedConfig {
+        batch_size: batch as i32,
+        gemm,
+        stride_a: 0,
+        stride_b: (m * k) as i64,
+        stride_c: (m * n) as i64,
+    };
+
+    unsafe {
+        device.blas.gemm_strided_batched(cfg, kernel, src, result)?;
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Conv transpose 1d direct implementation (fallback)
+// ============================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn conv_transpose1d_direct<T: WithDTypeF>(
+    dst: &mut Storage<T>,
+    src: &Storage<T>,
+    kernel: &Storage<T>,
+    batch: usize,
+    in_channels: usize,
+    out_channels: usize,
+    length: usize,
+    out_length: usize,
+    kernel_size: usize,
+    stride: usize,
+    padding: usize,
+    output_padding: usize,
+    groups: usize,
+) -> Result<()> {
+    let dst_numel = batch * out_channels * out_length;
+
+    let kname = format!("conv_transpose1d_direct_{}", T::DTYPE.cuda_name());
+    let func = dst.device.get_func(&kname, PTXModule::Conv)?;
+    let cfg = LaunchConfig::for_num_elems(dst_numel as u32);
+
+    // Note: dilation is fixed to 1 for now (matching CPU backend behavior)
+    let dilation: usize = 1;
+
+    let mut launch_args = dst.device.stream.launch_builder(&func);
+    launch_args.arg(&dst_numel);
+    launch_args.arg(&batch);
+    launch_args.arg(&in_channels);
+    launch_args.arg(&length);
+    launch_args.arg(&out_channels);
+    launch_args.arg(&out_length);
+    launch_args.arg(&kernel_size);
+    launch_args.arg(&stride);
+    launch_args.arg(&padding);
+    launch_args.arg(&output_padding);
+    launch_args.arg(&dilation);
+    launch_args.arg(&groups);
+    launch_args.arg(&src.data);
+    launch_args.arg(&kernel.data);
+    launch_args.arg(&mut dst.data);
+    unsafe { launch_args.launch(cfg) }?;
+
+    Ok(())
 }
