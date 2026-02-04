@@ -9,6 +9,19 @@ pub enum DType {
     U8,
 }
 
+impl DType {
+    /// Returns the CUDA kernel name suffix for this dtype.
+    pub fn cuda_name(&self) -> &'static str {
+        match self {
+            DType::F16 => "f16",
+            DType::BF16 => "bf16",
+            DType::F32 => "f32",
+            DType::I64 => "i64",
+            DType::U8 => "u8",
+        }
+    }
+}
+
 #[cfg(feature = "cuda")]
 pub trait WithDType:
     Sized
