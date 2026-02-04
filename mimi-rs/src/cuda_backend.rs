@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum PTXModule {
     Arithmetic,
+    Broadcast,
     Fill,
     Indexing,
     Layout,
@@ -23,6 +24,7 @@ enum PTXModule {
 #[derive(Default)]
 struct ModuleCache {
     arithmetic: Option<Arc<cudarc::driver::CudaModule>>,
+    broadcast: Option<Arc<cudarc::driver::CudaModule>>,
     fill: Option<Arc<cudarc::driver::CudaModule>>,
     indexing: Option<Arc<cudarc::driver::CudaModule>>,
     layout: Option<Arc<cudarc::driver::CudaModule>>,
@@ -65,6 +67,14 @@ impl Device {
                 }
                 let m = self.cuda.load_module(crate::cuda_kernels::ARITHMETIC.into())?;
                 modules.arithmetic = Some(m.clone());
+                Ok(m)
+            }
+            PTXModule::Broadcast => {
+                if let Some(ref m) = modules.broadcast {
+                    return Ok(m.clone());
+                }
+                let m = self.cuda.load_module(crate::cuda_kernels::BROADCAST.into())?;
+                modules.broadcast = Some(m.clone());
                 Ok(m)
             }
             PTXModule::Fill => {
@@ -1138,7 +1148,108 @@ impl crate::Backend for Device {
         rhs_strides: &[usize],
         op: BinaryOp,
     ) -> Result<()> {
-        crate::bail!("broadcast_binary not implemented yet")
+        let numel: usize = dst_shape.iter().product();
+        if numel == 0 {
+            return Ok(());
+        }
+
+        let op_name = match op {
+            BinaryOp::Add => "add",
+            BinaryOp::Sub => "sub",
+            BinaryOp::Mul => "mul",
+            BinaryOp::Div => "div",
+            BinaryOp::Maximum => "max",
+            BinaryOp::Minimum => "min",
+        };
+
+        let lhs_no_zero = lhs_strides.iter().all(|&s| s > 0);
+        let rhs_no_zero = rhs_strides.iter().all(|&s| s > 0);
+
+        let cfg = LaunchConfig::for_num_elems(numel as u32);
+
+        // Dispatch to optimized kernels based on stride patterns
+        if lhs_no_zero && rhs_no_zero {
+            // Both operands contiguous
+            let kname = format!("broadcast_{}_contiguous_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        } else if lhs_no_zero && dst_shape.len() == 2 && rhs_strides == [0, 1] {
+            // rhs broadcasts along first dim
+            let dim1 = dst_shape[1];
+            let kname = format!("broadcast_{}_rhs_row_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&dim1);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        } else if lhs_no_zero && dst_shape.len() == 2 && rhs_strides == [1, 0] {
+            // rhs broadcasts along second dim
+            let dim1 = dst_shape[1];
+            let kname = format!("broadcast_{}_rhs_col_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&dim1);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        } else if rhs_no_zero && dst_shape.len() == 2 && lhs_strides == [0, 1] {
+            // lhs broadcasts along first dim
+            let dim1 = dst_shape[1];
+            let kname = format!("broadcast_{}_lhs_row_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&dim1);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        } else if rhs_no_zero && dst_shape.len() == 2 && lhs_strides == [1, 0] {
+            // lhs broadcasts along second dim
+            let dim1 = dst_shape[1];
+            let kname = format!("broadcast_{}_lhs_col_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&dim1);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        } else {
+            // General strided case
+            let num_dims = dst_shape.len();
+            let info: Vec<usize> = dst_shape
+                .iter()
+                .chain(lhs_strides.iter())
+                .chain(rhs_strides.iter())
+                .copied()
+                .collect();
+            let info_dev = dst.device.stream.clone_htod(&info)?;
+
+            let kname = format!("broadcast_{}_strided_{}", op_name, T::DTYPE.cuda_name());
+            let func = dst.device.get_func(&kname, PTXModule::Broadcast)?;
+            let num_dims_u32 = num_dims as u32;
+            let mut launch_args = dst.device.stream.launch_builder(&func);
+            launch_args.arg(&numel);
+            launch_args.arg(&num_dims_u32);
+            launch_args.arg(&info_dev);
+            launch_args.arg(&lhs.data);
+            launch_args.arg(&rhs.data);
+            launch_args.arg(&mut dst.data);
+            unsafe { launch_args.launch(cfg) }?;
+        }
+        Ok(())
     }
 
     fn conv1d<T: WithDTypeF>(

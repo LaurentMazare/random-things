@@ -1320,3 +1320,157 @@ fn test_sum_keepdim_f16() -> Result<()> {
     assert!((result[1] - 15.0).abs() < 0.1);
     Ok(())
 }
+
+// =============================================================================
+// Broadcast binary operations
+// =============================================================================
+
+#[test]
+fn test_broadcast_add_same_shape() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], &device)?;
+    let b: Tensor<f32, Device> =
+        Tensor::from_vec(vec![10.0, 20.0, 30.0, 40.0], vec![2, 2], &device)?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 2]);
+    assert_eq!(c.to_vec()?, vec![11.0, 22.0, 33.0, 44.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_add_row() -> Result<()> {
+    let device = get_device();
+    // a: [2, 3], b: [3] -> broadcast b along first dim
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![10.0, 20.0, 30.0], vec![3], &device)?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![11.0, 22.0, 33.0, 14.0, 25.0, 36.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_add_col() -> Result<()> {
+    let device = get_device();
+    // a: [2, 3], b: [2, 1] -> broadcast b along second dim
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![10.0, 20.0], vec![2, 1], &device)?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![11.0, 12.0, 13.0, 24.0, 25.0, 26.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_mul_row() -> Result<()> {
+    let device = get_device();
+    // a: [2, 3], b: [3] -> broadcast b along first dim
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![2.0, 3.0, 4.0], vec![3], &device)?;
+    let c = a.broadcast_mul(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![2.0, 6.0, 12.0, 8.0, 15.0, 24.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_mul_col() -> Result<()> {
+    let device = get_device();
+    // a: [2, 3], b: [2, 1] -> broadcast b along second dim
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![2.0, 3.0], vec![2, 1], &device)?;
+    let c = a.broadcast_mul(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![2.0, 4.0, 6.0, 12.0, 15.0, 18.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_sub() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0], vec![3], &device)?;
+    let c = a.broadcast_sub(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![9.0, 18.0, 27.0, 39.0, 48.0, 57.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_div() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![2.0, 4.0, 5.0], vec![3], &device)?;
+    let c = a.broadcast_div(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![5.0, 5.0, 6.0, 20.0, 12.5, 12.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_3d() -> Result<()> {
+    let device = get_device();
+    // a: [2, 2, 3], b: [3] -> broadcast b across batch and row dims
+    let a: Tensor<f32, Device> = Tensor::from_vec(
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+        vec![2, 2, 3],
+        &device,
+    )?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![10.0, 20.0, 30.0], vec![3], &device)?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 2, 3]);
+    assert_eq!(
+        c.to_vec()?,
+        vec![11.0, 22.0, 33.0, 14.0, 25.0, 36.0, 17.0, 28.0, 39.0, 20.0, 31.0, 42.0]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_maximum() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 5.0, 3.0, 8.0, 2.0, 6.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![4.0, 4.0, 4.0], vec![3], &device)?;
+    let c = a.broadcast_maximum(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![4.0, 5.0, 4.0, 8.0, 4.0, 6.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_minimum() -> Result<()> {
+    let device = get_device();
+    let a: Tensor<f32, Device> =
+        Tensor::from_vec(vec![1.0, 5.0, 3.0, 8.0, 2.0, 6.0], vec![2, 3], &device)?;
+    let b: Tensor<f32, Device> = Tensor::from_vec(vec![4.0, 4.0, 4.0], vec![3], &device)?;
+    let c = a.broadcast_minimum(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    assert_eq!(c.to_vec()?, vec![1.0, 4.0, 3.0, 4.0, 2.0, 4.0]);
+    Ok(())
+}
+
+#[test]
+fn test_broadcast_f16() -> Result<()> {
+    let device = get_device();
+    let a_data: Vec<half::f16> =
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0].into_iter().map(half::f16::from_f32).collect();
+    let b_data: Vec<half::f16> =
+        vec![10.0, 20.0, 30.0].into_iter().map(half::f16::from_f32).collect();
+    let a: Tensor<half::f16, Device> = Tensor::from_vec(a_data, vec![2, 3], &device)?;
+    let b: Tensor<half::f16, Device> = Tensor::from_vec(b_data, vec![3], &device)?;
+    let c = a.broadcast_add(&b)?;
+    assert_eq!(c.dims(), &[2, 3]);
+    let result: Vec<f32> = c.to_vec()?.iter().map(|x| x.to_f32()).collect();
+    let expected = [11.0, 22.0, 33.0, 14.0, 25.0, 36.0];
+    for (r, e) in result.iter().zip(expected.iter()) {
+        assert!((r - e).abs() < 0.1, "Expected {} but got {}", e, r);
+    }
+    Ok(())
+}
