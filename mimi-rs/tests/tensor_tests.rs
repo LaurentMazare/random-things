@@ -1,22 +1,45 @@
-use mimi::{CPU, CpuTensor, Result, Tensor};
+use mimi::{Backend, Result, Tensor};
 
-#[test]
-fn test_cat_dim0() -> Result<()> {
+/// Macro to generate tests for both CPU and CUDA backends.
+/// Each test function takes a device reference and runs the test logic.
+macro_rules! test_both_backends {
+    ($test_name:ident, $test_fn:ident) => {
+        paste::paste! {
+            #[test]
+            fn [<$test_name _cpu>]() -> Result<()> {
+                $test_fn(&mimi::CPU)
+            }
+
+            #[cfg(feature = "cuda")]
+            #[test]
+            fn [<$test_name _cuda>]() -> Result<()> {
+                let device = mimi::cuda_backend::Device::new(0)?;
+                $test_fn(&device)
+            }
+        }
+    };
+}
+
+// =============================================================================
+// Cat tests
+// =============================================================================
+
+fn test_cat_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // Two 2x3 tensors concatenated along dim 0 -> 4x3
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![7., 8., 9., 10., 11., 12.], (2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![7., 8., 9., 10., 11., 12.], (2, 3), dev)?;
 
     let c = Tensor::cat(&[&a, &b], 0)?;
     assert_eq!(c.dims(), &[4, 3]);
     assert_eq!(c.to_vec()?, vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.]);
     Ok(())
 }
+test_both_backends!(test_cat_dim0, test_cat_dim0_impl);
 
-#[test]
-fn test_cat_dim1() -> Result<()> {
+fn test_cat_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // Two 2x3 tensors concatenated along dim 1 -> 2x6
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![7., 8., 9., 10., 11., 12.], (2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![7., 8., 9., 10., 11., 12.], (2, 3), dev)?;
 
     let c = Tensor::cat(&[&a, &b], 1)?;
     assert_eq!(c.dims(), &[2, 6]);
@@ -25,14 +48,13 @@ fn test_cat_dim1() -> Result<()> {
     assert_eq!(c.to_vec()?, vec![1., 2., 3., 7., 8., 9., 4., 5., 6., 10., 11., 12.]);
     Ok(())
 }
+test_both_backends!(test_cat_dim1, test_cat_dim1_impl);
 
-#[test]
-fn test_cat_3d_dim1() -> Result<()> {
+fn test_cat_3d_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // Two 2x2x3 tensors concatenated along dim 1 -> 2x4x3
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), &CPU)?;
-    let b: CpuTensor<f32> =
-        Tensor::from_vec((13..=24).map(|x| x as f32).collect(), (2, 2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), dev)?;
+    let b: Tensor<f32, B> =
+        Tensor::from_vec((13..=24).map(|x| x as f32).collect(), (2, 2, 3), dev)?;
 
     let c = Tensor::cat(&[&a, &b], 1)?;
     assert_eq!(c.dims(), &[2, 4, 3]);
@@ -47,10 +69,14 @@ fn test_cat_3d_dim1() -> Result<()> {
     );
     Ok(())
 }
+test_both_backends!(test_cat_3d_dim1, test_cat_3d_dim1_impl);
 
-#[test]
-fn test_reshape() -> Result<()> {
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+// =============================================================================
+// Reshape tests
+// =============================================================================
+
+fn test_reshape_impl<B: Backend>(dev: &B) -> Result<()> {
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
 
     // Reshape to 3x2
     let b = a.reshape((3, 2))?;
@@ -70,10 +96,10 @@ fn test_reshape() -> Result<()> {
     assert_eq!(e.dims(), &[1, 2, 3]);
     Ok(())
 }
+test_both_backends!(test_reshape, test_reshape_impl);
 
-#[test]
-fn test_reshape_with_hole() -> Result<()> {
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+fn test_reshape_with_hole_impl<B: Backend>(dev: &B) -> Result<()> {
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
 
     // Reshape with inferred dimension
     let b = a.reshape((3, ()))?;
@@ -86,12 +112,16 @@ fn test_reshape_with_hole() -> Result<()> {
     assert_eq!(d.dims(), &[1, 2, 3]);
     Ok(())
 }
+test_both_backends!(test_reshape_with_hole, test_reshape_with_hole_impl);
 
-#[test]
-fn test_index_select_dim0() -> Result<()> {
+// =============================================================================
+// Index select tests
+// =============================================================================
+
+fn test_index_select_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // Select rows from a 4x3 tensor
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (4, 3), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (4, 3), dev)?;
 
     // Select rows 0, 2, 3
     let b = a.index_select(&[0, 2, 3], 0)?;
@@ -104,11 +134,11 @@ fn test_index_select_dim0() -> Result<()> {
     assert_eq!(c.to_vec()?, vec![4., 5., 6., 4., 5., 6., 1., 2., 3.]);
     Ok(())
 }
+test_both_backends!(test_index_select_dim0, test_index_select_dim0_impl);
 
-#[test]
-fn test_index_select_dim1() -> Result<()> {
+fn test_index_select_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // Select columns from a 2x4 tensor
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], (2, 4), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8.], (2, 4), dev)?;
 
     // Select columns 0, 2
     let b = a.index_select(&[0, 2], 1)?;
@@ -117,12 +147,11 @@ fn test_index_select_dim1() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 3., 5., 7.]);
     Ok(())
 }
+test_both_backends!(test_index_select_dim1, test_index_select_dim1_impl);
 
-#[test]
-fn test_index_select_3d() -> Result<()> {
+fn test_index_select_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // 2x3x2 tensor
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), dev)?;
     // Data layout:
     // Batch 0: [[1,2], [3,4], [5,6]]
     // Batch 1: [[7,8], [9,10], [11,12]]
@@ -135,12 +164,16 @@ fn test_index_select_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 2., 5., 6., 7., 8., 11., 12.]);
     Ok(())
 }
+test_both_backends!(test_index_select_3d, test_index_select_3d_impl);
 
-#[test]
-fn test_max_dim0() -> Result<()> {
+// =============================================================================
+// Reduce tests
+// =============================================================================
+
+fn test_max_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // 3x4 tensor, max along dim 0 -> 4
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
     // Column-wise max:
     // col 0: max(1, 8, 9) = 9
     // col 1: max(5, 2, 0) = 5
@@ -151,12 +184,12 @@ fn test_max_dim0() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![9., 5., 7., 6.]);
     Ok(())
 }
+test_both_backends!(test_max_dim0, test_max_dim0_impl);
 
-#[test]
-fn test_max_dim1() -> Result<()> {
+fn test_max_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // 3x4 tensor, max along dim 1 -> 3
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
     // Row-wise max:
     // row 0: max(1, 5, 3, 4) = 5
     // row 1: max(8, 2, 7, 6) = 8
@@ -166,12 +199,12 @@ fn test_max_dim1() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![5., 8., 9.]);
     Ok(())
 }
+test_both_backends!(test_max_dim1, test_max_dim1_impl);
 
-#[test]
-fn test_min_dim0() -> Result<()> {
+fn test_min_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // 3x4 tensor, min along dim 0 -> 4
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
     // Column-wise min:
     // col 0: min(1, 8, 9) = 1
     // col 1: min(5, 2, 0) = 0
@@ -182,12 +215,12 @@ fn test_min_dim0() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 0., 1., 2.]);
     Ok(())
 }
+test_both_backends!(test_min_dim0, test_min_dim0_impl);
 
-#[test]
-fn test_min_dim1() -> Result<()> {
+fn test_min_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // 3x4 tensor, min along dim 1 -> 3
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
     // Row-wise min:
     // row 0: min(1, 5, 3, 4) = 1
     // row 1: min(8, 2, 7, 6) = 2
@@ -197,12 +230,12 @@ fn test_min_dim1() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 2., 0.]);
     Ok(())
 }
+test_both_backends!(test_min_dim1, test_min_dim1_impl);
 
-#[test]
-fn test_argmin_dim0() -> Result<()> {
+fn test_argmin_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // 3x4 tensor, argmin along dim 0 -> 4
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
     // Column-wise argmin:
     // col 0: argmin(1, 8, 9) = 0
     // col 1: argmin(5, 2, 0) = 2
@@ -213,12 +246,12 @@ fn test_argmin_dim0() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![0i64, 2, 2, 2]);
     Ok(())
 }
+test_both_backends!(test_argmin_dim0, test_argmin_dim0_impl);
 
-#[test]
-fn test_argmin_dim1() -> Result<()> {
+fn test_argmin_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // 3x4 tensor, argmin along dim 1 -> 3
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 5., 3., 4., 8., 2., 7., 6., 9., 0., 1., 2.], (3, 4), dev)?;
     // Row-wise argmin:
     // row 0: argmin(1, 5, 3, 4) = 0
     // row 1: argmin(8, 2, 7, 6) = 1
@@ -228,12 +261,11 @@ fn test_argmin_dim1() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![0i64, 1, 1]);
     Ok(())
 }
+test_both_backends!(test_argmin_dim1, test_argmin_dim1_impl);
 
-#[test]
-fn test_max_3d() -> Result<()> {
+fn test_max_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // 2x3x2 tensor, max along dim 1 -> 2x2
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), dev)?;
     // Batch 0: [[1,2], [3,4], [5,6]] -> max along rows: [5, 6]
     // Batch 1: [[7,8], [9,10], [11,12]] -> max along rows: [11, 12]
     let b = a.max(1)?;
@@ -241,22 +273,26 @@ fn test_max_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![5., 6., 11., 12.]);
     Ok(())
 }
+test_both_backends!(test_max_3d, test_max_3d_impl);
 
-#[test]
-fn test_broadcast_add_same_shape() -> Result<()> {
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![10., 20., 30., 40.], (2, 2), &CPU)?;
+// =============================================================================
+// Broadcast tests
+// =============================================================================
+
+fn test_broadcast_add_same_shape_impl<B: Backend>(dev: &B) -> Result<()> {
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![10., 20., 30., 40.], (2, 2), dev)?;
     let c = a.broadcast_add(&b)?;
     assert_eq!(c.dims(), &[2, 2]);
     assert_eq!(c.to_vec()?, vec![11., 22., 33., 44.]);
     Ok(())
 }
+test_both_backends!(test_broadcast_add_same_shape, test_broadcast_add_same_shape_impl);
 
-#[test]
-fn test_broadcast_add_1d_to_2d() -> Result<()> {
+fn test_broadcast_add_1d_to_2d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] + [3] -> [2, 3]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![10., 20., 30.], (3,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![10., 20., 30.], (3,), dev)?;
     let c = a.broadcast_add(&b)?;
     assert_eq!(c.dims(), &[2, 3]);
     // Row 0: [1+10, 2+20, 3+30] = [11, 22, 33]
@@ -264,12 +300,12 @@ fn test_broadcast_add_1d_to_2d() -> Result<()> {
     assert_eq!(c.to_vec()?, vec![11., 22., 33., 14., 25., 36.]);
     Ok(())
 }
+test_both_backends!(test_broadcast_add_1d_to_2d, test_broadcast_add_1d_to_2d_impl);
 
-#[test]
-fn test_broadcast_mul_column() -> Result<()> {
+fn test_broadcast_mul_column_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] * [2, 1] -> [2, 3]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![2., 3.], (2, 1), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![2., 3.], (2, 1), dev)?;
     let c = a.broadcast_mul(&b)?;
     assert_eq!(c.dims(), &[2, 3]);
     // Row 0: [1*2, 2*2, 3*2] = [2, 4, 6]
@@ -277,23 +313,23 @@ fn test_broadcast_mul_column() -> Result<()> {
     assert_eq!(c.to_vec()?, vec![2., 4., 6., 12., 15., 18.]);
     Ok(())
 }
+test_both_backends!(test_broadcast_mul_column, test_broadcast_mul_column_impl);
 
-#[test]
-fn test_broadcast_sub() -> Result<()> {
+fn test_broadcast_sub_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] - [3] -> [2, 3]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![10., 20., 30., 40., 50., 60.], (2, 3), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (3,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![10., 20., 30., 40., 50., 60.], (2, 3), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (3,), dev)?;
     let c = a.broadcast_sub(&b)?;
     assert_eq!(c.dims(), &[2, 3]);
     assert_eq!(c.to_vec()?, vec![9., 18., 27., 39., 48., 57.]);
     Ok(())
 }
+test_both_backends!(test_broadcast_sub, test_broadcast_sub_impl);
 
-#[test]
-fn test_broadcast_div() -> Result<()> {
+fn test_broadcast_div_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] / [2, 1] -> [2, 3]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![2., 4., 6., 9., 12., 15.], (2, 3), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![2., 3.], (2, 1), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![2., 4., 6., 9., 12., 15.], (2, 3), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![2., 3.], (2, 1), dev)?;
     let c = a.broadcast_div(&b)?;
     assert_eq!(c.dims(), &[2, 3]);
     // Row 0: [2/2, 4/2, 6/2] = [1, 2, 3]
@@ -301,13 +337,12 @@ fn test_broadcast_div() -> Result<()> {
     assert_eq!(c.to_vec()?, vec![1., 2., 3., 3., 4., 5.]);
     Ok(())
 }
+test_both_backends!(test_broadcast_div, test_broadcast_div_impl);
 
-#[test]
-fn test_broadcast_3d() -> Result<()> {
+fn test_broadcast_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3, 4] + [4] -> [2, 3, 4]
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=24).map(|x| x as f32).collect(), (2, 3, 4), &CPU)?;
-    let b: CpuTensor<f32> = Tensor::from_vec(vec![100., 200., 300., 400.], (4,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=24).map(|x| x as f32).collect(), (2, 3, 4), dev)?;
+    let b: Tensor<f32, B> = Tensor::from_vec(vec![100., 200., 300., 400.], (4,), dev)?;
     let c = a.broadcast_add(&b)?;
     assert_eq!(c.dims(), &[2, 3, 4]);
     let c_vec = c.to_vec()?;
@@ -319,41 +354,45 @@ fn test_broadcast_3d() -> Result<()> {
     assert_eq!(c_vec[4], 105.);
     Ok(())
 }
+test_both_backends!(test_broadcast_3d, test_broadcast_3d_impl);
 
-#[test]
-fn test_unsqueeze_dim0() -> Result<()> {
+// =============================================================================
+// Unsqueeze tests
+// =============================================================================
+
+fn test_unsqueeze_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // [3, 4] -> unsqueeze(0) -> [1, 3, 4]
-    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), dev)?;
     let b = a.unsqueeze(0)?;
     assert_eq!(b.dims(), &[1, 3, 4]);
     assert_eq!(b.to_vec()?, a.to_vec()?);
     Ok(())
 }
+test_both_backends!(test_unsqueeze_dim0, test_unsqueeze_dim0_impl);
 
-#[test]
-fn test_unsqueeze_dim1() -> Result<()> {
+fn test_unsqueeze_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // [3, 4] -> unsqueeze(1) -> [3, 1, 4]
-    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), dev)?;
     let b = a.unsqueeze(1)?;
     assert_eq!(b.dims(), &[3, 1, 4]);
     assert_eq!(b.to_vec()?, a.to_vec()?);
     Ok(())
 }
+test_both_backends!(test_unsqueeze_dim1, test_unsqueeze_dim1_impl);
 
-#[test]
-fn test_unsqueeze_dim_last() -> Result<()> {
+fn test_unsqueeze_dim_last_impl<B: Backend>(dev: &B) -> Result<()> {
     // [3, 4] -> unsqueeze(2) -> [3, 4, 1]
-    let a: CpuTensor<f32> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (3, 4), dev)?;
     let b = a.unsqueeze(2)?;
     assert_eq!(b.dims(), &[3, 4, 1]);
     assert_eq!(b.to_vec()?, a.to_vec()?);
     Ok(())
 }
+test_both_backends!(test_unsqueeze_dim_last, test_unsqueeze_dim_last_impl);
 
-#[test]
-fn test_unsqueeze_1d() -> Result<()> {
+fn test_unsqueeze_1d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [4] -> unsqueeze(0) -> [1, 4]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), dev)?;
     let b = a.unsqueeze(0)?;
     assert_eq!(b.dims(), &[1, 4]);
 
@@ -362,32 +401,36 @@ fn test_unsqueeze_1d() -> Result<()> {
     assert_eq!(c.dims(), &[4, 1]);
     Ok(())
 }
+test_both_backends!(test_unsqueeze_1d, test_unsqueeze_1d_impl);
 
-#[test]
-fn test_pad_with_zeros_1d() -> Result<()> {
+// =============================================================================
+// Pad with zeros tests
+// =============================================================================
+
+fn test_pad_with_zeros_1d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [4] -> pad_with_zeros(0, 2, 3) -> [9]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), dev)?;
     let b = a.pad_with_zeros(0, 2, 3)?;
     assert_eq!(b.dims(), &[9]);
     assert_eq!(b.to_vec()?, vec![0., 0., 1., 2., 3., 4., 0., 0., 0.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_zeros_1d, test_pad_with_zeros_1d_impl);
 
-#[test]
-fn test_pad_with_zeros_2d_dim0() -> Result<()> {
+fn test_pad_with_zeros_2d_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] -> pad_with_zeros(0, 1, 1) -> [4, 3]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
     let b = a.pad_with_zeros(0, 1, 1)?;
     assert_eq!(b.dims(), &[4, 3]);
     // Row 0: zeros, Row 1: [1,2,3], Row 2: [4,5,6], Row 3: zeros
     assert_eq!(b.to_vec()?, vec![0., 0., 0., 1., 2., 3., 4., 5., 6., 0., 0., 0.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_zeros_2d_dim0, test_pad_with_zeros_2d_dim0_impl);
 
-#[test]
-fn test_pad_with_zeros_2d_dim1() -> Result<()> {
+fn test_pad_with_zeros_2d_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] -> pad_with_zeros(1, 1, 2) -> [2, 6]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
     let b = a.pad_with_zeros(1, 1, 2)?;
     assert_eq!(b.dims(), &[2, 6]);
     // Row 0: [0, 1, 2, 3, 0, 0]
@@ -395,12 +438,12 @@ fn test_pad_with_zeros_2d_dim1() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![0., 1., 2., 3., 0., 0., 0., 4., 5., 6., 0., 0.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_zeros_2d_dim1, test_pad_with_zeros_2d_dim1_impl);
 
-#[test]
-fn test_pad_with_zeros_3d() -> Result<()> {
+fn test_pad_with_zeros_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 2, 3] -> pad_with_zeros(1, 1, 0) -> [2, 3, 3]
     let data: Vec<f32> = (1..=12).map(|x| x as f32).collect();
-    let a: CpuTensor<f32> = Tensor::from_vec(data, (2, 2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(data, (2, 2, 3), dev)?;
     let b = a.pad_with_zeros(1, 1, 0)?;
     assert_eq!(b.dims(), &[2, 3, 3]);
     // First batch: [[0,0,0], [1,2,3], [4,5,6]]
@@ -411,14 +454,18 @@ fn test_pad_with_zeros_3d() -> Result<()> {
     );
     Ok(())
 }
+test_both_backends!(test_pad_with_zeros_3d, test_pad_with_zeros_3d_impl);
 
-#[test]
-fn test_conv1d_simple() -> Result<()> {
+// =============================================================================
+// Conv1d tests
+// =============================================================================
+
+fn test_conv1d_simple_impl<B: Backend>(dev: &B) -> Result<()> {
     // Input: (batch=1, in_channels=1, length=5)
     // Kernel: (out_channels=1, in_channels=1, kernel_size=3)
     // No padding, stride=1, groups=1
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (1, 1, 5), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 0., -1.], (1, 1, 3), &CPU)?;
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (1, 1, 5), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 0., -1.], (1, 1, 3), dev)?;
 
     let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
     assert_eq!(output.dims(), &[1, 1, 3]);
@@ -429,14 +476,14 @@ fn test_conv1d_simple() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![-2., -2., -2.]);
     Ok(())
 }
+test_both_backends!(test_conv1d_simple, test_conv1d_simple_impl);
 
-#[test]
-fn test_conv1d_with_padding() -> Result<()> {
+fn test_conv1d_with_padding_impl<B: Backend>(dev: &B) -> Result<()> {
     // Input: (batch=1, in_channels=1, length=4)
     // Kernel: (out_channels=1, in_channels=1, kernel_size=3)
     // Padding=1, stride=1
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (1, 1, 4), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), &CPU)?;
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (1, 1, 4), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), dev)?;
 
     let output = input.conv1d(&kernel, None, 1, 1, 1, 1)?;
     assert_eq!(output.dims(), &[1, 1, 4]);
@@ -448,14 +495,14 @@ fn test_conv1d_with_padding() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![3., 6., 9., 7.]);
     Ok(())
 }
+test_both_backends!(test_conv1d_with_padding, test_conv1d_with_padding_impl);
 
-#[test]
-fn test_conv1d_with_stride() -> Result<()> {
+fn test_conv1d_with_stride_impl<B: Backend>(dev: &B) -> Result<()> {
     // Input: (batch=1, in_channels=1, length=6)
     // Kernel: (out_channels=1, in_channels=1, kernel_size=2)
     // Stride=2
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (1, 1, 6), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), &CPU)?;
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (1, 1, 6), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), dev)?;
 
     let output = input.conv1d(&kernel, None, 2, 0, 1, 1)?;
     // out_length = (6 - 2) / 2 + 1 = 3
@@ -466,12 +513,12 @@ fn test_conv1d_with_stride() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![3., 7., 11.]);
     Ok(())
 }
+test_both_backends!(test_conv1d_with_stride, test_conv1d_with_stride_impl);
 
-#[test]
-fn test_conv1d_with_bias() -> Result<()> {
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (1, 1, 5), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), &CPU)?;
-    let bias: CpuTensor<f32> = Tensor::from_vec(vec![10.], (1,), &CPU)?;
+fn test_conv1d_with_bias_impl<B: Backend>(dev: &B) -> Result<()> {
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (1, 1, 5), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), dev)?;
+    let bias: Tensor<f32, B> = Tensor::from_vec(vec![10.], (1,), dev)?;
 
     let output = input.conv1d(&kernel, Some(&bias), 1, 0, 1, 1)?;
     assert_eq!(output.dims(), &[1, 1, 3]);
@@ -479,16 +526,16 @@ fn test_conv1d_with_bias() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![16., 19., 22.]);
     Ok(())
 }
+test_both_backends!(test_conv1d_with_bias, test_conv1d_with_bias_impl);
 
-#[test]
-fn test_conv1d_multi_channel() -> Result<()> {
+fn test_conv1d_multi_channel_impl<B: Backend>(dev: &B) -> Result<()> {
     // Input: (batch=1, in_channels=2, length=3)
     // Kernel: (out_channels=2, in_channels=2, kernel_size=2)
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (1, 2, 3), &CPU)?;
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (1, 2, 3), dev)?;
     // kernel[0] for out_channel 0: [[1,1], [0,0]] - only uses in_channel 0
     // kernel[1] for out_channel 1: [[0,0], [1,1]] - only uses in_channel 1
-    let kernel: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 1., 0., 0., 0., 0., 1., 1.], (2, 2, 2), &CPU)?;
+    let kernel: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 1., 0., 0., 0., 0., 1., 1.], (2, 2, 2), dev)?;
 
     let output = input.conv1d(&kernel, None, 1, 0, 1, 1)?;
     assert_eq!(output.dims(), &[1, 2, 2]);
@@ -497,14 +544,18 @@ fn test_conv1d_multi_channel() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![3., 5., 9., 11.]);
     Ok(())
 }
+test_both_backends!(test_conv1d_multi_channel, test_conv1d_multi_channel_impl);
 
-#[test]
-fn test_conv_transpose1d_simple() -> Result<()> {
+// =============================================================================
+// Conv transpose 1d tests
+// =============================================================================
+
+fn test_conv_transpose1d_simple_impl<B: Backend>(dev: &B) -> Result<()> {
     // Input: (batch=1, in_channels=1, length=3)
     // Kernel: (in_channels=1, out_channels=1, kernel_size=3)
     // stride=1, no padding
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (1, 1, 3), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), &CPU)?;
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (1, 1, 3), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1., 1.], (1, 1, 3), dev)?;
 
     let output = input.conv_transpose1d(&kernel, None, 1, 0, 0, 1)?;
     // out_length = (3-1)*1 + 3 + 0 - 0 = 5
@@ -518,14 +569,14 @@ fn test_conv_transpose1d_simple() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![1., 3., 6., 5., 3.]);
     Ok(())
 }
+test_both_backends!(test_conv_transpose1d_simple, test_conv_transpose1d_simple_impl);
 
-#[test]
-fn test_conv_transpose1d_with_stride() -> Result<()> {
+fn test_conv_transpose1d_with_stride_impl<B: Backend>(dev: &B) -> Result<()> {
     // Input: (batch=1, in_channels=1, length=3)
     // Kernel: (in_channels=1, out_channels=1, kernel_size=2)
     // stride=2
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (1, 1, 3), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), &CPU)?;
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (1, 1, 3), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), dev)?;
 
     let output = input.conv_transpose1d(&kernel, None, 2, 0, 0, 1)?;
     // out_length = (3-1)*2 + 2 + 0 - 0 = 6
@@ -537,12 +588,12 @@ fn test_conv_transpose1d_with_stride() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![1., 1., 2., 2., 3., 3.]);
     Ok(())
 }
+test_both_backends!(test_conv_transpose1d_with_stride, test_conv_transpose1d_with_stride_impl);
 
-#[test]
-fn test_conv_transpose1d_with_bias() -> Result<()> {
-    let input: CpuTensor<f32> = Tensor::from_vec(vec![1., 2.], (1, 1, 2), &CPU)?;
-    let kernel: CpuTensor<f32> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), &CPU)?;
-    let bias: CpuTensor<f32> = Tensor::from_vec(vec![5.], (1,), &CPU)?;
+fn test_conv_transpose1d_with_bias_impl<B: Backend>(dev: &B) -> Result<()> {
+    let input: Tensor<f32, B> = Tensor::from_vec(vec![1., 2.], (1, 1, 2), dev)?;
+    let kernel: Tensor<f32, B> = Tensor::from_vec(vec![1., 1.], (1, 1, 2), dev)?;
+    let bias: Tensor<f32, B> = Tensor::from_vec(vec![5.], (1,), dev)?;
 
     let output = input.conv_transpose1d(&kernel, Some(&bias), 1, 0, 0, 1)?;
     // out_length = (2-1)*1 + 2 = 3
@@ -551,22 +602,26 @@ fn test_conv_transpose1d_with_bias() -> Result<()> {
     assert_eq!(output.to_vec()?, vec![6., 8., 7.]);
     Ok(())
 }
+test_both_backends!(test_conv_transpose1d_with_bias, test_conv_transpose1d_with_bias_impl);
 
-#[test]
-fn test_pad_with_same_1d() -> Result<()> {
+// =============================================================================
+// Pad with same tests
+// =============================================================================
+
+fn test_pad_with_same_1d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [1, 2, 3, 4] -> pad_with_same(0, 2, 3) -> [1, 1, 1, 2, 3, 4, 4, 4, 4]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (4,), dev)?;
     let b = a.pad_with_same(0, 2, 3)?;
     assert_eq!(b.dims(), &[9]);
     assert_eq!(b.to_vec()?, vec![1., 1., 1., 2., 3., 4., 4., 4., 4.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_same_1d, test_pad_with_same_1d_impl);
 
-#[test]
-fn test_pad_with_same_2d_dim0() -> Result<()> {
+fn test_pad_with_same_2d_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] -> pad_with_same(0, 1, 1) -> [4, 3]
     // Replicates first and last rows
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
     let b = a.pad_with_same(0, 1, 1)?;
     assert_eq!(b.dims(), &[4, 3]);
     // Row 0: copy of row 0 = [1,2,3]
@@ -576,12 +631,12 @@ fn test_pad_with_same_2d_dim0() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 2., 3., 1., 2., 3., 4., 5., 6., 4., 5., 6.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_same_2d_dim0, test_pad_with_same_2d_dim0_impl);
 
-#[test]
-fn test_pad_with_same_2d_dim1() -> Result<()> {
+fn test_pad_with_same_2d_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3] -> pad_with_same(1, 1, 2) -> [2, 6]
     // Replicates first and last columns
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
     let b = a.pad_with_same(1, 1, 2)?;
     assert_eq!(b.dims(), &[2, 6]);
     // Row 0: [1, 1, 2, 3, 3, 3]
@@ -589,12 +644,12 @@ fn test_pad_with_same_2d_dim1() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 1., 2., 3., 3., 3., 4., 4., 5., 6., 6., 6.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_same_2d_dim1, test_pad_with_same_2d_dim1_impl);
 
-#[test]
-fn test_pad_with_same_3d() -> Result<()> {
+fn test_pad_with_same_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 2, 2] -> pad_with_same(1, 1, 1) -> [2, 4, 2]
     let data: Vec<f32> = (1..=8).map(|x| x as f32).collect();
-    let a: CpuTensor<f32> = Tensor::from_vec(data, (2, 2, 2), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(data, (2, 2, 2), dev)?;
     let b = a.pad_with_same(1, 1, 1)?;
     assert_eq!(b.dims(), &[2, 4, 2]);
     // First batch [2,2]: [[1,2], [3,4]] -> [[1,2], [1,2], [3,4], [3,4]]
@@ -602,46 +657,49 @@ fn test_pad_with_same_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![1., 2., 1., 2., 3., 4., 3., 4., 5., 6., 5., 6., 7., 8., 7., 8.]);
     Ok(())
 }
+test_both_backends!(test_pad_with_same_3d, test_pad_with_same_3d_impl);
 
-#[test]
-fn test_sum_keepdim_1d() -> Result<()> {
+// =============================================================================
+// Sum keepdim tests
+// =============================================================================
+
+fn test_sum_keepdim_1d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [5] -> sum_keepdim(0) -> [1]
-    let a: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (5,), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5.], (5,), dev)?;
     let b = a.sum_keepdim(vec![0])?;
     assert_eq!(b.dims(), &[1]);
     assert_eq!(b.to_vec()?, vec![15.]);
     Ok(())
 }
+test_both_backends!(test_sum_keepdim_1d, test_sum_keepdim_1d_impl);
 
-#[test]
-fn test_sum_keepdim_2d_dim0() -> Result<()> {
+fn test_sum_keepdim_2d_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // [3, 4] -> sum_keepdim(0) -> [1, 4]
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (3, 4), dev)?;
     let b = a.sum_keepdim(vec![0])?;
     assert_eq!(b.dims(), &[1, 4]);
     // Column sums: 1+5+9=15, 2+6+10=18, 3+7+11=21, 4+8+12=24
     assert_eq!(b.to_vec()?, vec![15., 18., 21., 24.]);
     Ok(())
 }
+test_both_backends!(test_sum_keepdim_2d_dim0, test_sum_keepdim_2d_dim0_impl);
 
-#[test]
-fn test_sum_keepdim_2d_dim1() -> Result<()> {
+fn test_sum_keepdim_2d_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // [3, 4] -> sum_keepdim(1) -> [3, 1]
-    let a: CpuTensor<f32> =
-        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (3, 4), &CPU)?;
+    let a: Tensor<f32, B> =
+        Tensor::from_vec(vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12.], (3, 4), dev)?;
     let b = a.sum_keepdim(vec![1])?;
     assert_eq!(b.dims(), &[3, 1]);
     // Row sums: 1+2+3+4=10, 5+6+7+8=26, 9+10+11+12=42
     assert_eq!(b.to_vec()?, vec![10., 26., 42.]);
     Ok(())
 }
+test_both_backends!(test_sum_keepdim_2d_dim1, test_sum_keepdim_2d_dim1_impl);
 
-#[test]
-fn test_sum_keepdim_3d() -> Result<()> {
+fn test_sum_keepdim_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3, 2] -> sum_keepdim(1) -> [2, 1, 2]
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 3, 2), dev)?;
     let b = a.sum_keepdim(vec![1])?;
     assert_eq!(b.dims(), &[2, 1, 2]);
     // Batch 0: [[1,2], [3,4], [5,6]] -> sum along dim 1 -> [9, 12]
@@ -649,12 +707,11 @@ fn test_sum_keepdim_3d() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![9., 12., 27., 30.]);
     Ok(())
 }
+test_both_backends!(test_sum_keepdim_3d, test_sum_keepdim_3d_impl);
 
-#[test]
-fn test_sum_keepdim_multiple_dims() -> Result<()> {
+fn test_sum_keepdim_multiple_dims_impl<B: Backend>(dev: &B) -> Result<()> {
     // [2, 3, 4] -> sum_keepdim([1, 2]) -> [2, 1, 1]
-    let a: CpuTensor<f32> =
-        Tensor::from_vec((1..=24).map(|x| x as f32).collect(), (2, 3, 4), &CPU)?;
+    let a: Tensor<f32, B> = Tensor::from_vec((1..=24).map(|x| x as f32).collect(), (2, 3, 4), dev)?;
     let b = a.sum_keepdim(vec![1, 2])?;
     assert_eq!(b.dims(), &[2, 1, 1]);
     // Batch 0: sum of 1..12 = 78
@@ -662,12 +719,16 @@ fn test_sum_keepdim_multiple_dims() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![78., 222.]);
     Ok(())
 }
+test_both_backends!(test_sum_keepdim_multiple_dims, test_sum_keepdim_multiple_dims_impl);
 
-#[test]
-fn test_slice_set_dim0() -> Result<()> {
+// =============================================================================
+// Slice set tests
+// =============================================================================
+
+fn test_slice_set_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: [4, 3], src: [2, 3], set at offset 1 along dim 0
-    let dst: CpuTensor<f32> = Tensor::zeros((4, 3), &CPU)?;
-    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+    let dst: Tensor<f32, B> = Tensor::zeros((4, 3), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
 
     dst.slice_set(&src, 0, 1)?;
     // Row 0: [0, 0, 0]
@@ -677,12 +738,12 @@ fn test_slice_set_dim0() -> Result<()> {
     assert_eq!(dst.to_vec()?, vec![0., 0., 0., 1., 2., 3., 4., 5., 6., 0., 0., 0.]);
     Ok(())
 }
+test_both_backends!(test_slice_set_dim0, test_slice_set_dim0_impl);
 
-#[test]
-fn test_slice_set_dim1() -> Result<()> {
+fn test_slice_set_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: [2, 6], src: [2, 3], set at offset 2 along dim 1
-    let dst: CpuTensor<f32> = Tensor::zeros((2, 6), &CPU)?;
-    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+    let dst: Tensor<f32, B> = Tensor::zeros((2, 6), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
 
     dst.slice_set(&src, 1, 2)?;
     // Row 0: [0, 0, 1, 2, 3, 0]
@@ -690,13 +751,13 @@ fn test_slice_set_dim1() -> Result<()> {
     assert_eq!(dst.to_vec()?, vec![0., 0., 1., 2., 3., 0., 0., 0., 4., 5., 6., 0.]);
     Ok(())
 }
+test_both_backends!(test_slice_set_dim1, test_slice_set_dim1_impl);
 
-#[test]
-fn test_slice_set_3d() -> Result<()> {
+fn test_slice_set_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: [2, 4, 3], src: [2, 2, 3], set at offset 1 along dim 1
-    let dst: CpuTensor<f32> = Tensor::zeros((2, 4, 3), &CPU)?;
-    let src: CpuTensor<f32> =
-        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), &CPU)?;
+    let dst: Tensor<f32, B> = Tensor::zeros((2, 4, 3), dev)?;
+    let src: Tensor<f32, B> =
+        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), dev)?;
 
     dst.slice_set(&src, 1, 1)?;
     // Batch 0: [[0,0,0], [1,2,3], [4,5,6], [0,0,0]]
@@ -710,36 +771,37 @@ fn test_slice_set_3d() -> Result<()> {
     );
     Ok(())
 }
+test_both_backends!(test_slice_set_3d, test_slice_set_3d_impl);
 
-#[test]
-fn test_slice_set_at_start() -> Result<()> {
+fn test_slice_set_at_start_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: [4, 2], src: [2, 2], set at offset 0
-    let dst: CpuTensor<f32> = Tensor::full(9., (4, 2), &CPU)?;
-    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), &CPU)?;
+    let dst: Tensor<f32, B> = Tensor::full(9., (4, 2), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), dev)?;
 
     dst.slice_set(&src, 0, 0)?;
     assert_eq!(dst.to_vec()?, vec![1., 2., 3., 4., 9., 9., 9., 9.]);
     Ok(())
 }
+test_both_backends!(test_slice_set_at_start, test_slice_set_at_start_impl);
 
-#[test]
-fn test_slice_set_at_end() -> Result<()> {
+fn test_slice_set_at_end_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: [4, 2], src: [2, 2], set at offset 2 (at the end)
-    let dst: CpuTensor<f32> = Tensor::full(9., (4, 2), &CPU)?;
-    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), &CPU)?;
+    let dst: Tensor<f32, B> = Tensor::full(9., (4, 2), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), dev)?;
 
     dst.slice_set(&src, 0, 2)?;
     assert_eq!(dst.to_vec()?, vec![9., 9., 9., 9., 1., 2., 3., 4.]);
     Ok(())
 }
+test_both_backends!(test_slice_set_at_end, test_slice_set_at_end_impl);
 
-#[test]
-fn test_slice_set_1d() -> Result<()> {
+fn test_slice_set_1d_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: [8], src: [3], set at offset 2
-    let dst: CpuTensor<f32> = Tensor::zeros((8,), &CPU)?;
-    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (3,), &CPU)?;
+    let dst: Tensor<f32, B> = Tensor::zeros((8,), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (3,), dev)?;
 
     dst.slice_set(&src, 0, 2)?;
     assert_eq!(dst.to_vec()?, vec![0., 0., 1., 2., 3., 0., 0., 0.]);
     Ok(())
 }
+test_both_backends!(test_slice_set_1d, test_slice_set_1d_impl);
