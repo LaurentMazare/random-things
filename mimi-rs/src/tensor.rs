@@ -329,4 +329,67 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         };
         Ok(tt)
     }
+
+    /// Set the values on `self` using values from `src`. The copy starts at the specified
+    /// `offset` for the target dimension `dim` on `self`.
+    ///
+    /// `self` and `src` must have the same shape except on dimension `dim` where the `self` size
+    /// has to be greater than or equal to `offset` plus the `src` size.
+    ///
+    /// Note that this modifies `self` in place.
+    #[tracing::instrument(skip_all)]
+    pub fn slice_set(&self, src: &Self, dim: impl Dim, offset: usize) -> Result<()> {
+        let dim = dim.to_index(self.shape(), "slice_set")?;
+
+        // Check that tensors don't share storage
+        if Arc::ptr_eq(&self.data, &src.data) {
+            crate::bail!("slice_set: cannot use when self and src share their storage");
+        }
+
+        // Check ranks match
+        if self.rank() != src.rank() {
+            crate::bail!(
+                "slice_set: rank mismatch, self has rank {} but src has rank {}",
+                self.rank(),
+                src.rank()
+            );
+        }
+
+        // Check shapes are compatible
+        for (dim_idx, (v1, v2)) in self.dims().iter().zip(src.dims().iter()).enumerate() {
+            if dim_idx == dim {
+                if *v2 + offset > *v1 {
+                    crate::bail!(
+                        "slice_set: shape mismatch on target dim {dim}, dst size: {v1}, src size: {v2} + offset {offset}"
+                    );
+                }
+            } else if v1 != v2 {
+                crate::bail!(
+                    "slice_set: shape mismatch on dim {dim_idx}, self has {v1} but src has {v2}"
+                );
+            }
+        }
+
+        // Compute copy parameters
+        let block_size: usize = src.dims().iter().skip(1 + dim).product::<usize>().max(1);
+        let d1: usize = src.dims().iter().take(dim).product::<usize>().max(1);
+        let d2 = block_size * src.dims()[dim];
+        let dst_o = offset * block_size;
+
+        // Perform the copy
+        let src_data = src.storage()?;
+        let mut dst_data = self.storage_mut()?;
+        B::copy2d(
+            &mut dst_data,
+            &*src_data,
+            d1,
+            d2,
+            /* dst_s */ block_size * self.dims()[dim],
+            /* src_s */ d2,
+            dst_o,
+            /* src_o */ 0,
+        )?;
+
+        Ok(())
+    }
 }

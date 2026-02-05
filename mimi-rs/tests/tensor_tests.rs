@@ -662,3 +662,84 @@ fn test_sum_keepdim_multiple_dims() -> Result<()> {
     assert_eq!(b.to_vec()?, vec![78., 222.]);
     Ok(())
 }
+
+#[test]
+fn test_slice_set_dim0() -> Result<()> {
+    // dst: [4, 3], src: [2, 3], set at offset 1 along dim 0
+    let dst: CpuTensor<f32> = Tensor::zeros((4, 3), &CPU)?;
+    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+
+    dst.slice_set(&src, 0, 1)?;
+    // Row 0: [0, 0, 0]
+    // Row 1: [1, 2, 3]
+    // Row 2: [4, 5, 6]
+    // Row 3: [0, 0, 0]
+    assert_eq!(dst.to_vec()?, vec![0., 0., 0., 1., 2., 3., 4., 5., 6., 0., 0., 0.]);
+    Ok(())
+}
+
+#[test]
+fn test_slice_set_dim1() -> Result<()> {
+    // dst: [2, 6], src: [2, 3], set at offset 2 along dim 1
+    let dst: CpuTensor<f32> = Tensor::zeros((2, 6), &CPU)?;
+    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), &CPU)?;
+
+    dst.slice_set(&src, 1, 2)?;
+    // Row 0: [0, 0, 1, 2, 3, 0]
+    // Row 1: [0, 0, 4, 5, 6, 0]
+    assert_eq!(dst.to_vec()?, vec![0., 0., 1., 2., 3., 0., 0., 0., 4., 5., 6., 0.]);
+    Ok(())
+}
+
+#[test]
+fn test_slice_set_3d() -> Result<()> {
+    // dst: [2, 4, 3], src: [2, 2, 3], set at offset 1 along dim 1
+    let dst: CpuTensor<f32> = Tensor::zeros((2, 4, 3), &CPU)?;
+    let src: CpuTensor<f32> =
+        Tensor::from_vec((1..=12).map(|x| x as f32).collect(), (2, 2, 3), &CPU)?;
+
+    dst.slice_set(&src, 1, 1)?;
+    // Batch 0: [[0,0,0], [1,2,3], [4,5,6], [0,0,0]]
+    // Batch 1: [[0,0,0], [7,8,9], [10,11,12], [0,0,0]]
+    assert_eq!(
+        dst.to_vec()?,
+        vec![
+            0., 0., 0., 1., 2., 3., 4., 5., 6., 0., 0., 0., // batch 0
+            0., 0., 0., 7., 8., 9., 10., 11., 12., 0., 0., 0. // batch 1
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn test_slice_set_at_start() -> Result<()> {
+    // dst: [4, 2], src: [2, 2], set at offset 0
+    let dst: CpuTensor<f32> = Tensor::full(9., (4, 2), &CPU)?;
+    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), &CPU)?;
+
+    dst.slice_set(&src, 0, 0)?;
+    assert_eq!(dst.to_vec()?, vec![1., 2., 3., 4., 9., 9., 9., 9.]);
+    Ok(())
+}
+
+#[test]
+fn test_slice_set_at_end() -> Result<()> {
+    // dst: [4, 2], src: [2, 2], set at offset 2 (at the end)
+    let dst: CpuTensor<f32> = Tensor::full(9., (4, 2), &CPU)?;
+    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 2), &CPU)?;
+
+    dst.slice_set(&src, 0, 2)?;
+    assert_eq!(dst.to_vec()?, vec![9., 9., 9., 9., 1., 2., 3., 4.]);
+    Ok(())
+}
+
+#[test]
+fn test_slice_set_1d() -> Result<()> {
+    // dst: [8], src: [3], set at offset 2
+    let dst: CpuTensor<f32> = Tensor::zeros((8,), &CPU)?;
+    let src: CpuTensor<f32> = Tensor::from_vec(vec![1., 2., 3.], (3,), &CPU)?;
+
+    dst.slice_set(&src, 0, 2)?;
+    assert_eq!(dst.to_vec()?, vec![0., 0., 1., 2., 3., 0., 0., 0.]);
+    Ok(())
+}
