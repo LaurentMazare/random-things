@@ -93,7 +93,7 @@ fn main() -> Result<()> {
                         )
                         .unwrap();
                         let b = a.transpose(0, 1).unwrap();
-                        let r = b.to_vec().unwrap();
+                        let r = b.contiguous().unwrap().to_vec().unwrap();
                         if r != vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0] {
                             return Err(format!("transpose: {:?}", r));
                         }

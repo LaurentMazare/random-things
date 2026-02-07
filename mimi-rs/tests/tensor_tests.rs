@@ -812,16 +812,17 @@ test_both_backends!(test_slice_set_1d, test_slice_set_1d_impl);
 
 fn test_scatter_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
     // dst: 3x3 zeros, scatter src values into dst along dim 0
+    // Each (column, target row) pair is unique to avoid non-determinism with parallel writes.
     let dst: Tensor<f32, B> = Tensor::zeros((3, 3), dev)?;
     let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
-    let ids: Tensor<i64, B> = Tensor::from_vec(vec![0i64, 2, 1, 2, 0, 1], (2, 3), dev)?;
+    let ids: Tensor<i64, B> = Tensor::from_vec(vec![0i64, 2, 1, 2, 0, 0], (2, 3), dev)?;
 
     let result = dst.scatter(&ids, &src, 0)?;
     assert_eq!(result.dims(), &[3, 3]);
-    // Row 0 gets src[0][0]=1 and src[1][1]=5 -> [1, 0, 0] then [1, 5, 0]
-    // Row 1 gets src[0][2]=3 and src[1][2]=6 -> [0, 0, 3] then [0, 0, 6]
-    // Row 2 gets src[0][1]=2 and src[1][0]=4 -> [0, 2, 0] then [4, 2, 0]
-    assert_eq!(result.to_vec()?, vec![1., 5., 0., 0., 0., 6., 4., 2., 0.]);
+    // Col 0: src[0][0]=1 -> row 0, src[1][0]=4 -> row 2
+    // Col 1: src[0][1]=2 -> row 2, src[1][1]=5 -> row 0
+    // Col 2: src[0][2]=3 -> row 1, src[1][2]=6 -> row 0
+    assert_eq!(result.to_vec()?, vec![1., 5., 6., 0., 0., 3., 4., 2., 0.]);
     Ok(())
 }
 test_both_backends!(test_scatter_dim0, test_scatter_dim0_impl);
