@@ -32,6 +32,73 @@ fn coalesce_dims(dims: &[usize], strides: &[usize]) -> (Vec<usize>, Vec<usize>) 
     (c_dims, c_strides)
 }
 
+/// Try to compute strides for a reshaped view without copying.
+///
+/// Handles two cases beyond fully contiguous:
+/// - Splitting one dimension into two: `old_dims[i]` matches `new_dims[j] * new_dims[j+1]` and
+///   the rest of the dimensions are identical.
+/// - Merging two adjacent dimensions: `old_dims[i] * old_dims[i+1]` matches `new_dims[j]`,
+///   requires `old_strides[i] == old_dims[i+1] * old_strides[i+1]`.
+fn reshape_strides(
+    old_dims: &[usize],
+    old_strides: &[usize],
+    new_dims: &[usize],
+) -> Option<Vec<usize>> {
+    let old_rank = old_dims.len();
+    let new_rank = new_dims.len();
+
+    // Split: new_rank == old_rank + 1, one old dim becomes two new dims.
+    if new_rank == old_rank + 1 {
+        for i in 0..old_rank {
+            // Try splitting old dim i into new dims i and i+1.
+            if old_dims[i] != new_dims[i] {
+                if old_dims[i] != new_dims[i] * new_dims[i + 1] {
+                    return None;
+                }
+                // Remaining dims must match.
+                if old_dims[..i] != new_dims[..i] || old_dims[i + 1..] != new_dims[i + 2..] {
+                    return None;
+                }
+                let mut new_strides = Vec::with_capacity(new_rank);
+                new_strides.extend_from_slice(&old_strides[..i]);
+                new_strides.push(new_dims[i + 1] * old_strides[i]);
+                new_strides.push(old_strides[i]);
+                new_strides.extend_from_slice(&old_strides[i + 1..]);
+                return Some(new_strides);
+            }
+        }
+        // Difference is at the end — shouldn't happen if elem counts match.
+        return None;
+    }
+
+    // Merge: new_rank == old_rank - 1, two adjacent old dims become one new dim.
+    if new_rank + 1 == old_rank {
+        for i in 0..new_rank {
+            if new_dims[i] != old_dims[i] {
+                if i + 1 >= old_rank || new_dims[i] != old_dims[i] * old_dims[i + 1] {
+                    return None;
+                }
+                // Check stride compatibility.
+                if old_strides[i] != old_dims[i + 1] * old_strides[i + 1] {
+                    return None;
+                }
+                // Remaining dims must match.
+                if new_dims[..i] != old_dims[..i] || new_dims[i + 1..] != old_dims[i + 2..] {
+                    return None;
+                }
+                let mut new_strides = Vec::with_capacity(new_rank);
+                new_strides.extend_from_slice(&old_strides[..i]);
+                new_strides.push(old_strides[i + 1]);
+                new_strides.extend_from_slice(&old_strides[i + 2..]);
+                return Some(new_strides);
+            }
+        }
+        return None;
+    }
+
+    None
+}
+
 #[derive(Clone)]
 pub struct TensorView<T: WithDType, B: Backend> {
     pub(crate) data: Arc<RwLock<B::Storage<T>>>,
@@ -288,6 +355,29 @@ impl<T: WithDType, B: Backend> TensorView<T, B> {
             start_offset: self.start_offset,
             device: self.device.clone(),
         })
+    }
+
+    pub fn reshape(&self, shape: impl crate::shape::ShapeWithOneHole) -> Result<Self> {
+        let shape = shape.into_shape(self.elem_count())?;
+        if shape.elem_count() != self.elem_count() {
+            crate::bail!(
+                "reshape: cannot reshape tensor of {} elements to shape {:?} ({} elements)",
+                self.elem_count(),
+                shape,
+                shape.elem_count()
+            );
+        }
+        if let Some(new_strides) = reshape_strides(self.dims(), &self.strides, shape.dims()) {
+            return Ok(Self {
+                data: self.data.clone(),
+                shape,
+                strides: new_strides,
+                start_offset: self.start_offset,
+                device: self.device.clone(),
+            });
+        }
+        let t = self.contiguous()?;
+        TensorView::from(t).reshape(shape)
     }
 }
 

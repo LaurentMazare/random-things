@@ -1327,17 +1327,22 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
             qkv = qkv.broadcast_add(bias)?;
         }
 
-        // Split into Q, K, V
-        // qkv shape: [b, t, 3 * num_heads * head_dim]
         let d_model = self.num_heads * self.head_dim;
-        let q = qkv.narrow(2, ..d_model)?.contiguous()?;
-        let k = qkv.narrow(2, d_model..2 * d_model)?.contiguous()?;
-        let v = qkv.narrow(2, 2 * d_model..3 * d_model)?.contiguous()?;
-
-        // Reshape to [b, t, num_heads, head_dim] then transpose to [b, num_heads, t, head_dim]
-        let q = q.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?.contiguous()?;
-        let k = k.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?.contiguous()?;
-        let v = v.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?.contiguous()?;
+        let q = qkv
+            .narrow(2, ..d_model)?
+            .reshape((b, t, self.num_heads, self.head_dim))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let k = qkv
+            .narrow(2, d_model..2 * d_model)?
+            .reshape((b, t, self.num_heads, self.head_dim))?
+            .transpose(1, 2)?
+            .contiguous()?;
+        let v = qkv
+            .narrow(2, 2 * d_model..3 * d_model)?
+            .reshape((b, t, self.num_heads, self.head_dim))?
+            .transpose(1, 2)?
+            .contiguous()?;
 
         // Apply rotary embeddings
         let (q, k) = if let Some(rope) = rope {
@@ -1365,14 +1370,11 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let attn_output = attn_weights.matmul(&v)?;
 
         // Reshape back: [b, num_heads, t, head_dim] -> [b, t, num_heads, head_dim] -> [b, t, d_model]
-        let attn_output = attn_output.transpose(1, 2)?.contiguous()?.reshape((
-            b,
-            t,
-            self.num_heads * self.head_dim,
-        ))?;
+        let attn_output =
+            attn_output.transpose(1, 2)?.reshape((b, t, self.num_heads * self.head_dim))?;
 
         // Output projection
-        let mut out = attn_output.matmul_t(&self.out_proj_weight)?;
+        let mut out = crate::ops::matmul_t(&attn_output, &self.out_proj_weight)?;
         if let Some(bias) = &self.out_proj_bias {
             out = out.broadcast_add(bias)?;
         }
