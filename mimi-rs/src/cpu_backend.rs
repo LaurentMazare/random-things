@@ -389,6 +389,10 @@ impl crate::Backend for crate::CpuDevice {
     ) -> Result<()> {
         let rank = dims.len();
         let total: usize = dims.iter().product();
+        if rank == 1 && src_strides[0] == 1 {
+            dst[..total].copy_from_slice(&src[src_offset..src_offset + total]);
+            return Ok(());
+        }
         let mut index = vec![0usize; rank];
         for dst_elem in dst.iter_mut().take(total) {
             let mut src_idx = src_offset;

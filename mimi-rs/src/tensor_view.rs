@@ -3,6 +3,35 @@ use crate::{Backend, Shape, Tensor, WithDType, shape::Dim};
 use std::ops::RangeBounds;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
+/// Merge adjacent compatible dimensions to reduce per-element index computation in copy_strided.
+///
+/// Two adjacent dims can merge when `strides[i] == dims[i+1] * strides[i+1]`.
+/// Size-1 dims are dropped since the index is always 0.
+fn coalesce_dims(dims: &[usize], strides: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    let mut c_dims: Vec<usize> = Vec::with_capacity(dims.len());
+    let mut c_strides: Vec<usize> = Vec::with_capacity(strides.len());
+    for (&d, &s) in dims.iter().zip(strides.iter()) {
+        if d == 1 {
+            continue;
+        }
+        if let Some(last_s) = c_strides.last_mut() {
+            let last_d = c_dims.last_mut().unwrap();
+            if *last_s == d * s {
+                *last_d *= d;
+                *last_s = s;
+                continue;
+            }
+        }
+        c_dims.push(d);
+        c_strides.push(s);
+    }
+    if c_dims.is_empty() {
+        c_dims.push(1);
+        c_strides.push(1);
+    }
+    (c_dims, c_strides)
+}
+
 #[derive(Clone)]
 pub struct TensorView<T: WithDType, B: Backend> {
     pub(crate) data: Arc<RwLock<B::Storage<T>>>,
@@ -183,13 +212,8 @@ impl<T: WithDType, B: Backend> TensorView<T, B> {
                 crate::Error::msg(format!("failed to borrow tensor storage immutably: {}", e))
             })?;
             let mut dst_data = result.storage_mut()?;
-            B::copy_strided(
-                &mut dst_data,
-                &*src_data,
-                self.start_offset,
-                self.dims(),
-                &self.strides,
-            )?;
+            let (c_dims, c_strides) = coalesce_dims(self.dims(), &self.strides);
+            B::copy_strided(&mut dst_data, &*src_data, self.start_offset, &c_dims, &c_strides)?;
         }
         Ok(result)
     }
