@@ -392,4 +392,29 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
         Ok(())
     }
+    pub fn slice_assign<D: Dim>(&self, src: &Self, dim: D, offset: usize) -> Result<()> {
+        let dim = dim.to_index(self.shape(), "slice-set")?;
+        if self.rank() != src.rank() {
+            crate::bail!("rank mismatch in slice_assign {} <> {}", self.rank(), src.rank())
+        }
+        for (dim_idx, (v1, v2)) in self.dims().iter().zip(src.dims().iter()).enumerate() {
+            if dim_idx == dim && *v2 + offset > *v1 {
+                crate::bail!("shape mismatch on target dim, dst: {v1}, src: {v2} + {offset}")
+            }
+            if dim_idx != dim && v1 != v2 {
+                crate::bail!("shape mismatch on dim {dim_idx}, {v1} <> {v2}")
+            }
+        }
+        let block_size: usize = src.dims().iter().skip(1 + dim).product();
+        let d1: usize = src.dims().iter().take(dim).product();
+        let d2 = block_size * src.dims()[dim];
+        let dst_o = offset * block_size;
+        let src_o = 0;
+        let dst_s = block_size * self.dims()[dim];
+        let src_s = d2;
+        let src_data = src.storage()?;
+        let mut dst_data = self.storage_mut()?;
+        B::copy2d(&mut dst_data, &*src_data, d1, d2, dst_s, src_s, dst_o, src_o)?;
+        Ok(())
+    }
 }
