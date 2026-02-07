@@ -393,6 +393,31 @@ impl crate::Backend for crate::CpuDevice {
             dst[..total].copy_from_slice(&src[src_offset..src_offset + total]);
             return Ok(());
         }
+        if rank >= 2 && src_strides[rank - 1] == 1 {
+            let inner = dims[rank - 1];
+            let outer: usize = dims[..rank - 1].iter().product();
+            let outer_strides = &src_strides[..rank - 1];
+            let outer_dims = &dims[..rank - 1];
+            let outer_rank = rank - 1;
+            let mut index = vec![0usize; outer_rank];
+            for i in 0..outer {
+                let mut src_idx = src_offset;
+                for d in 0..outer_rank {
+                    src_idx += index[d] * outer_strides[d];
+                }
+                let dst_off = i * inner;
+                dst[dst_off..dst_off + inner]
+                    .copy_from_slice(&src[src_idx..src_idx + inner]);
+                for d in (0..outer_rank).rev() {
+                    index[d] += 1;
+                    if index[d] < outer_dims[d] {
+                        break;
+                    }
+                    index[d] = 0;
+                }
+            }
+            return Ok(());
+        }
         let mut index = vec![0usize; rank];
         for dst_elem in dst.iter_mut().take(total) {
             let mut src_idx = src_offset;
