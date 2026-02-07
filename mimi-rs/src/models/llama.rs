@@ -141,6 +141,7 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         Ok(Self::new(q_proj, k_proj, v_proj, o_proj, num_heads, num_kv_heads, head_dim))
     }
 
+    #[tracing::instrument(name = "attn", skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -251,6 +252,7 @@ impl<T: WithDTypeF, B: Backend> Mlp<T, B> {
         Ok(Self::new(gate_proj, up_proj, down_proj))
     }
 
+    #[tracing::instrument(name = "mlp", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // SwiGLU: down_proj(silu(gate_proj(x)) * up_proj(x))
         let gate = self.gate_proj.forward(x)?;
@@ -292,6 +294,7 @@ impl<T: WithDTypeF, B: Backend> TransformerBlock<T, B> {
         Ok(Self::new(attn, mlp, input_layernorm, post_attention_layernorm))
     }
 
+    #[tracing::instrument(name = "transformer-block", skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -369,6 +372,7 @@ impl<T: WithDTypeF, B: Backend> Llama<T, B> {
         Ok(Self::new(embed_tokens, layers, norm, lm_head, cos_cache, sin_cache))
     }
 
+    #[tracing::instrument(name = "llama-forward", skip_all)]
     pub fn forward(
         &self,
         tokens: &[u32],
