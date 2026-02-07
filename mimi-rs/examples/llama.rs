@@ -68,6 +68,10 @@ struct Args {
     /// Verbose output (show tensor loading)
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
+
+    /// Enable chrome tracing (writes trace-*.json)
+    #[arg(long)]
+    chrome_tracing: bool,
 }
 
 struct ModelFiles {
@@ -181,8 +185,18 @@ fn sample_token<B: Backend>(
     }
 }
 
+fn init_tracing() -> tracing_chrome::FlushGuard {
+    use tracing_chrome::ChromeLayerBuilder;
+    use tracing_subscriber::{prelude::*, registry::Registry};
+
+    let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
+    Registry::default().with(chrome_layer).init();
+    guard
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
+    let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
     #[cfg(feature = "cuda")]
     {
         if args.cpu {
