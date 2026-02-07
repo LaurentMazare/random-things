@@ -9,6 +9,7 @@ pub mod nn;
 pub mod ops;
 pub mod shape;
 pub mod tensor;
+pub mod tensor_view;
 pub mod utils;
 
 pub use backend::Backend;
