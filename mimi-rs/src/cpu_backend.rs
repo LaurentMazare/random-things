@@ -380,6 +380,32 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
+    fn scatter_set<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        ids: &Self::Storage<i64>,
+        dim: usize,
+        dst_dims: &[usize],
+        src_dims: &[usize],
+    ) -> Result<()> {
+        let left_size: usize = src_dims[..dim].iter().product();
+        let right_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        let src_dim_size = src_dims[dim];
+        let dst_dim_size = dst_dims[dim];
+
+        for left in 0..left_size {
+            for i in 0..src_dim_size {
+                for right in 0..right_size {
+                    let src_flat = left * src_dim_size * right_size + i * right_size + right;
+                    let idx = ids[src_flat] as usize;
+                    let dst_flat = left * dst_dim_size * right_size + idx * right_size + right;
+                    dst[dst_flat] = src[src_flat];
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn index_select<T: WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

@@ -823,6 +823,41 @@ impl crate::Backend for Device {
         }
     }
 
+    fn scatter_set<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        ids: &Self::Storage<i64>,
+        dim: usize,
+        dst_dims: &[usize],
+        src_dims: &[usize],
+    ) -> Result<()> {
+        let right_size: usize = src_dims[dim + 1..].iter().product::<usize>().max(1);
+        let src_dim_size = src_dims[dim];
+        let dst_dim_size = dst_dims[dim];
+        let numel: usize = src_dims.iter().product();
+
+        let kname = kernel_name::<T>("scatter_set");
+        let func = dst.device.get_func(&kname, PTXModule::Indexing)?;
+
+        let cfg = LaunchConfig::for_num_elems(numel as u32);
+        let numel_i32 = numel as i32;
+        let right_size_i32 = right_size as i32;
+        let src_dim_size_i32 = src_dim_size as i32;
+        let dst_dim_size_i32 = dst_dim_size as i32;
+
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&mut dst.data);
+        launch_args.arg(&src.data);
+        launch_args.arg(&ids.data);
+        launch_args.arg(&numel_i32);
+        launch_args.arg(&right_size_i32);
+        launch_args.arg(&src_dim_size_i32);
+        launch_args.arg(&dst_dim_size_i32);
+        unsafe { launch_args.launch(cfg) }?;
+
+        Ok(())
+    }
+
     fn index_select<T: WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

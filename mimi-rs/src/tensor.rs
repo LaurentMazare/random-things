@@ -1,4 +1,4 @@
-use crate::{Backend, DType, Result, Shape, WithDType, shape::Dim};
+use crate::{Backend, DType, Error, Result, Shape, WithDType, shape::Dim};
 use std::sync::{Arc, RwLock};
 
 impl<T: WithDType, B: Backend> Clone for Tensor<T, B> {
@@ -419,6 +419,82 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         let src_data = src.storage()?;
         let mut dst_data = self.storage_mut()?;
         B::copy2d(&mut dst_data, &*src_data, d1, d2, dst_s, src_s, dst_o, src_o)?;
+        Ok(())
+    }
+
+    pub(crate) fn same_storage(&self, rhs: &Self) -> bool {
+        let lhs: &RwLock<_> = self.data.as_ref();
+        let rhs: &RwLock<_> = rhs.data.as_ref();
+        std::ptr::eq(lhs, rhs)
+    }
+
+    fn scatter_checks(&self, indexes: &Tensor<i64, B>, source: &Self, dim: usize) -> Result<()> {
+        let source_dims = source.dims();
+        let self_dims = self.dims();
+        let mismatch = if source_dims.len() != self_dims.len() {
+            true
+        } else {
+            let mut mismatch = false;
+            for (i, (&d1, &d2)) in self_dims.iter().zip(source_dims.iter()).enumerate() {
+                if i != dim && d1 != d2 {
+                    mismatch = true;
+                    break;
+                }
+            }
+            mismatch
+        };
+        if mismatch {
+            Err(Error::ShapeMismatchBinaryOp {
+                op: "scatter (self, src)",
+                lhs: self.shape().clone(),
+                rhs: source.shape().clone(),
+            }
+            .bt())?
+        }
+        if indexes.dims() != source.dims() {
+            Err(Error::ShapeMismatchBinaryOp {
+                op: "scatter (indexes, src)",
+                lhs: indexes.shape().clone(),
+                rhs: source.shape().clone(),
+            }
+            .bt())?
+        }
+        Ok(())
+    }
+
+    pub fn scatter<D: Dim>(&self, indexes: &Tensor<i64, B>, source: &Self, dim: D) -> Result<Self> {
+        let dim = dim.to_index(self.shape(), "scatter")?;
+        self.scatter_checks(indexes, source, dim)?;
+        let result: Self = unsafe { Tensor::alloc_uninit(self.shape().clone(), &self.device) }?;
+        {
+            let src_data = self.storage()?;
+            let mut dst_data = result.storage_mut()?;
+            B::copy(&mut dst_data, &*src_data, self.elem_count())?;
+        }
+        {
+            let mut dst_data = result.storage_mut()?;
+            let src_data = source.storage()?;
+            let ids_data = indexes.storage()?;
+            B::scatter_set(&mut dst_data, &*src_data, &*ids_data, dim, self.dims(), source.dims())?;
+        }
+        Ok(result)
+    }
+
+    pub fn scatter_set<D: Dim>(
+        &self,
+        indexes: &Tensor<i64, B>,
+        source: &Self,
+        dim: D,
+    ) -> Result<()> {
+        if self.same_storage(source) {
+            crate::bail!("cannot use scatter_set when self and src share their storage")
+        }
+        let dim = dim.to_index(self.shape(), "scatter-set")?;
+        self.scatter_checks(indexes, source, dim)?;
+        let mut dst_data = self.storage_mut()?;
+        let src_data = source.storage()?;
+        let ids_data = indexes.storage()?;
+        B::scatter_set(&mut dst_data, &*src_data, &*ids_data, dim, self.dims(), source.dims())?;
         Ok(())
     }
 }

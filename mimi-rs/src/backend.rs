@@ -224,6 +224,19 @@ pub trait Backend: Sized + Clone + 'static {
         inner_size: usize,
     ) -> Result<()>;
 
+    /// Scatter set operation.
+    /// For each element position in src/ids (which share the same shape `src_dims`):
+    ///   dst[..., ids[pos], ...] = src[pos]
+    /// where the ids value replaces the coordinate at dimension `dim`.
+    fn scatter_set<T: crate::WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        ids: &Self::Storage<i64>,
+        dim: usize,
+        dst_dims: &[usize],
+        src_dims: &[usize],
+    ) -> Result<()>;
+
     /// Broadcast binary operation
     /// lhs_strides and rhs_strides have 0 for broadcast dimensions.
     fn broadcast_binary<T: crate::WithDType>(

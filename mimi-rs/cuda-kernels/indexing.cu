@@ -79,3 +79,45 @@ CAUSALITY_MASK_OP(__half, causality_mask_f16)
 #endif
 CAUSALITY_MASK_OP(float, causality_mask_f32)
 CAUSALITY_MASK_OP(double, causality_mask_f64)
+
+// Scatter set kernel
+// For each element in src (indexed by flat position):
+//   dst[left * dst_dim_size * right_size + ids[pos] * right_size + right] = src[pos]
+template<typename T>
+__device__ void scatter_set(
+    T *dst,
+    const T *src,
+    const int64_t *ids,
+    const int32_t numel,
+    const int32_t right_size,
+    const int32_t src_dim_size,
+    const int32_t dst_dim_size
+) {
+    int32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= numel) return;
+
+    int32_t right = i % right_size;
+    int32_t left = i / (right_size * src_dim_size);
+    int64_t idx = ids[i];
+    int32_t dst_offset = left * dst_dim_size * right_size + (int32_t)idx * right_size + right;
+    dst[dst_offset] = src[i];
+}
+
+#define SCATTER_SET_OP(TYPENAME, FN_NAME) \
+extern "C" __global__ void FN_NAME( \
+    TYPENAME *dst, \
+    const TYPENAME *src, \
+    const int64_t *ids, \
+    const int32_t numel, \
+    const int32_t right_size, \
+    const int32_t src_dim_size, \
+    const int32_t dst_dim_size \
+) { scatter_set(dst, src, ids, numel, right_size, src_dim_size, dst_dim_size); }
+
+#if __CUDA_ARCH__ >= 800
+SCATTER_SET_OP(__nv_bfloat16, scatter_set_bf16)
+#endif
+#if __CUDA_ARCH__ >= 530
+SCATTER_SET_OP(__half, scatter_set_f16)
+#endif
+SCATTER_SET_OP(float, scatter_set_f32)

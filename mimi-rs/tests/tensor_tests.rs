@@ -805,3 +805,70 @@ fn test_slice_set_1d_impl<B: Backend>(dev: &B) -> Result<()> {
     Ok(())
 }
 test_both_backends!(test_slice_set_1d, test_slice_set_1d_impl);
+
+// =============================================================================
+// Scatter tests
+// =============================================================================
+
+fn test_scatter_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
+    // dst: 3x3 zeros, scatter src values into dst along dim 0
+    let dst: Tensor<f32, B> = Tensor::zeros((3, 3), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let ids: Tensor<i64, B> = Tensor::from_vec(vec![0i64, 2, 1, 2, 0, 1], (2, 3), dev)?;
+
+    let result = dst.scatter(&ids, &src, 0)?;
+    assert_eq!(result.dims(), &[3, 3]);
+    // Row 0 gets src[0][0]=1 and src[1][1]=5 -> [1, 0, 0] then [1, 5, 0]
+    // Row 1 gets src[0][2]=3 and src[1][2]=6 -> [0, 0, 3] then [0, 0, 6]
+    // Row 2 gets src[0][1]=2 and src[1][0]=4 -> [0, 2, 0] then [4, 2, 0]
+    assert_eq!(result.to_vec()?, vec![1., 5., 0., 0., 0., 6., 4., 2., 0.]);
+    Ok(())
+}
+test_both_backends!(test_scatter_dim0, test_scatter_dim0_impl);
+
+fn test_scatter_dim1_impl<B: Backend>(dev: &B) -> Result<()> {
+    // dst: 2x4 zeros, scatter src into dst along dim 1
+    let dst: Tensor<f32, B> = Tensor::zeros((2, 4), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let ids: Tensor<i64, B> = Tensor::from_vec(vec![3i64, 0, 1, 2, 3, 0], (2, 3), dev)?;
+
+    let result = dst.scatter(&ids, &src, 1)?;
+    assert_eq!(result.dims(), &[2, 4]);
+    // Row 0: col3=1, col0=2, col1=3 -> [2, 3, 0, 1]
+    // Row 1: col2=4, col3=5, col0=6 -> [6, 0, 4, 5]
+    assert_eq!(result.to_vec()?, vec![2., 3., 0., 1., 6., 0., 4., 5.]);
+    Ok(())
+}
+test_both_backends!(test_scatter_dim1, test_scatter_dim1_impl);
+
+fn test_scatter_set_dim0_impl<B: Backend>(dev: &B) -> Result<()> {
+    // In-place scatter_set
+    let dst: Tensor<f32, B> =
+        Tensor::from_vec(vec![10., 20., 30., 40., 50., 60., 70., 80., 90.], (3, 3), dev)?;
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (1, 3), dev)?;
+    let ids: Tensor<i64, B> = Tensor::from_vec(vec![2i64, 0, 1], (1, 3), dev)?;
+
+    dst.scatter_set(&ids, &src, 0)?;
+    // Row 2 col 0 = 1, Row 0 col 1 = 2, Row 1 col 2 = 3
+    assert_eq!(dst.to_vec()?, vec![10., 2., 30., 40., 50., 3., 1., 80., 90.]);
+    Ok(())
+}
+test_both_backends!(test_scatter_set_dim0, test_scatter_set_dim0_impl);
+
+fn test_scatter_3d_impl<B: Backend>(dev: &B) -> Result<()> {
+    // 3D scatter along dim 1
+    // dst: (2, 3, 2) zeros
+    let dst: Tensor<f32, B> = Tensor::zeros((2, 3, 2), dev)?;
+    // src: (2, 1, 2)
+    let src: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4.], (2, 1, 2), dev)?;
+    // ids: (2, 1, 2) - scatter along dim 1
+    let ids: Tensor<i64, B> = Tensor::from_vec(vec![2i64, 0, 1, 2], (2, 1, 2), dev)?;
+
+    let result = dst.scatter(&ids, &src, 1)?;
+    assert_eq!(result.dims(), &[2, 3, 2]);
+    // Batch 0: dst[0][2][0]=1, dst[0][0][1]=2
+    // Batch 1: dst[1][1][0]=3, dst[1][2][1]=4
+    assert_eq!(result.to_vec()?, vec![0., 2., 0., 0., 1., 0., 0., 0., 3., 0., 0., 4.]);
+    Ok(())
+}
+test_both_backends!(test_scatter_3d, test_scatter_3d_impl);
