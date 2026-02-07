@@ -905,7 +905,7 @@ fn test_broadcast_as_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     let view = t.broadcast_as((2, 4, 3))?;
     assert_eq!(view.dims(), &[2, 4, 3]);
     let result = view.contiguous()?;
-    let expected: Vec<f32> = vec![1., 2., 3.].repeat(8);
+    let expected: Vec<f32> = [1., 2., 3.].repeat(8);
     assert_eq!(result.to_vec()?, expected);
     Ok(())
 }
