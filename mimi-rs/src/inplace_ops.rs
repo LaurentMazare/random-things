@@ -350,25 +350,30 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
             );
         }
 
-        // For row-major contiguous tensors, gemm strides:
-        // - cs = column stride (moving to next column in same row) = 1 for row-major
-        // - rs = row stride (moving to next row in same column) = num_cols for row-major
-        // - dst: m×n, cs = 1, rs = n
-        // - lhs: m×k, cs = 1, rs = k
-        // - rhs: k×n (or n×k if transposed), cs = 1, rs = n (or swapped if transposed)
+        // Use actual strides from the TensorOrView to support non-contiguous inputs
+        // (e.g. transposed views passed directly to matmul).
+        let lhs_s = lhs.strides();
+        let rhs_s = rhs.strides();
+
         let (dst_cs, dst_rs) = (1, n);
-        let (lhs_cs, lhs_rs) = (1, lhs_k);
+        let lhs_cs = lhs_s[lhs_s.len() - 1];
+        let lhs_rs = lhs_s[lhs_s.len() - 2];
         let (rhs_cs, rhs_rs) = if rhs_t {
-            // rhs is stored as n×k but we want k×n, swap strides
-            // Original: cs=1, rs=k. After transpose: cs=k, rs=1
-            (rhs_dims[rhs_dims.len() - 1], 1)
+            // rhs is stored as (..., n, k) but gemm reads it as (k, n):
+            // row stride (along k) = stride of last dim, col stride (along n) = stride of second-to-last
+            (rhs_s[rhs_s.len() - 2], rhs_s[rhs_s.len() - 1])
         } else {
-            (1, rhs_n)
+            (rhs_s[rhs_s.len() - 1], rhs_s[rhs_s.len() - 2])
         };
 
-        // rhs matrix size for batch stride
-        let rhs_mat_size = rhs_dims[rhs_dims.len() - 2] * rhs_dims[rhs_dims.len() - 1];
-        let b_stride = if rhs_batch == 1 { 0 } else { rhs_mat_size };
+        let lhs_b_stride = if lhs_s.len() >= 3 { lhs_s[lhs_s.len() - 3] } else { m * k };
+        let rhs_b_stride = if rhs_batch == 1 {
+            0
+        } else if rhs_s.len() >= 3 {
+            rhs_s[rhs_s.len() - 3]
+        } else {
+            rhs_dims[rhs_dims.len() - 2] * rhs_dims[rhs_dims.len() - 1]
+        };
 
         let mut dst = self.storage_mut()?;
         let (lhs_data, lhs_o) = lhs.storage_and_offset()?;
@@ -381,7 +386,8 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
             n,
             k,
             lhs_batch,
-            b_stride,
+            lhs_b_stride,
+            rhs_b_stride,
             (dst_cs, dst_rs),
             (lhs_cs, lhs_rs),
             (rhs_cs, rhs_rs),

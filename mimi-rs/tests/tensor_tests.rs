@@ -941,3 +941,35 @@ fn test_broadcast_as_error_impl<B: Backend>(dev: &B) -> Result<()> {
     Ok(())
 }
 test_both_backends!(test_broadcast_as_error, test_broadcast_as_error_impl);
+
+// =============================================================================
+// Matmul with transposed view tests
+// =============================================================================
+
+fn test_matmul_transposed_view_impl<B: Backend>(dev: &B) -> Result<()> {
+    // Simulate the attention pattern: Q @ K^T where K^T is a transposed TensorView.
+    // Shape: Q is (1, 2, 3, 4), K is (1, 2, 3, 4), K^T via transpose(2,3) is (1, 2, 4, 3).
+    // Result should be (1, 2, 3, 3).
+    let q_data: Vec<f32> = (0..24).map(|i| i as f32).collect();
+    let k_data: Vec<f32> = (0..24).map(|i| (i as f32) * 0.1).collect();
+    let q: Tensor<f32, B> = Tensor::from_vec(q_data, (1, 2, 3, 4), dev)?;
+    let k: Tensor<f32, B> = Tensor::from_vec(k_data.clone(), (1, 2, 3, 4), dev)?;
+
+    // Method 1: matmul with a transposed view (zero-copy transpose)
+    let k_t_view = k.transpose(2, 3)?;
+    let result_view = q.matmul(&k_t_view)?;
+
+    // Method 2: matmul_t with the original K (the old reliable way)
+    let k2: Tensor<f32, B> = Tensor::from_vec(k_data, (1, 2, 3, 4), dev)?;
+    let result_matmul_t = q.matmul_t(&k2)?;
+
+    // Both should produce the same result.
+    let v1 = result_view.to_vec()?;
+    let v2 = result_matmul_t.to_vec()?;
+    assert_eq!(v1.len(), v2.len());
+    for (a, b) in v1.iter().zip(v2.iter()) {
+        assert!((a - b).abs() < 1e-4, "mismatch: {a} vs {b}");
+    }
+    Ok(())
+}
+test_both_backends!(test_matmul_transposed_view, test_matmul_transposed_view_impl);

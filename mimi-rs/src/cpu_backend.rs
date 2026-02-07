@@ -379,7 +379,8 @@ impl crate::Backend for crate::CpuDevice {
         n: usize,
         k: usize,
         lhs_b: usize,
-        b_stride: usize,
+        lhs_b_stride: usize,
+        rhs_b_stride: usize,
         (dst_cs, dst_rs): (usize, usize),
         (lhs_cs, lhs_rs): (usize, usize),
         (rhs_cs, rhs_rs): (usize, usize),
@@ -388,8 +389,8 @@ impl crate::Backend for crate::CpuDevice {
         let rhs = &rhs[rhs_o..];
         for b_idx in 0..lhs_b {
             let dst = &mut dst[b_idx * m * n..(b_idx + 1) * m * n];
-            let lhs = &lhs[b_idx * m * k..(b_idx + 1) * m * k];
-            let rhs = &rhs[b_idx * b_stride..];
+            let lhs = &lhs[b_idx * lhs_b_stride..];
+            let rhs = &rhs[b_idx * rhs_b_stride..];
             unsafe {
                 gemm::gemm(
                     /* m: usize = */ m,
