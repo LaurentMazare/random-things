@@ -215,7 +215,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     for frame_idx in 0..total_code_frames {
         // Extract single frame: [B, n_q, 1]
-        let codes_frame = all_codes.narrow(2, frame_idx..frame_idx + 1)?;
+        let codes_frame = all_codes.narrow(2, frame_idx..frame_idx + 1)?.contiguous()?;
         let codes_stream: StreamTensor<i64, Dev> = StreamTensor::from_tensor(codes_frame);
 
         let decoded_stream = model.decode_step(&codes_stream, &mask)?;
@@ -241,7 +241,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     println!("  Decoded shape: {:?}", decoded_audio.dims());
 
     // Extract PCM data from first batch element only
-    let decoded_audio = decoded_audio.narrow(0, ..1)?; // [1, 1, time]
+    let decoded_audio = decoded_audio.narrow(0, ..1)?.contiguous()?; // [1, 1, time]
     let decoded_pcm = decoded_audio.to_vec()?;
 
     // Trim to original length (remove padding)

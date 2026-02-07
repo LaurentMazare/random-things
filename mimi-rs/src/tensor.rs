@@ -142,45 +142,11 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Extract a slice of the tensor along a given dimension.
+    /// Returns a `TensorView` (zero-copy). Call `.contiguous()?` on the result
+    /// if you need a contiguous `Tensor`.
     #[tracing::instrument(skip_all)]
-    pub fn narrow(&self, dim: usize, range: impl RangeBounds<usize>) -> Result<Self> {
-        let dims = self.dims();
-        if dim >= dims.len() {
-            crate::bail!("narrow: dim {} out of range for rank {}", dim, dims.len());
-        }
-        let dim_size = dims[dim];
-        let (start, len) = resolve_range(range, dim_size);
-        if start + len > dim_size {
-            crate::bail!("narrow: start {start} + len {len} exceeds dim size {dim_size}");
-        }
-
-        // Compute output shape
-        let mut out_dims = dims.to_vec();
-        out_dims[dim] = len;
-        let out_shape = crate::Shape::from(out_dims);
-
-        let result = unsafe { Self::alloc_uninit(out_shape, self.device()) }?;
-
-        // Copy using copy2d
-        let outer_size: usize = dims[..dim].iter().product::<usize>().max(1);
-        let inner_size: usize = dims[dim + 1..].iter().product::<usize>().max(1);
-
-        {
-            let src_data = self.storage()?;
-            let mut dst_data = result.storage_mut()?;
-            B::copy2d(
-                &mut dst_data,
-                &*src_data,
-                outer_size,            // d1: number of outer blocks
-                len * inner_size,      // d2: elements per block to copy
-                len * inner_size,      // dst_s: stride in output
-                dim_size * inner_size, // src_s: stride in source
-                0,                     // dst_o: start at beginning of output
-                start * inner_size,    // src_o: offset by start in source
-            )?;
-        }
-
-        Ok(result)
+    pub fn narrow(&self, dim: usize, range: impl RangeBounds<usize>) -> Result<TensorView<T, B>> {
+        TensorView::from(self).narrow(dim, range)
     }
 
     /// # Safety

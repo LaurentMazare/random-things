@@ -158,13 +158,13 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
 
         // Reshape: (b, seq_len, num_heads * head_dim) -> (b, num_heads, seq_len, head_dim)
         let q = q.reshape((b, seq_len, self.num_heads, self.head_dim))?;
-        let q = q.transpose(1, 2)?;
+        let q = q.transpose(1, 2)?.contiguous()?;
 
         let k = k.reshape((b, seq_len, self.num_kv_heads, self.head_dim))?;
-        let k = k.transpose(1, 2)?;
+        let k = k.transpose(1, 2)?.contiguous()?;
 
         let v = v.reshape((b, seq_len, self.num_kv_heads, self.head_dim))?;
-        let v = v.transpose(1, 2)?;
+        let v = v.transpose(1, 2)?.contiguous()?;
 
         // Apply RoPE
         let q = q.rope(cos, sin, pos)?;
@@ -205,7 +205,7 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         let attn_output = attn_weights.matmul(&v)?;
 
         // Reshape back: (b, num_heads, seq_len, head_dim) -> (b, seq_len, hidden_size)
-        let attn_output = attn_output.transpose(1, 2)?;
+        let attn_output = attn_output.transpose(1, 2)?.contiguous()?;
         let attn_output = attn_output.reshape((b, seq_len, self.num_heads * self.head_dim))?;
 
         // Output projection

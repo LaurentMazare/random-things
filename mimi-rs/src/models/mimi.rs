@@ -326,13 +326,13 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConv1d<T, B>
             let offset = num_frames * self.stride;
             // Save remaining for next step
             if seq_len > offset {
-                self.state_prev_xs = Some(xs.narrow(2, offset..seq_len)?);
+                self.state_prev_xs = Some(xs.narrow(2, offset..seq_len)?.contiguous()?);
             } else {
                 self.state_prev_xs = None;
             }
             // Process current frames
             let in_len = (num_frames - 1) * self.stride + kernel;
-            let xs_in = xs.narrow(2, ..in_len)?;
+            let xs_in = xs.narrow(2, ..in_len)?.contiguous()?;
             Ok(StreamTensor::from_tensor(self.conv.forward(&xs_in)?))
         } else {
             self.state_prev_xs = Some(xs);
@@ -370,7 +370,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConvTranspose1d<T, B> {
         if len < unpad_l + unpad_r {
             crate::bail!("unpad1d: tensor len {len} is too low for unpad {unpad_l} + {unpad_r}");
         }
-        xs.narrow(2, unpad_l..len - unpad_r)
+        xs.narrow(2, unpad_l..len - unpad_r)?.contiguous()
     }
 
     pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
@@ -411,8 +411,8 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConvTranspos
                         prev_ys.broadcast_sub(&bias)?
                     }
                 };
-                let ys1 = ys.narrow(2, ..pt)?.add(&prev_ys)?;
-                let ys2 = ys.narrow(2, pt..ot)?;
+                let ys1 = ys.narrow(2, ..pt)?.contiguous()?.add(&prev_ys)?;
+                let ys2 = ys.narrow(2, pt..ot)?.contiguous()?;
                 Tensor::cat(&[&ys1, &ys2], 2)?
             }
         };
@@ -421,9 +421,9 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConvTranspos
         let invalid_steps = self.kernel_size - self.stride;
         let valid_len = ot.saturating_sub(invalid_steps);
         if valid_len > 0 {
-            let valid = ys.narrow(2, ..valid_len)?;
+            let valid = ys.narrow(2, ..valid_len)?.contiguous()?;
             if ot > valid_len {
-                self.state_prev_ys = Some(ys.narrow(2, valid_len..ot)?);
+                self.state_prev_ys = Some(ys.narrow(2, valid_len..ot)?.contiguous()?);
             } else {
                 self.state_prev_ys = None;
             }
@@ -1139,8 +1139,8 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
         let (k, v) = if seq_len > self.max_seq_len {
             let trim = seq_len - self.max_seq_len;
             (
-                k.narrow(2, trim..trim + self.max_seq_len)?,
-                v.narrow(2, trim..trim + self.max_seq_len)?,
+                k.narrow(2, trim..trim + self.max_seq_len)?.contiguous()?,
+                v.narrow(2, trim..trim + self.max_seq_len)?.contiguous()?,
             )
         } else {
             (k, v)
@@ -1330,14 +1330,14 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         // Split into Q, K, V
         // qkv shape: [b, t, 3 * num_heads * head_dim]
         let d_model = self.num_heads * self.head_dim;
-        let q = qkv.narrow(2, ..d_model)?;
-        let k = qkv.narrow(2, d_model..2 * d_model)?;
-        let v = qkv.narrow(2, 2 * d_model..3 * d_model)?;
+        let q = qkv.narrow(2, ..d_model)?.contiguous()?;
+        let k = qkv.narrow(2, d_model..2 * d_model)?.contiguous()?;
+        let v = qkv.narrow(2, 2 * d_model..3 * d_model)?.contiguous()?;
 
         // Reshape to [b, t, num_heads, head_dim] then transpose to [b, num_heads, t, head_dim]
-        let q = q.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
-        let k = k.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
-        let v = v.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
+        let q = q.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?.contiguous()?;
+        let k = k.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?.contiguous()?;
+        let v = v.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?.contiguous()?;
 
         // Apply rotary embeddings
         let (q, k) = if let Some(rope) = rope {
@@ -1365,8 +1365,11 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let attn_output = attn_weights.matmul(&v)?;
 
         // Reshape back: [b, num_heads, t, head_dim] -> [b, t, num_heads, head_dim] -> [b, t, d_model]
-        let attn_output =
-            attn_output.transpose(1, 2)?.reshape((b, t, self.num_heads * self.head_dim))?;
+        let attn_output = attn_output.transpose(1, 2)?.contiguous()?.reshape((
+            b,
+            t,
+            self.num_heads * self.head_dim,
+        ))?;
 
         // Output projection
         let mut out = attn_output.matmul_t(&self.out_proj_weight)?;
@@ -1521,7 +1524,7 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
 
     pub fn forward(&mut self, xs: &Tensor<T, B>) -> Result<Vec<Tensor<T, B>>> {
         // Apply conv_layout transpose if needed
-        let xs = if self.conv_layout { xs.transpose(1, 2)? } else { xs.clone() };
+        let xs = if self.conv_layout { xs.transpose(1, 2)?.contiguous()? } else { xs.clone() };
 
         // Apply input projection
         let xs = match &self.input_proj {
@@ -1539,7 +1542,7 @@ impl<T: WithDTypeF, B: Backend> Transformer<T, B> {
         };
 
         // Transpose back if conv_layout
-        let ys = if self.conv_layout { ys.transpose(1, 2)? } else { ys };
+        let ys = if self.conv_layout { ys.transpose(1, 2)?.contiguous()? } else { ys };
 
         Ok(vec![ys])
     }
@@ -1666,7 +1669,7 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
 
     #[tracing::instrument(name = "vq-encode", skip_all)]
     pub fn encode(&self, xs: &Tensor<T, B>) -> Result<Tensor<i64, B>> {
-        let xs = xs.t()?; // [B, C, T] -> [B, T, C]
+        let xs = xs.t()?.contiguous()?; // [B, C, T] -> [B, T, C]
         let xs = match &self.project_in {
             Some(proj) => xs.matmul_t(proj)?,
             None => xs,
@@ -1680,7 +1683,7 @@ impl<T: WithDTypeF, B: Backend> VectorQuantization<T, B> {
             Some(proj) => quantized.matmul_t(proj)?,
             None => quantized,
         };
-        quantized.t()
+        quantized.t()?.contiguous()
     }
 }
 
@@ -1727,10 +1730,11 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
         }
 
         let inner_shape: Vec<usize> = codes.dims()[1..].to_vec();
-        let mut quantized =
-            self.layers[0].decode(&codes.narrow(0, ..1)?.reshape(inner_shape.clone())?)?;
+        let mut quantized = self.layers[0]
+            .decode(&codes.narrow(0, ..1)?.contiguous()?.reshape(inner_shape.clone())?)?;
         for (i, layer) in self.layers.iter().enumerate().skip(1) {
-            let layer_codes = codes.narrow(0, i..i + 1)?.reshape(inner_shape.clone())?;
+            let layer_codes =
+                codes.narrow(0, i..i + 1)?.contiguous()?.reshape(inner_shape.clone())?;
             quantized = quantized.add(&layer.decode(&layer_codes)?)?;
         }
         Ok(quantized)
@@ -1783,11 +1787,11 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantizer<T, B> {
             None => xs.clone(),
         };
         let codes = self.vq.encode(&xs)?;
-        codes.transpose(0, 1) // [n_q, B, T] -> [B, n_q, T]
+        codes.transpose(0, 1)?.contiguous() // [n_q, B, T] -> [B, n_q, T]
     }
 
     pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
-        let codes = codes.transpose(0, 1)?; // [B, n_q, T] -> [n_q, B, T]
+        let codes = codes.transpose(0, 1)?.contiguous()?; // [B, n_q, T] -> [n_q, B, T]
         let quantized = self.vq.decode(&codes)?;
         match &self.output_proj {
             Some(proj) => {
@@ -1850,10 +1854,10 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
 
     #[tracing::instrument(name = "rvq-decode", skip_all)]
     pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
-        let first_codes = codes.narrow(1, ..1)?;
+        let first_codes = codes.narrow(1, ..1)?.contiguous()?;
         let quantized = self.rvq_first.decode(&first_codes)?;
         if self.n_q > 1 {
-            let rest_codes = codes.narrow(1, 1..self.n_q)?;
+            let rest_codes = codes.narrow(1, 1..self.n_q)?.contiguous()?;
             quantized.add(&self.rvq_rest.decode(&rest_codes)?)
         } else {
             Ok(quantized)

@@ -295,7 +295,7 @@ fn test_transpose_2d() -> Result<()> {
     let device = get_device();
     let a: Tensor<f32, Device> =
         Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3], &device)?;
-    let b = a.transpose(0, 1)?;
+    let b = a.transpose(0, 1)?.contiguous()?;
     assert_eq!(b.dims(), &[3, 2]);
     // Original: [[1, 2, 3], [4, 5, 6]]
     // Transposed: [[1, 4], [2, 5], [3, 6]]
@@ -672,7 +672,7 @@ fn test_index_select_3d() -> Result<()> {
 fn test_narrow_1d() -> Result<()> {
     let device = get_device();
     let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5], &device)?;
-    let narrowed = a.narrow(0, 1..4)?;
+    let narrowed = a.narrow(0, 1..4)?.contiguous()?;
     assert_eq!(narrowed.dims(), &[3]);
     assert_eq!(narrowed.to_vec()?, vec![2.0, 3.0, 4.0]);
     Ok(())
@@ -688,7 +688,7 @@ fn test_narrow_2d_dim0() -> Result<()> {
         &device,
     )?;
     // Take rows 1..3 (2 rows)
-    let narrowed = a.narrow(0, 1..3)?;
+    let narrowed = a.narrow(0, 1..3)?.contiguous()?;
     assert_eq!(narrowed.dims(), &[2, 3]);
     assert_eq!(narrowed.to_vec()?, vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
     Ok(())
@@ -704,7 +704,7 @@ fn test_narrow_2d_dim1() -> Result<()> {
         &device,
     )?;
     // Take columns 1..3 (2 columns)
-    let narrowed = a.narrow(1, 1..3)?;
+    let narrowed = a.narrow(1, 1..3)?.contiguous()?;
     assert_eq!(narrowed.dims(), &[3, 2]);
     assert_eq!(narrowed.to_vec()?, vec![2.0, 3.0, 6.0, 7.0, 10.0, 11.0]);
     Ok(())
@@ -986,7 +986,7 @@ fn test_cat_after_transpose() -> Result<()> {
     let k = k.reshape(vec![1, 5, 4, 64])?;
 
     // Transpose (1, 2) to get [1, 4, 5, 64]
-    let k = k.transpose(1, 2)?;
+    let k = k.transpose(1, 2)?.contiguous()?;
     assert_eq!(k.dims(), &[1, 4, 5, 64]);
 
     // Create k_cache as a copy
@@ -1001,7 +1001,7 @@ fn test_cat_after_transpose() -> Result<()> {
     let k_new_linear: Vec<f32> = (9000..(9000 + 256)).map(|i| i as f32).collect();
     let k_new: Tensor<f32, Device> = Tensor::from_vec(k_new_linear, vec![1, 1, 256], &device)?;
     let k_new = k_new.reshape(vec![1, 1, 4, 64])?;
-    let k_new = k_new.transpose(1, 2)?;
+    let k_new = k_new.transpose(1, 2)?.contiguous()?;
     assert_eq!(k_new.dims(), &[1, 4, 1, 64]);
 
     // Cat k_cache with k_new
@@ -1036,7 +1036,7 @@ fn test_cat_after_multiple_transpose() -> Result<()> {
     let t2 = t.transpose(1, 2)?;
     assert_eq!(t2.dims(), &[1, 5, 4, 64]);
 
-    let t3 = t2.transpose(1, 2)?;
+    let t3 = t2.transpose(1, 2)?.contiguous()?;
     assert_eq!(t3.dims(), &[1, 4, 5, 64]);
 
     // Copy and cat
@@ -1065,7 +1065,7 @@ fn test_cat_with_rope() -> Result<()> {
     // Step 0: Create k, transpose, rope, copy
     let k_data: Vec<f32> = (0..1280).map(|i| (i as f32) / 100.0).collect();
     let k: Tensor<f32, Device> = Tensor::from_vec(k_data, vec![1, 5, 4, 64], &device)?;
-    let k = k.transpose(1, 2)?; // -> [1, 4, 5, 64]
+    let k = k.transpose(1, 2)?.contiguous()?; // -> [1, 4, 5, 64]
 
     // Create cos/sin for rope - shape should be [max_pos, d/2] = [10, 32]
     let cos: Tensor<f32, Device> = Tensor::full(1.0, vec![10, 32], &device)?;
@@ -1082,7 +1082,7 @@ fn test_cat_with_rope() -> Result<()> {
     // Step 1: Create new k, transpose, rope, cat with cache
     let k_new_data: Vec<f32> = (9000..9256).map(|i| (i as f32) / 100.0).collect();
     let k_new: Tensor<f32, Device> = Tensor::from_vec(k_new_data, vec![1, 1, 4, 64], &device)?;
-    let k_new = k_new.transpose(1, 2)?; // -> [1, 4, 1, 64]
+    let k_new = k_new.transpose(1, 2)?.contiguous()?; // -> [1, 4, 1, 64]
 
     // Apply rope at pos=5, t=1 -> needs cos/sin at pos 5
     let k_new = k_new.rope(&cos, &sin, 5)?;

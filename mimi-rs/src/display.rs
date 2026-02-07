@@ -145,7 +145,7 @@ pub trait TensorFormatter: Sized {
                 }
             }
             [v] if summarize && *v > 2 * edge_items => {
-                if let Ok(slice) = t.narrow(0, ..edge_items)
+                if let Ok(slice) = t.narrow(0, ..edge_items).and_then(|t| t.contiguous())
                     && let Ok(vs) = slice.to_vec()
                 {
                     for v in vs.into_iter() {
@@ -154,7 +154,7 @@ pub trait TensorFormatter: Sized {
                     }
                 }
                 write!(f, "...")?;
-                if let Ok(slice) = t.narrow(0, v - edge_items..*v)
+                if let Ok(slice) = t.narrow(0, v - edge_items..*v).and_then(|t| t.contiguous())
                     && let Ok(vs) = slice.to_vec()
                 {
                     for v in vs.into_iter() {
@@ -228,7 +228,7 @@ pub trait TensorFormatter: Sized {
 
 /// Get subtensor at index i along dimension 0.
 fn get_subtensor<T: WithDType, B: Backend>(t: &Tensor<T, B>, i: usize) -> Result<Tensor<T, B>> {
-    let slice = t.narrow(0, i..i + 1)?;
+    let slice = t.narrow(0, i..i + 1)?.contiguous()?;
     // Remove the first dimension
     let new_dims: Vec<usize> = t.dims()[1..].to_vec();
     if new_dims.is_empty() { slice.reshape(vec![1]) } else { slice.reshape(new_dims) }
@@ -336,7 +336,13 @@ fn get_summarized_data<T: WithDType, B: Backend>(
         t.copy()
     } else if dims.len() == 1 {
         if dims[0] > 2 * edge_items {
-            Tensor::cat(&[&t.narrow(0, ..edge_items)?, &t.narrow(0, dims[0] - edge_items..)?], 0)
+            Tensor::cat(
+                &[
+                    &t.narrow(0, ..edge_items)?.contiguous()?,
+                    &t.narrow(0, dims[0] - edge_items..)?.contiguous()?,
+                ],
+                0,
+            )
         } else {
             t.copy()
         }

@@ -74,15 +74,16 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     binary_op!(minimum, broadcast_minimum, Minimum);
     binary_op!(maximum, broadcast_maximum, Maximum);
 
+    /// Transpose two dimensions.
+    /// Returns a `TensorView` (zero-copy). Call `.contiguous()?` on the result
+    /// if you need a contiguous `Tensor`.
     #[tracing::instrument(skip_all)]
-    pub fn transpose<D1: Dim, D2: Dim>(&self, dim1: D1, dim2: D2) -> Result<Self> {
-        let dim1 = dim1.to_index(self.shape(), "transpose dim1")?;
-        let dim2 = dim2.to_index(self.shape(), "transpose dim2")?;
-        let mut new_dims = self.dims().to_vec();
-        new_dims.swap(dim1, dim2);
-        let result = unsafe { Tensor::alloc_uninit(new_dims, self.device()) }?;
-        result.transpose_(self, dim1, dim2)?;
-        Ok(result)
+    pub fn transpose<D1: Dim, D2: Dim>(
+        &self,
+        dim1: D1,
+        dim2: D2,
+    ) -> Result<crate::TensorView<T, B>> {
+        crate::TensorView::from(self).transpose(dim1, dim2)
     }
 
     pub fn copy(&self) -> Result<Self> {
@@ -142,7 +143,9 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
     }
 
     /// Transpose (swap last two dimensions).
-    pub fn t(&self) -> Result<Self> {
+    /// Returns a `TensorView` (zero-copy). Call `.contiguous()?` on the result
+    /// if you need a contiguous `Tensor`.
+    pub fn t(&self) -> Result<crate::TensorView<T, B>> {
         let rank = self.rank();
         if rank < 2 {
             crate::bail!("t requires at least 2 dimensions");
