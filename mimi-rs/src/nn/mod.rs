@@ -38,10 +38,10 @@ impl<T: WithDTypeF, B: Backend> Linear<T, B> {
         Ok(Self::new(weight))
     }
 
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+    pub fn forward<X: crate::TensorOrView<T, B>>(&self, x: &X) -> Result<Tensor<T, B>> {
         // weight: (out_features, in_features)
         // x: (..., in_features)
         // output: (..., out_features)
-        x.matmul_t(&self.weight)
+        crate::ops::matmul_t(x, &self.weight)
     }
 }

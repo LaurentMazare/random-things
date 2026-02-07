@@ -205,8 +205,8 @@ impl<T: WithDTypeF, B: Backend> Attention<T, B> {
         let attn_output = attn_weights.matmul(&v)?;
 
         // Reshape back: (b, num_heads, seq_len, head_dim) -> (b, seq_len, hidden_size)
-        let attn_output = attn_output.transpose(1, 2)?.contiguous()?;
-        let attn_output = attn_output.reshape((b, seq_len, self.num_heads * self.head_dim))?;
+        let attn_output =
+            attn_output.transpose(1, 2)?.reshape((b, seq_len, self.num_heads * self.head_dim))?;
 
         // Output projection
         let output = self.o_proj.forward(&attn_output)?;

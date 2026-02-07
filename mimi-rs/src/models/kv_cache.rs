@@ -331,7 +331,6 @@ impl<T: WithDType, B: Backend> RotatingKvCache<T, B> {
 
 #[derive(Debug, Clone)]
 pub struct IndicesAndMask<B: Backend> {
-    #[allow(dead_code)]
     indices: Tensor<i64, B>,
     mask: Tensor<f32, B>,
 }
@@ -546,78 +545,75 @@ impl<B: Backend> ScatteredCacheBuilder<B> {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Squeeze dim 1 from the mask (shape: (b, 1, t, c) → (b, t, c)) and return as flat vec.
+    fn squeeze_mask<B: Backend>(mask: &Tensor<f32, B>, b: usize, t: usize, c: usize) -> Vec<f32> {
+        mask.reshape((b, t, c)).unwrap().to_vec().unwrap()
+    }
+
     #[test]
     fn test_scattered_kv_cache() -> Result<()> {
-        let device = Device::Cpu;
-        let mut cache = ScatteredCacheBuilder::new(2, 5, DType::F32, &device)?;
+        let device = crate::CPU;
+        let mut cache = ScatteredCacheBuilder::new(2, 5, &device)?;
         let inf = f32::INFINITY;
 
         let iam = cache.indices_and_mask(1, &[true, false])?;
-        let mask = iam.mask.i((.., 0))?.to_vec3::<f32>()?;
-        assert_eq!(iam.indices.to_vec2::<u32>()?, [[0], [0]]);
-        assert_eq!(mask, [[[0.0, -inf, -inf, -inf, -inf]], [[0.0, 0.0, 0.0, 0.0, 0.0]]]);
+        assert_eq!(iam.indices.to_vec()?, [0i64, 0]);
+        assert_eq!(
+            squeeze_mask(&iam.mask, 2, 1, 5),
+            [0.0, -inf, -inf, -inf, -inf, 0.0, 0.0, 0.0, 0.0, 0.0]
+        );
 
         let iam = cache.indices_and_mask(1, &[true, false])?;
-        let mask = iam.mask.i((.., 0))?.to_vec3::<f32>()?;
-        assert_eq!(iam.indices.to_vec2::<u32>()?, [[1], [0]]);
-        assert_eq!(mask, [[[0.0, 0.0, -inf, -inf, -inf]], [[0.0, 0.0, 0.0, 0.0, 0.0]]]);
+        assert_eq!(iam.indices.to_vec()?, [1i64, 0]);
+        assert_eq!(
+            squeeze_mask(&iam.mask, 2, 1, 5),
+            [0.0, 0.0, -inf, -inf, -inf, 0.0, 0.0, 0.0, 0.0, 0.0]
+        );
 
         let iam = cache.indices_and_mask(3, &[false, true])?;
-        let mask = iam.mask.i((.., 0))?.to_vec3::<f32>()?;
-        assert_eq!(iam.indices.to_vec2::<u32>()?, [[2, 2, 2], [0, 1, 2]]);
+        assert_eq!(iam.indices.to_vec()?, [2i64, 2, 2, 0, 1, 2]);
+        #[rustfmt::skip]
         assert_eq!(
-            mask,
+            squeeze_mask(&iam.mask, 2, 3, 5),
             [
-                [[0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]],
-                [
-                    [0.0, -inf, -inf, -inf, -inf],
-                    [0.0, 0.0, -inf, -inf, -inf],
-                    [0.0, 0.0, 0.0, -inf, -inf]
-                ]
+                0.0, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, -inf, -inf, -inf, -inf,  0.0, 0.0, -inf, -inf, -inf,  0.0, 0.0, 0.0, -inf, -inf,
             ]
         );
 
         let iam = cache.indices_and_mask(3, &[true, true])?;
-        let mask = iam.mask.i((.., 0))?.to_vec3::<f32>()?;
-        assert_eq!(iam.indices.to_vec2::<u32>()?, [[2, 3, 4], [3, 4, 0]]);
+        assert_eq!(iam.indices.to_vec()?, [2i64, 3, 4, 3, 4, 0]);
+        #[rustfmt::skip]
         assert_eq!(
-            mask,
+            squeeze_mask(&iam.mask, 2, 3, 5),
             [
-                [
-                    [0.0, 0.0, 0.0, -inf, -inf],
-                    [0.0, 0.0, 0.0, 0.0, -inf],
-                    [0.0, 0.0, 0.0, 0.0, 0.0]
-                ],
-                [
-                    [-inf, 0.0, 0.0, 0.0, -inf],
-                    [-inf, 0.0, 0.0, 0.0, 0.0],
-                    [0.0, 0.0, 0.0, 0.0, 0.0]
-                ]
+                0.0, 0.0, 0.0, -inf, -inf,  0.0, 0.0, 0.0, 0.0, -inf,  0.0, 0.0, 0.0, 0.0, 0.0,
+                -inf, 0.0, 0.0, 0.0, -inf,  -inf, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0,
             ]
         );
 
         let iam = cache.indices_and_mask(1, &[true, false])?;
-        let mask = iam.mask.i((.., 0))?.to_vec3::<f32>()?;
-        assert_eq!(iam.indices.to_vec2::<u32>()?, [[0], [1]]);
-        assert_eq!(mask, [[[0.0, 0.0, 0.0, 0.0, 0.0]], [[0.0, 0.0, 0.0, 0.0, 0.0]]]);
+        assert_eq!(iam.indices.to_vec()?, [0i64, 1]);
+        assert_eq!(
+            squeeze_mask(&iam.mask, 2, 1, 5),
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        );
 
         let iam = cache.indices_and_mask(2, &[true, false])?;
-        let mask = iam.mask.i((.., 0))?.to_vec3::<f32>()?;
-        assert_eq!(iam.indices.to_vec2::<u32>()?, [[1, 2], [1, 1]]);
+        assert_eq!(iam.indices.to_vec()?, [1i64, 2, 1, 1]);
+        #[rustfmt::skip]
         assert_eq!(
-            mask,
+            squeeze_mask(&iam.mask, 2, 2, 5),
             [
-                [[0.0, 0.0, -inf, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]],
-                [[0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]]
+                0.0, 0.0, -inf, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0,
             ]
         );
 
         Ok(())
     }
 }
-*/
