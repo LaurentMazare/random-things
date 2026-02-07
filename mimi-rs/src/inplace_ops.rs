@@ -1,5 +1,5 @@
 use crate::error::check_same_shape;
-use crate::{Backend, Result, Tensor, WithDType, WithDTypeF};
+use crate::{Backend, Result, Tensor, TensorOrView, WithDType, WithDTypeF};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UnaryOp {
@@ -284,7 +284,12 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn matmul_(&self, lhs: &Self, rhs: &Self, rhs_t: bool) -> Result<()> {
+    pub fn matmul_<L: TensorOrView<T, B>, R: TensorOrView<T, B>>(
+        &self,
+        lhs: &L,
+        rhs: &R,
+        rhs_t: bool,
+    ) -> Result<()> {
         let lhs_dims = lhs.dims();
         let rhs_dims = rhs.dims();
 
@@ -366,12 +371,12 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let b_stride = if rhs_batch == 1 { 0 } else { rhs_mat_size };
 
         let mut dst = self.storage_mut()?;
-        let lhs_data = lhs.storage()?;
-        let rhs_data = rhs.storage()?;
+        let (lhs_data, lhs_o) = lhs.storage_and_offset()?;
+        let (rhs_data, rhs_o) = rhs.storage_and_offset()?;
         B::gemm(
             &mut *dst,
-            (&*lhs_data, 0),
-            (&*rhs_data, 0),
+            (&*lhs_data, lhs_o),
+            (&*rhs_data, rhs_o),
             m,
             n,
             k,

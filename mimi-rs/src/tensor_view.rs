@@ -198,6 +198,7 @@ pub trait TensorOrView<T: WithDType, B: Backend> {
     fn shape(&self) -> &Shape;
     fn strides(&self) -> std::borrow::Cow<'_, [usize]>;
     fn storage_and_offset(&self) -> Result<(std::sync::RwLockReadGuard<'_, B::Storage<T>>, usize)>;
+    fn device(&self) -> &B;
     fn rank(&self) -> usize {
         self.shape().rank()
     }
@@ -219,6 +220,10 @@ impl<T: WithDType, B: Backend> TensorOrView<T, B> for Tensor<T, B> {
     fn strides(&self) -> std::borrow::Cow<'_, [usize]> {
         std::borrow::Cow::Owned(self.shape().stride_contiguous())
     }
+
+    fn device(&self) -> &B {
+        self.device()
+    }
 }
 
 impl<T: WithDType, B: Backend> TensorOrView<T, B> for TensorView<T, B> {
@@ -230,5 +235,8 @@ impl<T: WithDType, B: Backend> TensorOrView<T, B> for TensorView<T, B> {
     }
     fn strides(&self) -> std::borrow::Cow<'_, [usize]> {
         std::borrow::Cow::Borrowed(self.strides())
+    }
+    fn device(&self) -> &B {
+        &self.device
     }
 }
