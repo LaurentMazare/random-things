@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::{Backend, Shape, Tensor, WithDType, shape::Dim};
+use crate::{Backend, Shape, Tensor, UnaryOp, WithDType, WithDTypeF, shape::Dim};
 use std::ops::RangeBounds;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
@@ -288,6 +288,61 @@ impl<T: WithDType, B: Backend> TensorView<T, B> {
             start_offset: self.start_offset,
             device: self.device.clone(),
         })
+    }
+}
+
+impl<T: WithDTypeF, B: Backend> TensorView<T, B> {
+    fn apply_unary(&self, op: UnaryOp) -> Result<Tensor<T, B>> {
+        let result = self.contiguous()?;
+        let len = result.elem_count();
+        let mut dst = result.storage_mut()?;
+        B::inplace_unary(&mut *dst, len, op)?;
+        drop(dst);
+        Ok(result)
+    }
+
+    pub fn sigmoid(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Sigmoid)
+    }
+
+    pub fn tanh(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Tanh)
+    }
+
+    pub fn relu(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Relu)
+    }
+
+    pub fn silu(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Silu)
+    }
+
+    pub fn gelu_erf(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::GeluErf)
+    }
+
+    pub fn elu(&self, alpha: f32) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Elu { alpha })
+    }
+
+    pub fn cos(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Cos)
+    }
+
+    pub fn sin(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Sin)
+    }
+
+    pub fn sqr(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Sqr)
+    }
+
+    pub fn sqrt(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Sqrt)
+    }
+
+    pub fn abs(&self) -> Result<Tensor<T, B>> {
+        self.apply_unary(UnaryOp::Abs)
     }
 }
 

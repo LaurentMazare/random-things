@@ -265,12 +265,10 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
         let gates_hh = h.matmul_t(&self.weight_hh)?;
         let gates = gates_ih.add(&gates_hh)?.broadcast_add(&self.sum_bias)?;
 
-        let i = gates.narrow(1, ..self.hidden_size)?.contiguous()?.sigmoid()?;
-        let f = gates.narrow(1, self.hidden_size..2 * self.hidden_size)?.contiguous()?.sigmoid()?;
-        let g =
-            gates.narrow(1, 2 * self.hidden_size..3 * self.hidden_size)?.contiguous()?.tanh()?;
-        let o =
-            gates.narrow(1, 3 * self.hidden_size..4 * self.hidden_size)?.contiguous()?.sigmoid()?;
+        let i = gates.narrow(1, ..self.hidden_size)?.sigmoid()?;
+        let f = gates.narrow(1, self.hidden_size..2 * self.hidden_size)?.sigmoid()?;
+        let g = gates.narrow(1, 2 * self.hidden_size..3 * self.hidden_size)?.tanh()?;
+        let o = gates.narrow(1, 3 * self.hidden_size..4 * self.hidden_size)?.sigmoid()?;
 
         let c_new = f.mul(c)?.add(&i.mul(&g)?)?;
         let h_new = o.mul(&c_new.tanh()?)?;
