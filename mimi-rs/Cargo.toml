@@ -33,13 +33,6 @@ tracing-chrome = "0.7.2"
 [build-dependencies]
 bindgen_cuda = { version = "0.1.6", optional = true }
 
-[profile.release]
-debug = true
-
-[profile.release-no-debug]
-inherits = "release"
-debug = false
-
 [features]
 default = []
 cuda = ["dep:cudarc", "dep:bindgen_cuda"]
