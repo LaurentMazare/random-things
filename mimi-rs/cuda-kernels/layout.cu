@@ -2,6 +2,64 @@
 #include "cuda_fp16.h"
 #include <stdint.h>
 
+// Strided index computation (same as cuda_utils.cuh)
+__device__ __forceinline__ unsigned int get_strided_index_layout(
+    unsigned int idx,
+    const unsigned int num_dims,
+    const size_t *dims,
+    const size_t *strides
+) {
+    unsigned int strided_i = 0;
+    for (unsigned int d = 0; d < num_dims; d++) {
+        unsigned int dim_idx = num_dims - 1 - d;
+        strided_i += (idx % dims[dim_idx]) * strides[dim_idx];
+        idx /= dims[dim_idx];
+    }
+    return strided_i;
+}
+
+// Copy from strided source to contiguous destination.
+// info contains [dims..., src_strides...] packed into a single array.
+template <typename T>
+__device__ void copy_strided(
+    const size_t numel,
+    const unsigned int num_dims,
+    const size_t *info,
+    const unsigned int src_offset,
+    const T *src,
+    T *dst
+) {
+    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+
+    const size_t *dims = info;
+    const size_t *strides = info + num_dims;
+
+    unsigned int src_idx = src_offset + get_strided_index_layout(idx, num_dims, dims, strides);
+    dst[idx] = src[src_idx];
+}
+
+#define COPY_STRIDED_OP(TYPENAME, RUST_NAME) \
+extern "C" __global__ void copy_strided_##RUST_NAME( \
+    const size_t numel, \
+    const unsigned int num_dims, \
+    const size_t *info, \
+    const unsigned int src_offset, \
+    const TYPENAME *src, \
+    TYPENAME *dst \
+) { copy_strided<TYPENAME>(numel, num_dims, info, src_offset, src, dst); }
+
+#if __CUDA_ARCH__ >= 800
+COPY_STRIDED_OP(__nv_bfloat16, bf16)
+#endif
+#if __CUDA_ARCH__ >= 530
+COPY_STRIDED_OP(__half, f16)
+#endif
+COPY_STRIDED_OP(uint8_t, u8)
+COPY_STRIDED_OP(int64_t, i64)
+COPY_STRIDED_OP(float, f32)
+COPY_STRIDED_OP(double, f64)
+
 template <typename T>
 __device__ void transpose(const size_t numel, const uint32_t d1,
                           const uint32_t d2, const uint32_t d_i,

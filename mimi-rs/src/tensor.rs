@@ -1,4 +1,4 @@
-use crate::{Backend, DType, Error, Result, Shape, WithDType, shape::Dim};
+use crate::{Backend, DType, Error, Result, Shape, TensorView, WithDType, shape::Dim};
 use std::sync::{Arc, RwLock};
 
 impl<T: WithDType, B: Backend> Clone for Tensor<T, B> {
@@ -16,7 +16,7 @@ pub struct Tensor<T: WithDType, B: Backend> {
     pub(crate) data: Arc<RwLock<B::Storage<T>>>,
     pub(crate) shape: Shape,
     pub(crate) device: B,
-    _marker: std::marker::PhantomData<T>,
+    pub(crate) _marker: std::marker::PhantomData<T>,
 }
 
 pub enum TypedTensor<'a, B: Backend> {
@@ -96,6 +96,11 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
             device: device.clone(),
             _marker: std::marker::PhantomData,
         })
+    }
+
+    pub fn broadcast_as<S: Into<Shape>>(&self, shape: S) -> Result<TensorView<T, B>> {
+        let view = TensorView::from(self);
+        view.broadcast_as(shape)
     }
 
     /// Reshape the tensor to a new shape with the same number of elements.

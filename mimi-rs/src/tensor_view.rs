@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::{Backend, Shape, Tensor, WithDType, shape::Dim};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 #[derive(Clone)]
 pub struct TensorView<T: WithDType, B: Backend> {
@@ -161,6 +161,78 @@ impl<T: WithDType, B: Backend> TensorView<T, B> {
             data: self.data.clone(),
             shape: Shape::from(dims),
             strides,
+            start_offset: self.start_offset,
+            device: self.device.clone(),
+        })
+    }
+
+    pub fn contiguous(&self) -> Result<Tensor<T, B>> {
+        if self.is_contiguous() && self.start_offset == 0 {
+            return Ok(Tensor {
+                data: self.data.clone(),
+                shape: self.shape.clone(),
+                device: self.device.clone(),
+                _marker: std::marker::PhantomData,
+            });
+        }
+        let result: Tensor<T, B> =
+            unsafe { Tensor::alloc_uninit(self.shape.clone(), &self.device) }?;
+        {
+            let src_data: RwLockReadGuard<'_, B::Storage<T>> = self.data.read().map_err(|e| {
+                crate::Error::msg(format!("failed to borrow tensor storage immutably: {}", e))
+            })?;
+            let mut dst_data = result.storage_mut()?;
+            B::copy_strided(
+                &mut dst_data,
+                &*src_data,
+                self.start_offset,
+                self.dims(),
+                &self.strides,
+            )?;
+        }
+        Ok(result)
+    }
+
+    pub fn broadcast_as<S: Into<Shape>>(&self, shape: S) -> Result<Self> {
+        let target_shape = shape.into();
+        let target_dims = target_shape.dims();
+        let src_dims = self.dims();
+        let src_strides = self.strides();
+        let target_rank = target_dims.len();
+        let src_rank = src_dims.len();
+
+        if target_rank < src_rank {
+            crate::bail!(
+                "broadcast_as: target rank {target_rank} is less than source rank {src_rank}"
+            )
+        }
+
+        let rank_diff = target_rank - src_rank;
+        let mut new_strides = vec![0usize; target_rank];
+
+        for i in 0..target_rank {
+            if i < rank_diff {
+                new_strides[i] = 0;
+            } else {
+                let src_i = i - rank_diff;
+                if src_dims[src_i] == target_dims[i] {
+                    new_strides[i] = src_strides[src_i];
+                } else if src_dims[src_i] == 1 {
+                    new_strides[i] = 0;
+                } else {
+                    crate::bail!(
+                        "broadcast_as: cannot broadcast dim {i} from {} to {}",
+                        src_dims[src_i],
+                        target_dims[i]
+                    )
+                }
+            }
+        }
+
+        Ok(Self {
+            data: self.data.clone(),
+            shape: target_shape,
+            strides: new_strides,
             start_offset: self.start_offset,
             device: self.device.clone(),
         })

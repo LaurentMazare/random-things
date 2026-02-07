@@ -353,17 +353,16 @@ impl<T: WithDType, B: Backend> ScatteredKvCache<T, B> {
         &mut self,
         k: &Tensor<T, B>,
         v: &Tensor<T, B>,
-        _iam: &IndicesAndMask<B>,
+        iam: &IndicesAndMask<B>,
     ) -> Result<(Tensor<T, B>, Tensor<T, B>)> {
         if self.context <= k.dim(2)? {
             return Ok((k.clone(), v.clone()));
         }
-        todo!()
-        // let indices = iam.indices.unsqueeze(2)?.unsqueeze(1)?;
-        // let indices = indices.broadcast_as(k.shape())?.contiguous()?;
-        // self.k.scatter_set(&indices, k, 2)?;
-        // self.v.scatter_set(&indices, v, 2)?;
-        // Ok((self.k.clone(), self.v.clone()))
+        let indices = iam.indices.unsqueeze(2)?.unsqueeze(1)?;
+        let indices = indices.broadcast_as(k.shape())?.contiguous()?;
+        self.k.scatter_set(&indices, k, 2)?;
+        self.v.scatter_set(&indices, v, 2)?;
+        Ok((self.k.clone(), self.v.clone()))
     }
 
     pub fn k(&self) -> &Tensor<T, B> {

@@ -823,6 +823,38 @@ impl crate::Backend for Device {
         }
     }
 
+    fn copy_strided<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        src_offset: usize,
+        dims: &[usize],
+        src_strides: &[usize],
+    ) -> Result<()> {
+        let numel: usize = dims.iter().product();
+        if numel == 0 {
+            return Ok(());
+        }
+
+        let num_dims = dims.len();
+        let info: Vec<usize> = dims.iter().chain(src_strides.iter()).copied().collect();
+        let info_dev = dst.device.stream.clone_htod(&info)?;
+
+        let kname = kernel_name::<T>("copy_strided");
+        let func = dst.device.get_func(&kname, PTXModule::Layout)?;
+        let cfg = LaunchConfig::for_num_elems(numel as u32);
+        let num_dims_u32 = num_dims as u32;
+        let src_offset_u32 = src_offset as u32;
+        let mut launch_args = dst.device.stream.launch_builder(&func);
+        launch_args.arg(&numel);
+        launch_args.arg(&num_dims_u32);
+        launch_args.arg(&info_dev);
+        launch_args.arg(&src_offset_u32);
+        launch_args.arg(&src.data);
+        launch_args.arg(&mut dst.data);
+        unsafe { launch_args.launch(cfg) }?;
+        Ok(())
+    }
+
     fn scatter_set<T: WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

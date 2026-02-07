@@ -228,6 +228,17 @@ pub trait Backend: Sized + Clone + 'static {
     /// For each element position in src/ids (which share the same shape `src_dims`):
     ///   dst[..., ids[pos], ...] = src[pos]
     /// where the ids value replaces the coordinate at dimension `dim`.
+    /// Copy from strided source to contiguous destination.
+    /// `src_offset` is the starting offset in the source storage.
+    /// `dims` is the shape, `src_strides` are the strides of the source layout.
+    fn copy_strided<T: crate::WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        src_offset: usize,
+        dims: &[usize],
+        src_strides: &[usize],
+    ) -> Result<()>;
+
     fn scatter_set<T: crate::WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,

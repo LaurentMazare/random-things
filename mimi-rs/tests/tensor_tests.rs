@@ -1,4 +1,4 @@
-use mimi::{Backend, Result, Tensor};
+use mimi::{Backend, Result, Tensor, TensorView};
 
 /// Macro to generate tests for both CPU and CUDA backends.
 /// Each test function takes a device reference and runs the test logic.
@@ -872,3 +872,72 @@ fn test_scatter_3d_impl<B: Backend>(dev: &B) -> Result<()> {
     Ok(())
 }
 test_both_backends!(test_scatter_3d, test_scatter_3d_impl);
+
+// =============================================================================
+// Broadcast tests
+// =============================================================================
+
+fn test_broadcast_as_add_dim_impl<B: Backend>(dev: &B) -> Result<()> {
+    // (3,) -> (2, 3): broadcast by prepending a dimension
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (3,), dev)?;
+    let view = t.broadcast_as((2, 3))?;
+    assert_eq!(view.dims(), &[2, 3]);
+    let result = view.contiguous()?;
+    assert_eq!(result.to_vec()?, vec![1., 2., 3., 1., 2., 3.]);
+    Ok(())
+}
+test_both_backends!(test_broadcast_as_add_dim, test_broadcast_as_add_dim_impl);
+
+fn test_broadcast_as_expand_dim_impl<B: Backend>(dev: &B) -> Result<()> {
+    // (2, 1) -> (2, 3): expand dim of size 1
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![10., 20.], (2, 1), dev)?;
+    let view = t.broadcast_as((2, 3))?;
+    assert_eq!(view.dims(), &[2, 3]);
+    let result = view.contiguous()?;
+    assert_eq!(result.to_vec()?, vec![10., 10., 10., 20., 20., 20.]);
+    Ok(())
+}
+test_both_backends!(test_broadcast_as_expand_dim, test_broadcast_as_expand_dim_impl);
+
+fn test_broadcast_as_3d_impl<B: Backend>(dev: &B) -> Result<()> {
+    // (1, 3) -> (2, 4, 3): prepend dim and expand dim 0
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (1, 3), dev)?;
+    let view = t.broadcast_as((2, 4, 3))?;
+    assert_eq!(view.dims(), &[2, 4, 3]);
+    let result = view.contiguous()?;
+    let expected: Vec<f32> = vec![1., 2., 3.].repeat(8);
+    assert_eq!(result.to_vec()?, expected);
+    Ok(())
+}
+test_both_backends!(test_broadcast_as_3d, test_broadcast_as_3d_impl);
+
+fn test_broadcast_as_noop_impl<B: Backend>(dev: &B) -> Result<()> {
+    // (2, 3) -> (2, 3): no-op broadcast
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let view = t.broadcast_as((2, 3))?;
+    assert_eq!(view.dims(), &[2, 3]);
+    let result = view.contiguous()?;
+    assert_eq!(result.to_vec()?, vec![1., 2., 3., 4., 5., 6.]);
+    Ok(())
+}
+test_both_backends!(test_broadcast_as_noop, test_broadcast_as_noop_impl);
+
+fn test_broadcast_as_from_view_impl<B: Backend>(dev: &B) -> Result<()> {
+    // TensorView::broadcast_as: narrow then broadcast
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
+    let view: TensorView<f32, B> = TensorView::from(&t);
+    let narrowed = view.narrow(0, 0, Some(1))?; // (1, 3)
+    let broadcast = narrowed.broadcast_as((3, 3))?;
+    let result = broadcast.contiguous()?;
+    assert_eq!(result.to_vec()?, vec![1., 2., 3., 1., 2., 3., 1., 2., 3.]);
+    Ok(())
+}
+test_both_backends!(test_broadcast_as_from_view, test_broadcast_as_from_view_impl);
+
+fn test_broadcast_as_error_impl<B: Backend>(dev: &B) -> Result<()> {
+    // Incompatible shapes should error
+    let t: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3.], (3,), dev)?;
+    assert!(t.broadcast_as((2, 4)).is_err());
+    Ok(())
+}
+test_both_backends!(test_broadcast_as_error, test_broadcast_as_error_impl);

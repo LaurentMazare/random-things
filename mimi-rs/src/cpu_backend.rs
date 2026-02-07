@@ -380,6 +380,33 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
+    fn copy_strided<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        src: &Self::Storage<T>,
+        src_offset: usize,
+        dims: &[usize],
+        src_strides: &[usize],
+    ) -> Result<()> {
+        let rank = dims.len();
+        let total: usize = dims.iter().product();
+        let mut index = vec![0usize; rank];
+        for dst_elem in dst.iter_mut().take(total) {
+            let mut src_idx = src_offset;
+            for d in 0..rank {
+                src_idx += index[d] * src_strides[d];
+            }
+            *dst_elem = src[src_idx];
+            for d in (0..rank).rev() {
+                index[d] += 1;
+                if index[d] < dims[d] {
+                    break;
+                }
+                index[d] = 0;
+            }
+        }
+        Ok(())
+    }
+
     fn scatter_set<T: WithDType>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
