@@ -203,8 +203,12 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
         Ok(out)
     }
 
-    pub fn from_vec<S: Into<Shape>>(data: Vec<T>, shape: S, dev: &B) -> Result<Self> {
-        let shape = shape.into();
+    pub fn from_vec<S: crate::shape::ShapeWithOneHole>(
+        data: Vec<T>,
+        shape: S,
+        dev: &B,
+    ) -> Result<Self> {
+        let shape = shape.into_shape(data.len())?;
         if data.len() != shape.elem_count() {
             crate::bail!(
                 "from_vec: data length {} does not match shape {:?} with {} elements",
