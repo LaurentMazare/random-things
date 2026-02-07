@@ -462,9 +462,9 @@ impl crate::Backend for Device {
 
     fn data<T: WithDType>(
         src: &Self::Storage<T>,
-        _len: usize,
+        len: usize,
     ) -> Result<std::borrow::Cow<'_, [T]>> {
-        let data = src.device.stream.clone_dtoh(&src.data)?;
+        let data = src.device.stream.clone_dtoh(&src.data.slice(..len))?;
         Ok(std::borrow::Cow::Owned(data))
     }
 
