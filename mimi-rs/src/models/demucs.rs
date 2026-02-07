@@ -145,7 +145,7 @@ pub fn upsample2<T: WithDTypeF, B: Backend>(
     // conv1d with padding=zeros, then [1:] to remove first element
     let out = x_flat.conv1d(&kernel, None, 1, zeros, 1, 1)?;
     let out_len = out.dim(2)?;
-    let out = out.narrow(2, 1, out_len - 1)?;
+    let out = out.narrow(2, 1..out_len)?;
     let out = out.reshape([&dims[..dims.len() - 1], &[time]].concat())?;
 
     // Interleave: stack([x, out], dim=-1).view(*other, -1)
@@ -202,7 +202,7 @@ pub fn downsample2<T: WithDTypeF, B: Backend>(
     let xodd_flat = xodd.reshape((batch_channels, 1, half_time))?;
     let conv_out = xodd_flat.conv1d(&kernel, None, 1, zeros, 1, 1)?;
     let conv_len = conv_out.dim(2)?;
-    let conv_out = conv_out.narrow(2, 0, conv_len - 1)?;
+    let conv_out = conv_out.narrow(2, ..conv_len - 1)?;
     let conv_out = conv_out.reshape(new_dims)?;
 
     // out = (xeven + conv_out) * 0.5
@@ -265,10 +265,10 @@ impl<T: WithDTypeF, B: Backend> LstmCell<T, B> {
         let gates_hh = h.matmul_t(&self.weight_hh)?;
         let gates = gates_ih.add(&gates_hh)?.broadcast_add(&self.sum_bias)?;
 
-        let i = gates.narrow(1, 0, self.hidden_size)?.sigmoid()?;
-        let f = gates.narrow(1, self.hidden_size, self.hidden_size)?.sigmoid()?;
-        let g = gates.narrow(1, 2 * self.hidden_size, self.hidden_size)?.tanh()?;
-        let o = gates.narrow(1, 3 * self.hidden_size, self.hidden_size)?.sigmoid()?;
+        let i = gates.narrow(1, ..self.hidden_size)?.sigmoid()?;
+        let f = gates.narrow(1, self.hidden_size..2 * self.hidden_size)?.sigmoid()?;
+        let g = gates.narrow(1, 2 * self.hidden_size..3 * self.hidden_size)?.tanh()?;
+        let o = gates.narrow(1, 3 * self.hidden_size..4 * self.hidden_size)?.sigmoid()?;
 
         let c_new = f.mul(c)?.add(&i.mul(&g)?)?;
         let h_new = o.mul(&c_new.tanh()?)?;
@@ -321,14 +321,16 @@ impl<T: WithDTypeF, B: Backend> Lstm<T, B> {
         let mut outputs = Vec::with_capacity(seq_len);
 
         for t in 0..seq_len {
-            let mut x_t = x.narrow(0, t, 1)?.reshape((batch, x.dim(2)?))?;
+            let mut x_t = x.narrow(0, t..t + 1)?.reshape((batch, x.dim(2)?))?;
 
             let mut h_new_layers = Vec::with_capacity(num_layers);
             let mut c_new_layers = Vec::with_capacity(num_layers);
 
             for (layer_idx, layer) in self.layers.iter().enumerate() {
-                let h_l = h.narrow(0, layer_idx, 1)?.reshape((batch, self.hidden_size))?;
-                let c_l = c.narrow(0, layer_idx, 1)?.reshape((batch, self.hidden_size))?;
+                let h_l =
+                    h.narrow(0, layer_idx..layer_idx + 1)?.reshape((batch, self.hidden_size))?;
+                let c_l =
+                    c.narrow(0, layer_idx..layer_idx + 1)?.reshape((batch, self.hidden_size))?;
                 let (h_new, c_new) = layer.forward_step(&x_t, &h_l, &c_l)?;
                 h_new_layers.push(h_new.unsqueeze(0)?);
                 c_new_layers.push(c_new.unsqueeze(0)?);
@@ -392,7 +394,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
             let mut forward_outputs = Vec::with_capacity(seq_len);
 
             for t in 0..seq_len {
-                let x_t = layer_input.narrow(0, t, 1)?.reshape((batch, input_size))?;
+                let x_t = layer_input.narrow(0, t..t + 1)?.reshape((batch, input_size))?;
                 let (h_new, c_new) =
                     self.forward_layers[layer_idx].forward_step(&x_t, &h_f, &c_f)?;
                 forward_outputs.push(h_new.unsqueeze(0)?);
@@ -405,7 +407,7 @@ impl<T: WithDTypeF, B: Backend> BiLstm<T, B> {
             let mut backward_outputs = Vec::with_capacity(seq_len);
 
             for t in (0..seq_len).rev() {
-                let x_t = layer_input.narrow(0, t, 1)?.reshape((batch, input_size))?;
+                let x_t = layer_input.narrow(0, t..t + 1)?.reshape((batch, input_size))?;
                 let (h_new, c_new) =
                     self.backward_layers[layer_idx].forward_step(&x_t, &h_b, &c_b)?;
                 backward_outputs.push(h_new.unsqueeze(0)?);
@@ -541,8 +543,8 @@ impl<T: WithDTypeF, B: Backend> ConvTranspose1d<T, B> {
 fn glu<T: WithDTypeF, B: Backend>(x: &Tensor<T, B>, dim: usize) -> Result<Tensor<T, B>> {
     let size = x.dim(dim)?;
     let half = size / 2;
-    let a = x.narrow(dim, 0, half)?;
-    let b = x.narrow(dim, half, half)?;
+    let a = x.narrow(dim, ..half)?;
+    let b = x.narrow(dim, half..)?;
     a.mul(&b.sigmoid()?)
 }
 
@@ -748,7 +750,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
             let std = var.sqrt()?;
             let denom = std.add_scalar(T::from_f32(self.config.floor))?;
             let mix_norm = mix.broadcast_div(&denom)?;
-            let std_out = std.narrow(1, 0, 1)?;
+            let std_out = std.narrow(1, ..1)?;
             (Some(std_out), mix_norm)
         } else {
             (None, mix.clone())
@@ -785,8 +787,8 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
         for dec in &self.decoder {
             let skip = skips.pop().context("empty skips")?;
             let x_len = x.dim(2)?;
-            let skip = skip.narrow(2, 0, x_len.min(skip.dim(2)?))?;
-            x = x.narrow(2, 0, skip.dim(2)?)?.add(&skip)?;
+            let skip = skip.narrow(2, ..x_len.min(skip.dim(2)?))?;
+            x = x.narrow(2, ..skip.dim(2)?)?.add(&skip)?;
             x = dec.forward(&x)?;
         }
 
@@ -798,7 +800,7 @@ impl<T: WithDTypeF, B: Backend> Demucs<T, B> {
         };
 
         // Trim and denormalize
-        let x = x.narrow(2, 0, length)?;
+        let x = x.narrow(2, ..length)?;
         let x = if let Some(std_val) = std_val { x.broadcast_mul(&std_val)? } else { x };
 
         Ok((x, new_lstm_state))
@@ -898,7 +900,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
         let mut outs = Vec::new();
 
         while self.pending.dim(1)? >= self.initial_frame_length {
-            let frame = self.pending.narrow(1, 0, self.initial_frame_length)?;
+            let frame = self.pending.narrow(1, ..self.initial_frame_length)?;
 
             // Online normalization (matches Python streaming)
             let frame = if config.normalize {
@@ -924,8 +926,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             // Prepend resample buffer
             let padded_frame = Tensor::cat(&[&self.resample_in, &frame], 1)?;
             // Save end of frame for next iteration
-            self.resample_in =
-                frame.narrow(1, self.stride - self.resample_buffer, self.resample_buffer)?;
+            self.resample_in = frame.narrow(1, self.stride - self.resample_buffer..self.stride)?;
 
             // Upsample
             let frame = match resample {
@@ -937,8 +938,8 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             // Remove pre-sampling buffer, trim to expected length
             let frame = frame.narrow(
                 1,
-                resample * self.resample_buffer,
-                resample * self.initial_frame_length,
+                resample * self.resample_buffer
+                    ..resample * (self.resample_buffer + self.initial_frame_length),
             )?;
 
             // Process frame through streaming encoder/decoder
@@ -946,8 +947,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
 
             // Downsample with buffer
             let padded_out = Tensor::cat(&[&self.resample_out, &out, &extra], 1)?;
-            self.resample_out =
-                out.narrow(1, out.dim(1)? - self.resample_buffer, self.resample_buffer)?;
+            self.resample_out = out.narrow(1, out.dim(1)? - self.resample_buffer..)?;
 
             let out = match resample {
                 4 => downsample2(&downsample2(&padded_out, 56)?, 56)?,
@@ -955,12 +955,15 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
                 _ => padded_out,
             };
 
-            let out = out.narrow(1, self.resample_buffer / resample, self.stride)?;
+            let out = out.narrow(
+                1,
+                self.resample_buffer / resample..self.resample_buffer / resample + self.stride,
+            )?;
 
             // Denormalize
             let out = if config.normalize {
                 let std = self.variance()?.sqrt()?;
-                let std = std.narrow(0, 0, 1)?;
+                let std = std.narrow(0, ..1)?;
                 out.broadcast_mul(&std)?
             } else {
                 out
@@ -977,8 +980,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             };
 
             outs.push(out);
-            self.pending =
-                self.pending.narrow(1, self.stride, self.pending.dim(1)? - self.stride)?;
+            self.pending = self.pending.narrow(1, self.stride..)?;
         }
 
         if outs.is_empty() {
@@ -1020,12 +1022,12 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
                 // Use conv state for overlap
                 let x_new = if let Some(ref mut conv_state) = self.conv_state {
                     let prev = conv_state.remove(0);
-                    let prev = prev.narrow(2, stride, prev.dim(2)? - stride)?;
+                    let prev = prev.narrow(2, stride..)?;
                     let tgt = (length - kernel_size) / conv_stride + 1;
                     let missing = tgt.saturating_sub(prev.dim(2)?);
                     if missing > 0 {
                         let offset = length - kernel_size - conv_stride * (missing - 1);
-                        let x_slice = x.narrow(2, offset, length - offset)?;
+                        let x_slice = x.narrow(2, offset..length)?;
                         let x_enc = encode.conv0.forward(&x_slice)?;
                         let x_enc = x_enc.relu()?;
                         let x_enc = fast_conv(&encode.conv2, &x_enc)?;
@@ -1060,8 +1062,8 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             let x_len = x.dim(2)?;
 
             // Add skip connection
-            let skip_slice = skip.narrow(2, 0, x_len.min(skip.dim(2)?))?;
-            x = x.narrow(2, 0, skip_slice.dim(2)?)?.add(&skip_slice)?;
+            let skip_slice = skip.narrow(2, ..x_len.min(skip.dim(2)?))?;
+            x = x.narrow(2, ..skip_slice.dim(2)?)?.add(&skip_slice)?;
 
             // decode[0] + decode[1]
             x = fast_conv(&decode.conv0, &x)?;
@@ -1069,10 +1071,10 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
 
             // Handle extra for better resampling
             if let Some(ref mut e) = extra {
-                let skip_rest = skip.narrow(2, x_len, skip.dim(2)? - x_len)?;
+                let skip_rest = skip.narrow(2, x_len..)?;
                 let e_len = e.dim(2)?;
-                let skip_rest = skip_rest.narrow(2, 0, e_len.min(skip_rest.dim(2)?))?;
-                *e = e.narrow(2, 0, skip_rest.dim(2)?)?.add(&skip_rest)?;
+                let skip_rest = skip_rest.narrow(2, ..e_len.min(skip_rest.dim(2)?))?;
+                *e = e.narrow(2, ..skip_rest.dim(2)?)?.add(&skip_rest)?;
                 // Apply decode[0], decode[1], decode[2] to extra
                 let e_conv = fast_conv(&decode.conv0, e)?;
                 let e_act = if decode.glu { glu(&e_conv, 1)? } else { e_conv.relu()? };
@@ -1087,20 +1089,20 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             let state_entry = if let Some(ref bias) = decode.convtr.bias {
                 // state = x[..., -stride:] - bias
                 let bias_neg = bias.reshape((1, bias.elem_count(), 1))?;
-                x.narrow(2, x_len - conv_stride, conv_stride)?.broadcast_sub(&bias_neg)?
+                x.narrow(2, x_len - conv_stride..)?.broadcast_sub(&bias_neg)?
             } else {
-                x.narrow(2, x_len - conv_stride, conv_stride)?
+                x.narrow(2, x_len - conv_stride..)?
             };
             next_state.push(state_entry.clone());
 
             let new_extra = match extra {
-                None => x.narrow(2, x_len - conv_stride, conv_stride)?,
+                None => x.narrow(2, x_len - conv_stride..)?,
                 Some(e) => {
-                    let e_slice = e.narrow(2, 0, conv_stride.min(e.dim(2)?))?;
-                    let state_slice = state_entry.narrow(2, 0, e_slice.dim(2)?)?;
+                    let e_slice = e.narrow(2, ..conv_stride.min(e.dim(2)?))?;
+                    let state_slice = state_entry.narrow(2, ..e_slice.dim(2)?)?;
                     let e_new = e_slice.add(&state_slice)?;
                     if e.dim(2)? > conv_stride {
-                        let e_rest = e.narrow(2, conv_stride, e.dim(2)? - conv_stride)?;
+                        let e_rest = e.narrow(2, conv_stride..)?;
                         Tensor::cat(&[&e_new, &e_rest], 2)?
                     } else {
                         e_new
@@ -1109,7 +1111,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             };
             extra = Some(new_extra);
 
-            x = x.narrow(2, 0, x_len - conv_stride)?;
+            x = x.narrow(2, ..x_len - conv_stride)?;
 
             // Add previous decoder state
             if let Some(ref mut conv_state) = self.conv_state
@@ -1117,11 +1119,11 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
             {
                 let prev = conv_state.remove(0);
                 let prev_len = prev.dim(2)?;
-                let x_slice = x.narrow(2, 0, prev_len.min(x.dim(2)?))?;
-                let prev_slice = prev.narrow(2, 0, x_slice.dim(2)?)?;
+                let x_slice = x.narrow(2, ..prev_len.min(x.dim(2)?))?;
+                let prev_slice = prev.narrow(2, ..x_slice.dim(2)?)?;
                 let x_updated = x_slice.add(&prev_slice)?;
                 if x.dim(2)? > prev_len {
-                    let x_rest = x.narrow(2, prev_len, x.dim(2)? - prev_len)?;
+                    let x_rest = x.narrow(2, prev_len..)?;
                     x = Tensor::cat(&[&x_updated, &x_rest], 2)?;
                 } else {
                     x = x_updated;
@@ -1155,7 +1157,7 @@ impl<T: WithDTypeF, B: Backend> DemucsStreamer<T, B> {
         let out = self.feed(&padding)?;
         let out_len = out.dim(1)?;
         if out_len > pending_length && pending_length > 0 {
-            out.narrow(1, 0, pending_length)
+            out.narrow(1, ..pending_length)
         } else {
             Ok(out)
         }

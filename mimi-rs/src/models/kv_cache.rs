@@ -35,7 +35,7 @@ impl<T: WithDType, B: Backend> Cache<T, B> {
 
     pub fn current_data(&self) -> Result<TensorView<T, B>> {
         let view = TensorView::from(&self.all_data);
-        view.narrow(self.dim, 0, Some(self.current_seq_len))
+        view.narrow(self.dim, ..self.current_seq_len)
     }
 
     pub fn append(&mut self, src: &Tensor<T, B>) -> Result<()> {
@@ -133,7 +133,7 @@ impl<T: WithDType, B: Backend> RotatingCache<T, B> {
                 if self.current_seq_len >= self.max_seq_len {
                     Some(d.clone())
                 } else {
-                    Some(d.narrow(self.dim, 0, self.current_seq_len)?)
+                    Some(d.narrow(self.dim, ..self.current_seq_len)?)
                 }
             }
         };
@@ -160,7 +160,7 @@ impl<T: WithDType, B: Backend> RotatingCache<T, B> {
 
         self.current_seq_len += seq_len;
         if seq_len >= self.max_seq_len {
-            let to_copy = src.narrow(self.dim, seq_len - self.max_seq_len, self.max_seq_len)?;
+            let to_copy = src.narrow(self.dim, seq_len - self.max_seq_len..seq_len)?;
             ad.slice_set(&to_copy, self.dim, 0)?;
             self.offset = 0;
             // Here we return `src` rather than `ad` so that all the past can be used.
@@ -173,17 +173,17 @@ impl<T: WithDType, B: Backend> RotatingCache<T, B> {
             } else {
                 // We have to make two copies here as we go over the boundary of the cache.
                 if rem_len > 0 {
-                    let src1 = src.narrow(self.dim, 0, rem_len)?;
+                    let src1 = src.narrow(self.dim, ..rem_len)?;
                     ad.slice_set(&src1, self.dim, self.offset)?;
                 }
-                let src2 = src.narrow(self.dim, rem_len, seq_len - rem_len)?;
+                let src2 = src.narrow(self.dim, rem_len..seq_len)?;
                 ad.slice_set(&src2, self.dim, 0)?;
                 self.offset = seq_len - rem_len;
             }
             if self.current_seq_len >= self.max_seq_len {
                 Ok(ad.clone())
             } else {
-                Ok(ad.narrow(self.dim, 0, self.current_seq_len)?)
+                Ok(ad.narrow(self.dim, ..self.current_seq_len)?)
             }
         }
     }

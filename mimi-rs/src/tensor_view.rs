@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::{Backend, Shape, Tensor, WithDType, shape::Dim};
+use std::ops::RangeBounds;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 #[derive(Clone)]
@@ -133,10 +134,10 @@ impl<T: WithDType, B: Backend> TensorView<T, B> {
         })
     }
 
-    pub fn narrow<D: Dim>(&self, dim: D, start: usize, len: Option<usize>) -> Result<Self> {
+    pub fn narrow<D: Dim>(&self, dim: D, range: impl RangeBounds<usize>) -> Result<Self> {
         let dim = dim.to_index(&self.shape, "narrow")?;
         let mut dims = self.shape.dims().to_vec();
-        let len = len.unwrap_or(dims[dim].saturating_sub(start));
+        let (start, len) = crate::tensor::resolve_range(range, dims[dim]);
         if start + len > dims[dim] {
             crate::bail!("out-of-bounds in narrow on {dim}, {start} + {len} > {}", dims[dim])
         }

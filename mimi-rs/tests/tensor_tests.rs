@@ -926,7 +926,7 @@ fn test_broadcast_as_from_view_impl<B: Backend>(dev: &B) -> Result<()> {
     // TensorView::broadcast_as: narrow then broadcast
     let t: Tensor<f32, B> = Tensor::from_vec(vec![1., 2., 3., 4., 5., 6.], (2, 3), dev)?;
     let view: TensorView<f32, B> = TensorView::from(&t);
-    let narrowed = view.narrow(0, 0, Some(1))?; // (1, 3)
+    let narrowed = view.narrow(0, ..1)?; // (1, 3)
     let broadcast = narrowed.broadcast_as((3, 3))?;
     let result = broadcast.contiguous()?;
     assert_eq!(result.to_vec()?, vec![1., 2., 3., 1., 2., 3., 1., 2., 3.]);

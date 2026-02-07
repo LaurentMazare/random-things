@@ -326,13 +326,13 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConv1d<T, B>
             let offset = num_frames * self.stride;
             // Save remaining for next step
             if seq_len > offset {
-                self.state_prev_xs = Some(xs.narrow(2, offset, seq_len - offset)?);
+                self.state_prev_xs = Some(xs.narrow(2, offset..seq_len)?);
             } else {
                 self.state_prev_xs = None;
             }
             // Process current frames
             let in_len = (num_frames - 1) * self.stride + kernel;
-            let xs_in = xs.narrow(2, 0, in_len)?;
+            let xs_in = xs.narrow(2, ..in_len)?;
             Ok(StreamTensor::from_tensor(self.conv.forward(&xs_in)?))
         } else {
             self.state_prev_xs = Some(xs);
@@ -370,7 +370,7 @@ impl<T: WithDTypeF, B: Backend> StreamableConvTranspose1d<T, B> {
         if len < unpad_l + unpad_r {
             crate::bail!("unpad1d: tensor len {len} is too low for unpad {unpad_l} + {unpad_r}");
         }
-        xs.narrow(2, unpad_l, len - (unpad_l + unpad_r))
+        xs.narrow(2, unpad_l..len - unpad_r)
     }
 
     pub fn forward(&self, xs: &Tensor<T, B>) -> Result<Tensor<T, B>> {
@@ -411,8 +411,8 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConvTranspos
                         prev_ys.broadcast_sub(&bias)?
                     }
                 };
-                let ys1 = ys.narrow(2, 0, pt)?.add(&prev_ys)?;
-                let ys2 = ys.narrow(2, pt, ot - pt)?;
+                let ys1 = ys.narrow(2, ..pt)?.add(&prev_ys)?;
+                let ys2 = ys.narrow(2, pt..ot)?;
                 Tensor::cat(&[&ys1, &ys2], 2)?
             }
         };
@@ -421,9 +421,9 @@ impl<T: WithDTypeF, B: Backend> StreamingModule<T, B> for StreamableConvTranspos
         let invalid_steps = self.kernel_size - self.stride;
         let valid_len = ot.saturating_sub(invalid_steps);
         if valid_len > 0 {
-            let valid = ys.narrow(2, 0, valid_len)?;
+            let valid = ys.narrow(2, ..valid_len)?;
             if ot > valid_len {
-                self.state_prev_ys = Some(ys.narrow(2, valid_len, ot - valid_len)?);
+                self.state_prev_ys = Some(ys.narrow(2, valid_len..ot)?);
             } else {
                 self.state_prev_ys = None;
             }
@@ -1138,7 +1138,10 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
         let seq_len = k.dims()[2];
         let (k, v) = if seq_len > self.max_seq_len {
             let trim = seq_len - self.max_seq_len;
-            (k.narrow(2, trim, self.max_seq_len)?, v.narrow(2, trim, self.max_seq_len)?)
+            (
+                k.narrow(2, trim..trim + self.max_seq_len)?,
+                v.narrow(2, trim..trim + self.max_seq_len)?,
+            )
         } else {
             (k, v)
         };
@@ -1327,9 +1330,9 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         // Split into Q, K, V
         // qkv shape: [b, t, 3 * num_heads * head_dim]
         let d_model = self.num_heads * self.head_dim;
-        let q = qkv.narrow(2, 0, d_model)?;
-        let k = qkv.narrow(2, d_model, d_model)?;
-        let v = qkv.narrow(2, 2 * d_model, d_model)?;
+        let q = qkv.narrow(2, ..d_model)?;
+        let k = qkv.narrow(2, d_model..2 * d_model)?;
+        let v = qkv.narrow(2, 2 * d_model..3 * d_model)?;
 
         // Reshape to [b, t, num_heads, head_dim] then transpose to [b, num_heads, t, head_dim]
         let q = q.reshape((b, t, self.num_heads, self.head_dim))?.transpose(1, 2)?;
@@ -1725,9 +1728,9 @@ impl<T: WithDTypeF, B: Backend> ResidualVectorQuantization<T, B> {
 
         let inner_shape: Vec<usize> = codes.dims()[1..].to_vec();
         let mut quantized =
-            self.layers[0].decode(&codes.narrow(0, 0, 1)?.reshape(inner_shape.clone())?)?;
+            self.layers[0].decode(&codes.narrow(0, ..1)?.reshape(inner_shape.clone())?)?;
         for (i, layer) in self.layers.iter().enumerate().skip(1) {
-            let layer_codes = codes.narrow(0, i, 1)?.reshape(inner_shape.clone())?;
+            let layer_codes = codes.narrow(0, i..i + 1)?.reshape(inner_shape.clone())?;
             quantized = quantized.add(&layer.decode(&layer_codes)?)?;
         }
         Ok(quantized)
@@ -1847,10 +1850,10 @@ impl<T: WithDTypeF, B: Backend> SplitResidualVectorQuantizer<T, B> {
 
     #[tracing::instrument(name = "rvq-decode", skip_all)]
     pub fn decode(&self, codes: &Tensor<i64, B>) -> Result<Tensor<T, B>> {
-        let first_codes = codes.narrow(1, 0, 1)?;
+        let first_codes = codes.narrow(1, ..1)?;
         let quantized = self.rvq_first.decode(&first_codes)?;
         if self.n_q > 1 {
-            let rest_codes = codes.narrow(1, 1, self.n_q - 1)?;
+            let rest_codes = codes.narrow(1, 1..self.n_q)?;
             quantized.add(&self.rvq_rest.decode(&rest_codes)?)
         } else {
             Ok(quantized)

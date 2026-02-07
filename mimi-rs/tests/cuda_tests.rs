@@ -672,7 +672,7 @@ fn test_index_select_3d() -> Result<()> {
 fn test_narrow_1d() -> Result<()> {
     let device = get_device();
     let a: Tensor<f32, Device> = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0], vec![5], &device)?;
-    let narrowed = a.narrow(0, 1, 3)?;
+    let narrowed = a.narrow(0, 1..4)?;
     assert_eq!(narrowed.dims(), &[3]);
     assert_eq!(narrowed.to_vec()?, vec![2.0, 3.0, 4.0]);
     Ok(())
@@ -688,7 +688,7 @@ fn test_narrow_2d_dim0() -> Result<()> {
         &device,
     )?;
     // Take rows 1..3 (2 rows)
-    let narrowed = a.narrow(0, 1, 2)?;
+    let narrowed = a.narrow(0, 1..3)?;
     assert_eq!(narrowed.dims(), &[2, 3]);
     assert_eq!(narrowed.to_vec()?, vec![4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
     Ok(())
@@ -704,7 +704,7 @@ fn test_narrow_2d_dim1() -> Result<()> {
         &device,
     )?;
     // Take columns 1..3 (2 columns)
-    let narrowed = a.narrow(1, 1, 2)?;
+    let narrowed = a.narrow(1, 1..3)?;
     assert_eq!(narrowed.dims(), &[3, 2]);
     assert_eq!(narrowed.to_vec()?, vec![2.0, 3.0, 6.0, 7.0, 10.0, 11.0]);
     Ok(())

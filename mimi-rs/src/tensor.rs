@@ -1,5 +1,21 @@
 use crate::{Backend, DType, Error, Result, Shape, TensorView, WithDType, shape::Dim};
+use std::ops::RangeBounds;
 use std::sync::{Arc, RwLock};
+
+/// Resolve a `RangeBounds<usize>` into `(start, len)` given a dimension size.
+pub(crate) fn resolve_range(range: impl RangeBounds<usize>, dim_size: usize) -> (usize, usize) {
+    let start = match range.start_bound() {
+        std::ops::Bound::Included(&s) => s,
+        std::ops::Bound::Excluded(&s) => s + 1,
+        std::ops::Bound::Unbounded => 0,
+    };
+    let end = match range.end_bound() {
+        std::ops::Bound::Included(&e) => e + 1,
+        std::ops::Bound::Excluded(&e) => e,
+        std::ops::Bound::Unbounded => dim_size,
+    };
+    (start, end.saturating_sub(start))
+}
 
 impl<T: WithDType, B: Backend> Clone for Tensor<T, B> {
     fn clone(&self) -> Self {
@@ -127,12 +143,13 @@ impl<T: WithDType, B: Backend> Tensor<T, B> {
 
     /// Extract a slice of the tensor along a given dimension.
     #[tracing::instrument(skip_all)]
-    pub fn narrow(&self, dim: usize, start: usize, len: usize) -> Result<Self> {
+    pub fn narrow(&self, dim: usize, range: impl RangeBounds<usize>) -> Result<Self> {
         let dims = self.dims();
         if dim >= dims.len() {
             crate::bail!("narrow: dim {} out of range for rank {}", dim, dims.len());
         }
         let dim_size = dims[dim];
+        let (start, len) = resolve_range(range, dim_size);
         if start + len > dim_size {
             crate::bail!("narrow: start {start} + len {len} exceeds dim size {dim_size}");
         }
