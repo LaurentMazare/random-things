@@ -1119,6 +1119,7 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
         }
     }
 
+    #[tracing::instrument(name = "kv-append", skip_all)]
     fn append(
         &mut self,
         new_k: &Tensor<T, B>,

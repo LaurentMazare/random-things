@@ -1007,6 +1007,7 @@ where
 /// Im2Col transformation for 1D convolution.
 /// Transforms input from [B, C, L] to [B, L_out, C * K] for matrix multiplication.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip_all)]
 fn im2col1d<T: WithDTypeF>(
     src: &[T],
     batch: usize,
@@ -1138,6 +1139,7 @@ fn conv1d_direct<T: WithDTypeF>(
 /// Transforms col from [B, L_in, C_out, K] to output [B, C_out, L_out].
 /// Following the reference implementation closely.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip_all)]
 fn col2im1d<T: WithDTypeF>(
     dst: &mut [T],
     col: &[T],

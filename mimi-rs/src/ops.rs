@@ -438,6 +438,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// GELU activation with erf.
+    #[tracing::instrument(skip_all)]
     pub fn gelu_erf(&self) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.gelu_erf_(self)?;
@@ -445,6 +446,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// ELU activation.
+    #[tracing::instrument(skip_all)]
     pub fn elu(&self, alpha: f32) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.elu_(self, alpha)?;
@@ -452,6 +454,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// ReLU activation.
+    #[tracing::instrument(skip_all)]
     pub fn relu(&self) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.relu_(self)?;
@@ -459,6 +462,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Tanh activation.
+    #[tracing::instrument(skip_all)]
     pub fn tanh(&self) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.tanh_(self)?;
@@ -466,6 +470,7 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
     }
 
     /// Sigmoid activation.
+    #[tracing::instrument(skip_all)]
     pub fn sigmoid(&self) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
         result.sigmoid_(self)?;
