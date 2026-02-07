@@ -4,6 +4,43 @@ use rayon::prelude::*;
 const USE_IM2COL_CONV1D: bool = true;
 const USE_COL2IM_CONV1D_TR: bool = true;
 
+fn copy_strided_2d<T: WithDType>(
+    dst: &mut [T],
+    src: &[T],
+    src_offset: usize,
+    d0: usize,
+    d1: usize,
+    s0: usize,
+) {
+    let mut src_idx = src_offset;
+    let mut dst_off = 0;
+    for _ in 0..d0 {
+        dst[dst_off..dst_off + d1].copy_from_slice(&src[src_idx..src_idx + d1]);
+        src_idx += s0;
+        dst_off += d1;
+    }
+}
+
+fn copy_strided_3d<T: WithDType>(
+    dst: &mut [T],
+    src: &[T],
+    src_offset: usize,
+    dims: [usize; 3],
+    strides: [usize; 2],
+) {
+    let [d0, d1, d2] = dims;
+    let [s0, s1] = strides;
+    let mut dst_off = 0;
+    for i0 in 0..d0 {
+        let base = src_offset + i0 * s0;
+        for i1 in 0..d1 {
+            let src_idx = base + i1 * s1;
+            dst[dst_off..dst_off + d2].copy_from_slice(&src[src_idx..src_idx + d2]);
+            dst_off += d2;
+        }
+    }
+}
+
 impl crate::Backend for crate::CpuDevice {
     type Storage<T: WithDType> = Vec<T>;
 
@@ -393,29 +430,18 @@ impl crate::Backend for crate::CpuDevice {
             dst[..total].copy_from_slice(&src[src_offset..src_offset + total]);
             return Ok(());
         }
-        if rank >= 2 && src_strides[rank - 1] == 1 {
-            let inner = dims[rank - 1];
-            let outer: usize = dims[..rank - 1].iter().product();
-            let outer_strides = &src_strides[..rank - 1];
-            let outer_dims = &dims[..rank - 1];
-            let outer_rank = rank - 1;
-            let mut index = vec![0usize; outer_rank];
-            for i in 0..outer {
-                let mut src_idx = src_offset;
-                for d in 0..outer_rank {
-                    src_idx += index[d] * outer_strides[d];
-                }
-                let dst_off = i * inner;
-                dst[dst_off..dst_off + inner]
-                    .copy_from_slice(&src[src_idx..src_idx + inner]);
-                for d in (0..outer_rank).rev() {
-                    index[d] += 1;
-                    if index[d] < outer_dims[d] {
-                        break;
-                    }
-                    index[d] = 0;
-                }
-            }
+        if rank == 2 && src_strides[1] == 1 {
+            copy_strided_2d(dst, src, src_offset, dims[0], dims[1], src_strides[0]);
+            return Ok(());
+        }
+        if rank == 3 && src_strides[2] == 1 {
+            copy_strided_3d(
+                dst,
+                src,
+                src_offset,
+                [dims[0], dims[1], dims[2]],
+                [src_strides[0], src_strides[1]],
+            );
             return Ok(());
         }
         let mut index = vec![0usize; rank];
