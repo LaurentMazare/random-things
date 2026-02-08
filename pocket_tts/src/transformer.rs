@@ -66,13 +66,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let in_proj_weight = vb.pp("in_proj").tensor("weight", (out_dim, embed_dim))?;
         let out_proj_weight = vb.pp("out_proj").tensor("weight", (embed_dim, embed_dim))?;
         let name = vb.prefix();
-        Ok(Self {
-            in_proj_weight,
-            out_proj_weight,
-            embed_dim,
-            num_heads,
-            name,
-        })
+        Ok(Self { in_proj_weight, out_proj_weight, embed_dim, num_heads, name })
     }
 
     pub fn name(&self) -> &str {
@@ -89,11 +83,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let dev = self.in_proj_weight.device();
         let k_cache = Tensor::zeros(shape, dev)?;
         let v_cache = Tensor::zeros(shape, dev)?;
-        Ok(StreamingMHAState {
-            k_cache,
-            v_cache,
-            current_end: 0,
-        })
+        Ok(StreamingMHAState { k_cache, v_cache, current_end: 0 })
     }
 
     pub fn forward(
@@ -109,19 +99,15 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let projected = query.matmul_t(&self.in_proj_weight)?;
         // Split into q, k, v by narrowing on the last dimension
         let ed = self.embed_dim;
-        let q = projected
-            .narrow(2, 0..ed)?
-            .contiguous()?
-            .reshape((b, t, self.num_heads, d))?;
+        let q = projected.narrow(2, 0..ed)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
         let k =
-            projected
-                .narrow(2, ed..2 * ed)?
-                .contiguous()?
-                .reshape((b, t, self.num_heads, d))?;
-        let v = projected
-            .narrow(2, 2 * ed..3 * ed)?
-            .contiguous()?
-            .reshape((b, t, self.num_heads, d))?;
+            projected.narrow(2, ed..2 * ed)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        let v = projected.narrow(2, 2 * ed..3 * ed)?.contiguous()?.reshape((
+            b,
+            t,
+            self.num_heads,
+            d,
+        ))?;
 
         // Apply RoPE: q, k are [b, t, h, d]
         let (q, k) = rope.forward(&q, &k, offset)?;

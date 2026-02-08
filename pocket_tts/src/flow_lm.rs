@@ -20,13 +20,8 @@ fn lsd_decode<T: WithDTypeF, B: Backend>(
         let t_val = (i + 1) as f32 / num_steps as f32;
 
         // Create s and t tensors matching x_0 shape but with last dim = 1
-        let shape: Vec<usize> = x_0
-            .dims()
-            .iter()
-            .copied()
-            .take(x_0.rank() - 1)
-            .chain([1])
-            .collect();
+        let shape: Vec<usize> =
+            x_0.dims().iter().copied().take(x_0.rank() - 1).chain([1]).collect();
         let s = Tensor::full(T::from_f32(s_val), shape.clone(), dev)?;
         let t = Tensor::full(T::from_f32(t_val), shape, dev)?;
 
@@ -107,9 +102,8 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let emb_std = vb.tensor("emb_std", (cfg.ldim,))?;
         let emb_mean = vb.tensor("emb_mean", (cfg.ldim,))?;
         let bos_emb = vb.tensor("bos_emb", (cfg.ldim,))?;
-        let input_linear_weight = vb
-            .pp("input_linear")
-            .tensor("weight", (cfg.d_model, cfg.ldim))?;
+        let input_linear_weight =
+            vb.pp("input_linear").tensor("weight", (cfg.d_model, cfg.ldim))?;
         let out_norm_weight = vb.pp("out_norm").tensor("weight", (cfg.d_model,))?;
         let out_norm_bias = vb.pp("out_norm").tensor("bias", (cfg.d_model,))?;
         let out_eos_weight = vb.pp("out_eos").tensor("weight", (1, cfg.d_model))?;
@@ -150,9 +144,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         state: &mut FlowLMState<T, B>,
     ) -> Result<Tensor<T, B>> {
         let input = Tensor::cat(&[text_embeddings, input], 1)?;
-        let out = self
-            .transformer
-            .forward(&input, &mut state.transformer_state)?;
+        let out = self.transformer.forward(&input, &mut state.transformer_state)?;
         let out = out.layer_norm(&self.out_norm_weight, &self.out_norm_bias, 1e-5)?;
         // Remove prefix, keep only last seq_len positions
         let total = out.dim(1usize)?;

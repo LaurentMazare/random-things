@@ -13,11 +13,8 @@ impl<T: WithDTypeF, B: Backend> DummyQuantizer<T, B> {
     pub fn load(vb: &Path<B>, dimension: usize, output_dimension: usize) -> Result<Self> {
         let vb = vb.pp("output_proj");
         let output_proj_weight = vb.tensor("weight", (output_dimension, dimension, 1))?;
-        let output_proj_bias = if vb.contains("bias") {
-            Some(vb.tensor("bias", (output_dimension,))?)
-        } else {
-            None
-        };
+        let output_proj_bias =
+            if vb.contains("bias") { Some(vb.tensor("bias", (output_dimension,))?) } else { None };
         Ok(Self { output_proj_weight, output_proj_bias, dimension, output_dimension })
     }
 

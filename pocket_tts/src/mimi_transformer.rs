@@ -15,11 +15,7 @@ pub struct KvCache<T: WithDTypeF, B: Backend> {
 
 impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
     pub fn new(max_seq_len: usize) -> Self {
-        Self {
-            k: None,
-            v: None,
-            max_seq_len,
-        }
+        Self { k: None, v: None, max_seq_len }
     }
 
     pub fn current_seq_len(&self) -> usize {
@@ -101,13 +97,7 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         let out_dim = 3 * embed_dim;
         let in_proj_weight = vb.pp("in_proj").tensor("weight", (out_dim, embed_dim))?;
         let out_proj_weight = vb.pp("out_proj").tensor("weight", (embed_dim, embed_dim))?;
-        Ok(Self {
-            in_proj_weight,
-            out_proj_weight,
-            embed_dim,
-            num_heads,
-            context,
-        })
+        Ok(Self { in_proj_weight, out_proj_weight, embed_dim, num_heads, context })
     }
 
     pub fn init_state(&self) -> Result<KvCache<T, B>> {
@@ -126,18 +116,9 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
 
         let projected = query.matmul_t(&self.in_proj_weight)?;
         let packed = projected.reshape((b, t, 3, self.num_heads, d))?;
-        let q = packed
-            .narrow(2, 0..1)?
-            .contiguous()?
-            .reshape((b, t, self.num_heads, d))?;
-        let k = packed
-            .narrow(2, 1..2)?
-            .contiguous()?
-            .reshape((b, t, self.num_heads, d))?;
-        let v = packed
-            .narrow(2, 2..3)?
-            .contiguous()?
-            .reshape((b, t, self.num_heads, d))?;
+        let q = packed.narrow(2, 0..1)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        let k = packed.narrow(2, 1..2)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        let v = packed.narrow(2, 2..3)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
 
         // RoPE on [b, t, h, d]
         let (q, k) = rope.forward(&q, &k, offset)?;
@@ -215,12 +196,8 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         let norm1_bias = vb.pp("norm1").tensor("bias", (d_model,))?;
         let norm2_weight = vb.pp("norm2").tensor("weight", (d_model,))?;
         let norm2_bias = vb.pp("norm2").tensor("bias", (d_model,))?;
-        let linear1_weight = vb
-            .pp("linear1")
-            .tensor("weight", (dim_feedforward, d_model))?;
-        let linear2_weight = vb
-            .pp("linear2")
-            .tensor("weight", (d_model, dim_feedforward))?;
+        let linear1_weight = vb.pp("linear1").tensor("weight", (dim_feedforward, d_model))?;
+        let linear2_weight = vb.pp("linear2").tensor("weight", (d_model, dim_feedforward))?;
 
         let layer_scale_1 = if layer_scale.is_some() {
             Some(LayerScale::load(&vb.pp("layer_scale_1"), d_model)?)
@@ -395,10 +372,7 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
         )?;
 
         let input_proj = if d_model != input_dimension {
-            Some(
-                vb.pp("input_proj")
-                    .tensor("weight", (d_model, input_dimension))?,
-            )
+            Some(vb.pp("input_proj").tensor("weight", (d_model, input_dimension))?)
         } else {
             None
         };
@@ -408,19 +382,12 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
             if d_model == out_dim {
                 output_projs.push(None);
             } else {
-                output_projs.push(Some(
-                    vb.pp("output_projs")
-                        .pp(i)
-                        .tensor("weight", (out_dim, d_model))?,
-                ));
+                output_projs
+                    .push(Some(vb.pp("output_projs").pp(i).tensor("weight", (out_dim, d_model))?));
             }
         }
 
-        Ok(Self {
-            transformer,
-            input_proj,
-            output_projs,
-        })
+        Ok(Self { transformer, input_proj, output_projs })
     }
 
     pub fn init_state(

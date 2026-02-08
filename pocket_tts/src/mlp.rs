@@ -28,8 +28,7 @@ impl<T: WithDTypeF, B: Backend> RMSNorm<T, B> {
         // Python version uses variance (not mean-of-squares):
         //   var = eps + x.var(dim=-1, keepdim=True)   # unbiased (N-1)
         //   y = x * (alpha * rsqrt(var))
-        let dims = x.dims().to_vec();
-        let last_dim = *dims.last().unwrap();
+        let last_dim = x.dim(mimi::D::Minus1)?;
         let n = last_dim as f32;
         let data = x.to_vec()?;
         let alpha_data = self.alpha.to_vec()?;

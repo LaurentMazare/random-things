@@ -58,9 +58,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         batch_size: usize,
         sequence_length: usize,
     ) -> Result<TTSState<T, B>> {
-        Ok(TTSState {
-            flow_lm_state: self.flow_lm.init_state(batch_size, sequence_length)?,
-        })
+        Ok(TTSState { flow_lm_state: self.flow_lm.init_state(batch_size, sequence_length)? })
     }
 
     /// Encode audio for voice conditioning. Returns [1, T', dim].
@@ -155,10 +153,8 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         // Run backbone (just to update the state, we discard output during prompting)
         let input = backbone_input_latents.matmul_t(&self.flow_lm.input_linear_weight)?;
         let input = Tensor::cat(&[text_embeddings, &input], 1)?;
-        let _out = self
-            .flow_lm
-            .transformer
-            .forward(&input, &mut state.flow_lm_state.transformer_state)?;
+        let _out =
+            self.flow_lm.transformer.forward(&input, &mut state.flow_lm_state.transformer_state)?;
         Ok(())
     }
 }

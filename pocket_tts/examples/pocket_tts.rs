@@ -4,7 +4,7 @@ use mimi::nn::VB;
 use mimi::{Backend, Tensor};
 use pocket_tts::flow_lm::FlowLMConfig;
 use pocket_tts::mimi::MimiConfig;
-use pocket_tts::tts_model::{prepare_text_prompt, TTSConfig, TTSModel};
+use pocket_tts::tts_model::{TTSConfig, TTSModel, prepare_text_prompt};
 
 #[derive(Parser, Debug)]
 #[command(name = "pocket-tts")]
@@ -33,31 +33,27 @@ struct Args {
     chrome_tracing: bool,
 }
 
-const VOICES: &[&str] = &[
-    "alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma",
-];
+const VOICES: &[&str] =
+    &["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma"];
 
 fn download_files(
     voice: &str,
 ) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
-    use hf_hub::{api::sync::Api, Repo, RepoType};
+    use hf_hub::{Repo, RepoType, api::sync::Api};
     let repo_id = "kyutai/pocket-tts-without-voice-cloning";
     println!("Downloading from {repo_id}...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
 
-    let model_path = repo
-        .get("tts_b6369a24.safetensors")
-        .context("model weights not found")?;
+    let model_path = repo.get("tts_b6369a24.safetensors").context("model weights not found")?;
     println!("  Model weights: {}", model_path.display());
 
     let tokenizer_path = repo.get("tokenizer.model").context("tokenizer not found")?;
     println!("  Tokenizer: {}", tokenizer_path.display());
 
     let voice_file = format!("embeddings/{voice}.safetensors");
-    let voice_path = repo
-        .get(&voice_file)
-        .with_context(|| format!("voice embedding '{voice}' not found"))?;
+    let voice_path =
+        repo.get(&voice_file).with_context(|| format!("voice embedding '{voice}' not found"))?;
     println!("  Voice embedding: {}", voice_path.display());
 
     Ok((model_path, tokenizer_path, voice_path))
@@ -102,18 +98,10 @@ fn init_tracing() -> tracing_chrome::FlushGuard {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let _guard = if args.chrome_tracing {
-        Some(init_tracing())
-    } else {
-        None
-    };
+    let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
 
     if !VOICES.contains(&args.voice.as_str()) {
-        anyhow::bail!(
-            "Unknown voice '{}'. Available voices: {}",
-            args.voice,
-            VOICES.join(", ")
-        );
+        anyhow::bail!("Unknown voice '{}'. Available voices: {}", args.voice, VOICES.join(", "));
     }
 
     #[cfg(feature = "cuda")]
@@ -219,12 +207,8 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     println!("Loading voice embedding...");
     let voice_vb = VB::load(&[&voice_path], dev.clone())?;
     let voice_names = voice_vb.tensor_names();
-    let voice_key = voice_names
-        .first()
-        .context("no tensors found in voice embedding file")?;
-    let voice_td = voice_vb
-        .get_tensor(voice_key)
-        .context("voice tensor not found")?;
+    let voice_key = voice_names.first().context("no tensors found in voice embedding file")?;
+    let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
     let voice_shape = &voice_td.shape;
     let voice_dims = voice_shape.dims();
     println!("  Voice tensor '{voice_key}': shape {voice_dims:?}");
@@ -238,10 +222,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     };
 
     // Prompt with audio conditioning
-    println!(
-        "Prompting with voice conditioning ({} frames)...",
-        voice_emb.dim(1usize)?
-    );
+    println!("Prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
     println!("{voice_emb}");
     model.prompt_audio(&mut tts_state, &voice_emb)?;
 
@@ -288,11 +269,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     }
 
     let gen_elapsed = gen_start.elapsed();
-    println!(
-        "Generated {} frames in {:.2}s",
-        audio_chunks.len(),
-        gen_elapsed.as_secs_f64()
-    );
+    println!("Generated {} frames in {:.2}s", audio_chunks.len(), gen_elapsed.as_secs_f64());
 
     // Concatenate audio
     let audio_refs: Vec<&Tensor<f32, Dev>> = audio_chunks.iter().collect();

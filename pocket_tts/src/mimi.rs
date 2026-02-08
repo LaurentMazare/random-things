@@ -209,9 +209,7 @@ impl<T: WithDTypeF, B: Backend> MimiModel<T, B> {
             _ => latent.copy()?,
         };
 
-        let outs = self
-            .decoder_transformer
-            .forward(&emb, &mut state.decoder_transformer_state)?;
+        let outs = self.decoder_transformer.forward(&emb, &mut state.decoder_transformer_state)?;
         self.decoder.forward(&outs[0], &mut state.decoder_state)
     }
 }
