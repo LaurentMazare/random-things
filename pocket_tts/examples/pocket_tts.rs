@@ -28,6 +28,9 @@ struct Args {
     /// Use the cpu device even if cuda is available
     #[arg(long, default_value_t = false)]
     cpu: bool,
+
+    #[arg(long)]
+    chrome_tracing: bool,
 }
 
 const VOICES: &[&str] =
@@ -84,8 +87,18 @@ fn remap_key(name: &str) -> Option<String> {
     Some(name)
 }
 
+fn init_tracing() -> tracing_chrome::FlushGuard {
+    use tracing_chrome::ChromeLayerBuilder;
+    use tracing_subscriber::{prelude::*, registry::Registry};
+
+    let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
+    Registry::default().with(chrome_layer).init();
+    guard
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
+    let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
 
     if !VOICES.contains(&args.voice.as_str()) {
         anyhow::bail!("Unknown voice '{}'. Available voices: {}", args.voice, VOICES.join(", "));

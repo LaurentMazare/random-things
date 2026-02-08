@@ -1695,6 +1695,8 @@ dependencies = [
  "rand",
  "rand_distr",
  "sentencepiece",
+ "tracing-chrome",
+ "tracing-subscriber",
 ]
 
 [[package]]
