@@ -101,7 +101,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
             cfg.dim_feedforward,
             None,
             cfg.max_period,
-            "flow_lm",
+            crate::mimi_transformer::Kind::FlowLm,
         )?;
 
         let emb_std = vb.tensor("emb_std", (cfg.ldim,))?;

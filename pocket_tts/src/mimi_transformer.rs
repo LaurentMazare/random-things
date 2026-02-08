@@ -15,7 +15,11 @@ pub struct KvCache<T: WithDTypeF, B: Backend> {
 
 impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
     pub fn new(max_seq_len: usize) -> Self {
-        Self { k: None, v: None, max_seq_len }
+        Self {
+            k: None,
+            v: None,
+            max_seq_len,
+        }
     }
 
     pub fn current_seq_len(&self) -> usize {
@@ -97,7 +101,13 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         let out_dim = 3 * embed_dim;
         let in_proj_weight = vb.pp("in_proj").tensor("weight", (out_dim, embed_dim))?;
         let out_proj_weight = vb.pp("out_proj").tensor("weight", (embed_dim, embed_dim))?;
-        Ok(Self { in_proj_weight, out_proj_weight, embed_dim, num_heads, context })
+        Ok(Self {
+            in_proj_weight,
+            out_proj_weight,
+            embed_dim,
+            num_heads,
+            context,
+        })
     }
 
     pub fn init_state(&self) -> KvCache<T, B> {
@@ -116,9 +126,18 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
 
         let projected = query.matmul_t(&self.in_proj_weight)?;
         let packed = projected.reshape((b, t, 3, self.num_heads, d))?;
-        let q = packed.narrow(2, 0..1)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
-        let k = packed.narrow(2, 1..2)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
-        let v = packed.narrow(2, 2..3)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        let q = packed
+            .narrow(2, 0..1)?
+            .contiguous()?
+            .reshape((b, t, self.num_heads, d))?;
+        let k = packed
+            .narrow(2, 1..2)?
+            .contiguous()?
+            .reshape((b, t, self.num_heads, d))?;
+        let v = packed
+            .narrow(2, 2..3)?
+            .contiguous()?
+            .reshape((b, t, self.num_heads, d))?;
 
         // RoPE on [b, t, h, d]
         let (q, k) = rope.forward(&q, &k, offset)?;
@@ -150,6 +169,12 @@ enum AttentionKind<T: WithDTypeF, B: Backend> {
     FlowLm(StreamingMultiheadAttention<T, B>),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    Mimi,
+    FlowLm,
+}
+
 pub struct StreamingTransformerLayer<T: WithDTypeF, B: Backend> {
     self_attn: AttentionKind<T, B>,
     norm1_weight: Tensor<T, B>,
@@ -170,29 +195,32 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         dim_feedforward: usize,
         context: Option<usize>,
         layer_scale: Option<f64>,
-        kind: &str,
+        kind: Kind,
     ) -> Result<Self> {
-        let self_attn = if kind == "mimi" {
-            AttentionKind::Mimi(MimiStreamingMultiheadAttention::load(
+        let self_attn = match kind {
+            Kind::Mimi => AttentionKind::Mimi(MimiStreamingMultiheadAttention::load(
                 &vb.pp("self_attn"),
                 d_model,
                 num_heads,
                 context.unwrap_or(250),
-            )?)
-        } else {
-            AttentionKind::FlowLm(StreamingMultiheadAttention::load(
+            )?),
+            Kind::FlowLm => AttentionKind::FlowLm(StreamingMultiheadAttention::load(
                 &vb.pp("self_attn"),
                 d_model,
                 num_heads,
-            )?)
+            )?),
         };
 
         let norm1_weight = vb.pp("norm1").tensor("weight", (d_model,))?;
         let norm1_bias = vb.pp("norm1").tensor("bias", (d_model,))?;
         let norm2_weight = vb.pp("norm2").tensor("weight", (d_model,))?;
         let norm2_bias = vb.pp("norm2").tensor("bias", (d_model,))?;
-        let linear1_weight = vb.pp("linear1").tensor("weight", (dim_feedforward, d_model))?;
-        let linear2_weight = vb.pp("linear2").tensor("weight", (d_model, dim_feedforward))?;
+        let linear1_weight = vb
+            .pp("linear1")
+            .tensor("weight", (dim_feedforward, d_model))?;
+        let linear2_weight = vb
+            .pp("linear2")
+            .tensor("weight", (d_model, dim_feedforward))?;
 
         let layer_scale_1 = if layer_scale.is_some() {
             Some(LayerScale::load(&vb.pp("layer_scale_1"), d_model)?)
@@ -246,7 +274,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
             (AttentionKind::FlowLm(attn), LayerAttentionState::FlowLm(mha_state)) => {
                 attn.forward(&norm1, rope, mha_state)?
             }
-            _ => unreachable!("attention kind and state type mismatch"),
+            _ => mimi::bail!("attention kind and state type mismatch"),
         };
         if let Some(ls) = &self.layer_scale_1 {
             attn_out = ls.forward(&attn_out)?;
@@ -283,7 +311,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
         dim_feedforward: usize,
         context: Option<usize>,
         max_period: f32,
-        kind: &str,
+        kind: Kind,
     ) -> Result<Self> {
         let head_dim = d_model / num_heads;
         let max_seq_len = 8192;
@@ -310,8 +338,11 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
         batch_size: usize,
         sequence_length: usize,
     ) -> StreamingTransformerState<T, B> {
-        let layer_states =
-            self.layers.iter().map(|l| l.init_state(batch_size, sequence_length)).collect();
+        let layer_states = self
+            .layers
+            .iter()
+            .map(|l| l.init_state(batch_size, sequence_length))
+            .collect();
         StreamingTransformerState { layer_states }
     }
 
@@ -359,11 +390,14 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
             dim_feedforward,
             Some(context),
             max_period,
-            "mimi",
+            Kind::Mimi,
         )?;
 
         let input_proj = if d_model != input_dimension {
-            Some(vb.pp("input_proj").tensor("weight", (d_model, input_dimension))?)
+            Some(
+                vb.pp("input_proj")
+                    .tensor("weight", (d_model, input_dimension))?,
+            )
         } else {
             None
         };
@@ -374,12 +408,18 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
                 output_projs.push(None);
             } else {
                 output_projs.push(Some(
-                    vb.pp("output_projs").pp(i).tensor("weight", (out_dim, d_model))?,
+                    vb.pp("output_projs")
+                        .pp(i)
+                        .tensor("weight", (out_dim, d_model))?,
                 ));
             }
         }
 
-        Ok(Self { transformer, input_proj, output_projs })
+        Ok(Self {
+            transformer,
+            input_proj,
+            output_projs,
+        })
     }
 
     pub fn init_state(
