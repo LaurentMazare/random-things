@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use mimi::nn::VB;
-use mimi::pocket_tts::mimi::MimiConfig;
 use mimi::pocket_tts::flow_lm::FlowLMConfig;
+use mimi::pocket_tts::mimi::MimiConfig;
 use mimi::pocket_tts::tts_model::{TTSConfig, TTSModel, prepare_text_prompt};
 use mimi::{Backend, Tensor};
 
@@ -30,31 +30,27 @@ struct Args {
     cpu: bool,
 }
 
-const VOICES: &[&str] = &[
-    "alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma",
-];
+const VOICES: &[&str] =
+    &["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma"];
 
-fn download_files(voice: &str) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
+fn download_files(
+    voice: &str,
+) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
     use hf_hub::{Repo, RepoType, api::sync::Api};
     let repo_id = "kyutai/pocket-tts-without-voice-cloning";
     println!("Downloading from {repo_id}...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
 
-    let model_path = repo
-        .get("tts_b6369a24.safetensors")
-        .context("model weights not found")?;
+    let model_path = repo.get("tts_b6369a24.safetensors").context("model weights not found")?;
     println!("  Model weights: {}", model_path.display());
 
-    let tokenizer_path = repo
-        .get("tokenizer.model")
-        .context("tokenizer not found")?;
+    let tokenizer_path = repo.get("tokenizer.model").context("tokenizer not found")?;
     println!("  Tokenizer: {}", tokenizer_path.display());
 
     let voice_file = format!("embeddings/{voice}.safetensors");
-    let voice_path = repo
-        .get(&voice_file)
-        .with_context(|| format!("voice embedding '{voice}' not found"))?;
+    let voice_path =
+        repo.get(&voice_file).with_context(|| format!("voice embedding '{voice}' not found"))?;
     println!("  Voice embedding: {}", voice_path.display());
 
     Ok((model_path, tokenizer_path, voice_path))
@@ -92,11 +88,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     if !VOICES.contains(&args.voice.as_str()) {
-        anyhow::bail!(
-            "Unknown voice '{}'. Available voices: {}",
-            args.voice,
-            VOICES.join(", ")
-        );
+        anyhow::bail!("Unknown voice '{}'. Available voices: {}", args.voice, VOICES.join(", "));
     }
 
     #[cfg(feature = "cuda")]
@@ -198,17 +190,11 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let mut tts_state = model.init_flow_lm_state(1, seq_budget);
     let mut mimi_state = model.init_mimi_state(1, 250);
 
-    // Prompt with text
-    println!("Prompting with text...");
-    model.prompt_text(&mut tts_state, &tokens)?;
-
     // Load voice embedding
     println!("Loading voice embedding...");
     let voice_vb = VB::load(&[&voice_path], dev.clone())?;
     let voice_names = voice_vb.tensor_names();
-    let voice_key = voice_names
-        .first()
-        .context("no tensors found in voice embedding file")?;
+    let voice_key = voice_names.first().context("no tensors found in voice embedding file")?;
     let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
     let voice_shape = &voice_td.shape;
     let voice_dims = voice_shape.dims();
@@ -224,7 +210,12 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     // Prompt with audio conditioning
     println!("Prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
+    println!("{voice_emb}");
     model.prompt_audio(&mut tts_state, &voice_emb)?;
+
+    // Prompt with text
+    println!("Prompting with text...");
+    model.prompt_text(&mut tts_state, &tokens)?;
 
     // Auto-regressive generation
     println!("\nGenerating speech...");
@@ -233,15 +224,13 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     // BOS marker: NaN tensor [1, 1, ldim]
     let ldim = cfg.flow_lm.ldim;
     let nan_data: Vec<f32> = vec![f32::NAN; ldim];
-    let mut prev_latent: Tensor<f32, Dev> =
-        Tensor::from_vec(nan_data, (1, 1, ldim), &dev)?;
+    let mut prev_latent: Tensor<f32, Dev> = Tensor::from_vec(nan_data, (1, 1, ldim), &dev)?;
 
     let mut audio_chunks: Vec<Tensor<f32, Dev>> = Vec::new();
     let mut eos_countdown: Option<usize> = None;
 
     for step in 0..max_frames {
         let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent)?;
-
         // Decode latent to audio
         let audio_chunk = model.decode_latent(&next_latent, &mut mimi_state)?;
         audio_chunks.push(audio_chunk);
