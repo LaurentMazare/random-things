@@ -1,5 +1,5 @@
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct LUTConditioner<T: WithDTypeF, B: Backend> {
     pub tokenizer: sentencepiece::SentencePieceProcessor,
@@ -17,7 +17,7 @@ impl<T: WithDTypeF, B: Backend> LUTConditioner<T, B> {
         output_dim: usize,
     ) -> Result<Self> {
         let tokenizer = sentencepiece::SentencePieceProcessor::open(tokenizer_path)
-            .map_err(|e| crate::Error::Msg(format!("Failed to load tokenizer: {e}")))?;
+            .map_err(|e| mimi::Error::Msg(format!("Failed to load tokenizer: {e}")))?;
         let embed = vb.tensor("embed.weight", (n_bins + 1, dim))?;
         Ok(Self { tokenizer, embed, dim, output_dim })
     }

@@ -1,6 +1,6 @@
-use super::conv::{PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState, StreamingConvTranspose1d};
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use crate::conv::{PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState, StreamingConvTranspose1d};
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 // ---- SEANetResnetBlock ----
 

@@ -1,4 +1,4 @@
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 /// Rotary position embedding (RoPE).
 /// Precomputes cos/sin tables and wraps the tensor `rope_i` primitive.

@@ -1,8 +1,8 @@
-use super::conditioners::LUTConditioner;
-use super::mimi_transformer::{StreamingTransformer, StreamingTransformerState};
-use super::mlp::SimpleMLPAdaLN;
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use crate::conditioners::LUTConditioner;
+use crate::mimi_transformer::{StreamingTransformer, StreamingTransformerState};
+use crate::mlp::SimpleMLPAdaLN;
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 /// Lagrangian Self Distillation decode.
 /// Rebuilds the data sample from starting point x_0.

@@ -1,5 +1,5 @@
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 fn modulate<T: WithDTypeF, B: Backend>(
     x: &Tensor<T, B>,
@@ -84,7 +84,7 @@ impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
             _ => {
                 // Manual layer norm without affine: (x - mean) / sqrt(var + eps)
                 // Use the layer_norm primitive with ones/zeros
-                let dim = x.dim(crate::D::Minus1)?;
+                let dim = x.dim(mimi::D::Minus1)?;
                 let dev = x.device();
                 let ones_data = vec![T::from_f32(1.0); dim];
                 let zeros_data = vec![T::from_f32(0.0); dim];
@@ -193,7 +193,7 @@ impl<T: WithDTypeF, B: Backend> ResBlock<T, B> {
         // adaLN modulation
         let ada = y.silu()?.matmul_t(&self.ada_ln_silu_linear_weight)?;
         let ada = ada.broadcast_add(&self.ada_ln_silu_linear_bias)?;
-        let channels = x.dim(crate::D::Minus1)?;
+        let channels = x.dim(mimi::D::Minus1)?;
         let shift_mlp = ada.narrow(ada.rank() - 1, 0..channels)?.contiguous()?;
         let scale_mlp = ada.narrow(ada.rank() - 1, channels..2 * channels)?.contiguous()?;
         let gate_mlp = ada.narrow(ada.rank() - 1, 2 * channels..3 * channels)?.contiguous()?;
@@ -247,7 +247,7 @@ impl<T: WithDTypeF, B: Backend> FinalLayer<T, B> {
     pub fn forward(&self, x: &Tensor<T, B>, c: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let ada = c.silu()?.matmul_t(&self.ada_ln_silu_linear_weight)?;
         let ada = ada.broadcast_add(&self.ada_ln_silu_linear_bias)?;
-        let model_channels = x.dim(crate::D::Minus1)?;
+        let model_channels = x.dim(mimi::D::Minus1)?;
         let shift = ada.narrow(ada.rank() - 1, 0..model_channels)?.contiguous()?;
         let scale = ada.narrow(ada.rank() - 1, model_channels..2 * model_channels)?.contiguous()?;
 

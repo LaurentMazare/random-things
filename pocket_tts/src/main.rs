@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use mimi::nn::VB;
-use mimi::pocket_tts::flow_lm::FlowLMConfig;
-use mimi::pocket_tts::mimi::MimiConfig;
-use mimi::pocket_tts::tts_model::{TTSConfig, TTSModel, prepare_text_prompt};
+use pocket_tts::flow_lm::FlowLMConfig;
+use pocket_tts::mimi::MimiConfig;
+use pocket_tts::tts_model::{TTSConfig, TTSModel, prepare_text_prompt};
 use mimi::{Backend, Tensor};
 
 #[derive(Parser, Debug)]

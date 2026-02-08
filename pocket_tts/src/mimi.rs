@@ -1,11 +1,11 @@
-use super::conv::pad_for_conv1d;
-use super::dummy_quantizer::DummyQuantizer;
-use super::mimi_transformer::{ProjectedTransformer, StreamingTransformerState};
-use super::resample::{ConvDownsample1d, ConvTrUpsample1d};
-use super::seanet::{SEANetDecoder, SEANetDecoderState, SEANetEncoder, SEANetEncoderState};
-use super::conv::{StreamingConv1dState, StreamingConvTr1dState};
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use crate::conv::pad_for_conv1d;
+use crate::dummy_quantizer::DummyQuantizer;
+use crate::mimi_transformer::{ProjectedTransformer, StreamingTransformerState};
+use crate::resample::{ConvDownsample1d, ConvTrUpsample1d};
+use crate::seanet::{SEANetDecoder, SEANetDecoderState, SEANetEncoder, SEANetEncoderState};
+use crate::conv::{StreamingConv1dState, StreamingConvTr1dState};
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct MimiConfig {
     pub channels: usize,
@@ -57,7 +57,7 @@ pub struct MimiState<T: WithDTypeF, B: Backend> {
 
 impl<T: WithDTypeF, B: Backend> MimiModel<T, B> {
     pub fn load(vb: &Path<B>, cfg: &MimiConfig) -> Result<Self> {
-        let pad_mode = super::conv::PadMode::Constant;
+        let pad_mode = crate::conv::PadMode::Constant;
 
         let encoder = SEANetEncoder::load(
             &vb.pp("encoder"),

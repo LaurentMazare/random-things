@@ -7,7 +7,6 @@ pub mod inplace_ops;
 pub mod models;
 pub mod nn;
 pub mod ops;
-pub mod pocket_tts;
 pub mod shape;
 pub mod tensor;
 pub mod tensor_view;

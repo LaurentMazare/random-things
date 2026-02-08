@@ -1,8 +1,8 @@
-use super::layer_scale::LayerScale;
-use super::rope::RotaryEmbedding;
-use super::transformer::{StreamingMHAState, StreamingMultiheadAttention};
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use crate::layer_scale::LayerScale;
+use crate::rope::RotaryEmbedding;
+use crate::transformer::{StreamingMHAState, StreamingMultiheadAttention};
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 // ---- KV Cache ----
 
@@ -139,7 +139,7 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         let x = attn.matmul(&v)?;
 
         let x = x.transpose(1, 2)?.reshape((b, t, self.embed_dim))?;
-        crate::ops::matmul_t(&x, &self.out_proj_weight)
+        mimi::ops::matmul_t(&x, &self.out_proj_weight)
     }
 }
 

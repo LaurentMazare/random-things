@@ -1,6 +1,6 @@
-use super::rope::RotaryEmbedding;
-use crate::nn::var_builder::Path;
-use crate::{Backend, Result, Tensor, WithDTypeF};
+use crate::rope::RotaryEmbedding;
+use mimi::nn::var_builder::Path;
+use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 /// State for StreamingMultiheadAttention.
 pub struct StreamingMHAState<T: WithDTypeF, B: Backend> {
@@ -128,6 +128,6 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
 
         // Back to [b, t, h*d]
         let x = x.transpose(1, 2)?.reshape((b, t, self.embed_dim))?;
-        crate::ops::matmul_t(&x, &self.out_proj_weight)
+        mimi::ops::matmul_t(&x, &self.out_proj_weight)
     }
 }
