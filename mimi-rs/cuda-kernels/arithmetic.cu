@@ -168,6 +168,13 @@ __device__ void unary_sqrt(const size_t numel, const T * src, T * dst) {
 }
 
 template <typename T>
+__device__ void unary_rsqrt(const size_t numel, const T * src, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(rsqrtf(to_float(src[idx])));
+}
+
+template <typename T>
 __device__ void unary_abs(const size_t numel, const T * src, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
@@ -257,6 +264,13 @@ __device__ void inplace_sqrt(const size_t numel, T * dst) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numel) return;
     dst[idx] = from_float<T>(sqrtf(to_float(dst[idx])));
+}
+
+template <typename T>
+__device__ void inplace_rsqrt(const size_t numel, T * dst) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= numel) return;
+    dst[idx] = from_float<T>(rsqrtf(to_float(dst[idx])));
 }
 
 template <typename T>
@@ -389,6 +403,10 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
       const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
     unary_sqrt<TYPENAME>(numel, src, dst); \
   } \
+  extern "C" __global__ void unary_rsqrt_##RUST_NAME( \
+      const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
+    unary_rsqrt<TYPENAME>(numel, src, dst); \
+  } \
   extern "C" __global__ void unary_abs_##RUST_NAME( \
       const size_t numel, const TYPENAME *src, TYPENAME *dst) { \
     unary_abs<TYPENAME>(numel, src, dst); \
@@ -434,6 +452,10 @@ __device__ void inplace_sigmoid(const size_t numel, T * dst) {
   extern "C" __global__ void inplace_sqrt_##RUST_NAME( \
       const size_t numel, TYPENAME *dst) { \
     inplace_sqrt<TYPENAME>(numel, dst); \
+  } \
+  extern "C" __global__ void inplace_rsqrt_##RUST_NAME( \
+      const size_t numel, TYPENAME *dst) { \
+    inplace_rsqrt<TYPENAME>(numel, dst); \
   } \
   extern "C" __global__ void inplace_abs_##RUST_NAME( \
       const size_t numel, TYPENAME *dst) { \

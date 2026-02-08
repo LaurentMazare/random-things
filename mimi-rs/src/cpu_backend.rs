@@ -103,6 +103,7 @@ impl crate::Backend for crate::CpuDevice {
             UnaryOp::Sin => apply_inplace_unary(&mut dst[..len], |v| *v = v.sin()),
             UnaryOp::Sqr => apply_inplace_unary(&mut dst[..len], |v| *v = *v * *v),
             UnaryOp::Sqrt => apply_inplace_unary(&mut dst[..len], |v| *v = v.sqrt()),
+            UnaryOp::Rsqrt => apply_inplace_unary(&mut dst[..len], |v| *v = T::one() / v.sqrt()),
             UnaryOp::Abs => apply_inplace_unary(&mut dst[..len], |v| *v = v.abs()),
             UnaryOp::GeluErf => {
                 let sqrt_2_inv = std::f32::consts::FRAC_1_SQRT_2;
@@ -143,6 +144,7 @@ impl crate::Backend for crate::CpuDevice {
             UnaryOp::Sin => apply_unary(&mut dst[..len], &src[..len], |s| s.sin()),
             UnaryOp::Sqr => apply_unary(&mut dst[..len], &src[..len], |s| s * s),
             UnaryOp::Sqrt => apply_unary(&mut dst[..len], &src[..len], |s| s.sqrt()),
+            UnaryOp::Rsqrt => apply_unary(&mut dst[..len], &src[..len], |s| T::one() / s.sqrt()),
             UnaryOp::Abs => apply_unary(&mut dst[..len], &src[..len], |s| s.abs()),
             UnaryOp::GeluErf => {
                 let sqrt_2_inv = std::f32::consts::FRAC_1_SQRT_2;

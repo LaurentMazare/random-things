@@ -348,6 +348,13 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(result)
     }
 
+    /// Element-wise reciprocal square root.
+    pub fn rsqrt(&self) -> Result<Self> {
+        let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
+        result.rsqrt_(self)?;
+        Ok(result)
+    }
+
     /// Element-wise absolute value.
     pub fn abs(&self) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;

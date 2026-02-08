@@ -7,6 +7,7 @@ pub enum UnaryOp {
     Sin,
     Sqr,
     Sqrt,
+    Rsqrt,
     Abs,
     GeluErf,
     Elu { alpha: f32 },
@@ -23,6 +24,7 @@ impl UnaryOp {
             UnaryOp::Sin => "sin",
             UnaryOp::Sqr => "sqr",
             UnaryOp::Sqrt => "sqrt",
+            UnaryOp::Rsqrt => "rsqrt",
             UnaryOp::Abs => "abs",
             UnaryOp::GeluErf => "gelu_erf",
             UnaryOp::Elu { .. } => "elu",
@@ -203,6 +205,10 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     pub fn sqrt_(&self, src: &Self) -> Result<()> {
         self.unary_(src, UnaryOp::Sqrt)
+    }
+
+    pub fn rsqrt_(&self, src: &Self) -> Result<()> {
+        self.unary_(src, UnaryOp::Rsqrt)
     }
 
     pub fn relu_(&self, src: &Self) -> Result<()> {

@@ -460,10 +460,7 @@ impl crate::Backend for Device {
         Ok(())
     }
 
-    fn data<T: WithDType>(
-        src: &Self::Storage<T>,
-        len: usize,
-    ) -> Result<std::borrow::Cow<'_, [T]>> {
+    fn data<T: WithDType>(src: &Self::Storage<T>, len: usize) -> Result<std::borrow::Cow<'_, [T]>> {
         let data = src.device.stream.clone_dtoh(&src.data.slice(..len))?;
         Ok(std::borrow::Cow::Owned(data))
     }
@@ -478,6 +475,7 @@ impl crate::Backend for Device {
             UnaryOp::Sin => (kernel_name::<T>("inplace_sin"), None),
             UnaryOp::Sqr => (kernel_name::<T>("inplace_sqr"), None),
             UnaryOp::Sqrt => (kernel_name::<T>("inplace_sqrt"), None),
+            UnaryOp::Rsqrt => (kernel_name::<T>("inplace_rsqrt"), None),
             UnaryOp::Abs => (kernel_name::<T>("inplace_abs"), None),
             UnaryOp::GeluErf => (kernel_name::<T>("inplace_gelu_erf"), None),
             UnaryOp::Elu { alpha } => (kernel_name::<T>("inplace_elu"), Some(alpha)),
@@ -533,6 +531,7 @@ impl crate::Backend for Device {
             UnaryOp::Sin => (kernel_name::<T>("unary_sin"), None),
             UnaryOp::Sqr => (kernel_name::<T>("unary_sqr"), None),
             UnaryOp::Sqrt => (kernel_name::<T>("unary_sqrt"), None),
+            UnaryOp::Rsqrt => (kernel_name::<T>("unary_rsqrt"), None),
             UnaryOp::Abs => (kernel_name::<T>("unary_abs"), None),
             UnaryOp::GeluErf => (kernel_name::<T>("unary_gelu_erf"), None),
             UnaryOp::Elu { alpha } => (kernel_name::<T>("unary_elu"), Some(alpha)),
