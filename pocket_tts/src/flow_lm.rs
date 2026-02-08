@@ -192,36 +192,21 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
 
         // Generate noise
         let std = temp.sqrt();
-        let noise_data: Vec<T> = match noise_clamp {
-            Some(clamp) => {
-                // Truncated normal
-                use std::f32::consts::PI;
-                (0..b * self.ldim)
-                    .map(|i| {
-                        // Simple Box-Muller with clamping
-                        let u1 = ((i * 6364136223846793005 + 1442695040888963407) as f32)
-                            / u64::MAX as f32;
-                        let u2 = (((i + 1) * 6364136223846793005 + 1442695040888963407) as f32)
-                            / u64::MAX as f32;
-                        let z = (-2.0 * u1.max(1e-10).ln()).sqrt() * (2.0 * PI * u2).cos();
-                        T::from_f32((z * std).clamp(-clamp, clamp))
-                    })
-                    .collect()
-            }
-            None => (0..b * self.ldim)
-                .map(|i| {
-                    use std::f32::consts::PI;
-                    let u1 = ((i as u64 * 6364136223846793005 + 1442695040888963407) as f32)
-                        / u64::MAX as f32;
-                    let u2 = (((i as u64 + 1) * 6364136223846793005 + 1442695040888963407) as f32)
-                        / u64::MAX as f32;
-                    let z = (-2.0 * u1.max(1e-10).ln()).sqrt() * (2.0 * PI * u2).cos();
-                    T::from_f32(z * std)
+        let normal = rand_distr::Normal::new(0.0f32, std).unwrap();
+        let noise_data: Vec<T> = {
+            use rand::Rng;
+            let mut rng = rand::rng();
+            (0..b * self.ldim)
+                .map(|_| {
+                    let z: f32 = rng.sample(normal);
+                    match noise_clamp {
+                        Some(clamp) => T::from_f32(z.clamp(-clamp, clamp)),
+                        None => T::from_f32(z),
+                    }
                 })
-                .collect(),
+                .collect()
         };
         let noise = Tensor::from_vec(noise_data, (b, self.ldim), dev)?;
-        let noise = noise.scale(T::zero())?;
 
         // LSD decode
         let latent = lsd_decode(&self.flow_net, &transformer_out, &noise, lsd_decode_steps)?;

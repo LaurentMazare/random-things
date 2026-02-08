@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 mimi = { path = "../mimi-rs" }
+rand = "0.9"
+rand_distr = "0.5"
 sentencepiece = "0.13.1"
 
 [dev-dependencies]
