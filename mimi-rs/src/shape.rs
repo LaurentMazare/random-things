@@ -144,7 +144,7 @@ impl Shape {
         }
         let mut acc = 1;
         for (&stride, &dim) in stride.iter().zip(self.0.iter()).rev() {
-            if dim > 1 && stride != acc {
+            if stride != acc {
                 return false;
             }
             acc *= dim;
