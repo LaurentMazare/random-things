@@ -33,10 +33,21 @@ pub struct VarBuilder<'a, B: Backend> {
 fn load_tensor_data(
     mmaps: &MmapedFiles,
 ) -> Result<std::collections::HashMap<String, TensorData<'_>>> {
+    load_tensor_data_with_key_map(mmaps, |name| Some(name.to_string()))
+}
+
+fn load_tensor_data_with_key_map(
+    mmaps: &MmapedFiles,
+    key_map: impl Fn(&str) -> Option<String>,
+) -> Result<std::collections::HashMap<String, TensorData<'_>>> {
     let mut tensor_data = std::collections::HashMap::new();
     for (_path, mmap) in mmaps.mmaps.iter() {
         let tensors = safetensors::SafeTensors::deserialize(mmap)?;
         for (name, tensor) in tensors.iter() {
+            let mapped_name = match key_map(name) {
+                Some(n) => n,
+                None => continue,
+            };
             let shape: Shape = tensor.shape().into();
             let data = tensor.data();
             let dtype = match tensor.dtype() {
@@ -46,7 +57,7 @@ fn load_tensor_data(
                 _ => continue,
             };
             let td = TensorData { data, shape, dtype };
-            tensor_data.insert(name.to_string(), td);
+            tensor_data.insert(mapped_name, td);
         }
     }
     Ok(tensor_data)
@@ -121,6 +132,19 @@ impl<B: Backend> VB<B> {
         Ok(Self { yoke, device })
     }
 
+    pub fn load_with_key_map<P: AsRef<std::path::Path>>(
+        file_paths: &[P],
+        device: B,
+        key_map: impl Fn(&str) -> Option<String>,
+    ) -> Result<Self> {
+        let mmaps = MmapedFiles::load_from_files(file_paths)?;
+        let yoke = yoke::Yoke::try_attach_to_cart(Box::new(mmaps), |mmaps| -> Result<_> {
+            let tensor_data = load_tensor_data_with_key_map(mmaps, &key_map)?;
+            Ok(VarBuilderYoke { tensor_data })
+        })?;
+        Ok(Self { yoke, device })
+    }
+
     pub fn get_tensor(&self, name: &str) -> Option<&TensorData<'_>> {
         self.yoke.get().tensor_data.get(name)
     }
@@ -136,6 +160,10 @@ impl<B: Backend> VB<B> {
     ) -> Result<Tensor<T, B>> {
         let td = self.yoke.get().tensor_data.get(name);
         make_tensor(td, name, shape, &self.device)
+    }
+
+    pub fn tensor_names(&self) -> Vec<&str> {
+        self.yoke.get().tensor_data.keys().map(|k| k.as_str()).collect()
     }
 
     pub fn root(self) -> Path<B> {
