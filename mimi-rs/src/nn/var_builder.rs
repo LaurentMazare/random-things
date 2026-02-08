@@ -44,7 +44,7 @@ fn load_tensor_data_with_key_map(
     for (_path, mmap) in mmaps.mmaps.iter() {
         let tensors = safetensors::SafeTensors::deserialize(mmap)?;
         for (name, tensor) in tensors.iter() {
-            let mapped_name = match key_map(&name) {
+            let mapped_name = match key_map(name) {
                 Some(n) => n,
                 None => continue,
             };
