@@ -20,7 +20,8 @@ fn lsd_decode<T: WithDTypeF, B: Backend>(
         let t_val = (i + 1) as f32 / num_steps as f32;
 
         // Create s and t tensors matching x_0 shape but with last dim = 1
-        let shape: Vec<usize> = x_0.dims().iter().copied().take(x_0.rank() - 1).chain([1]).collect();
+        let shape: Vec<usize> =
+            x_0.dims().iter().copied().take(x_0.rank() - 1).chain([1]).collect();
         let s = Tensor::full(T::from_f32(s_val), shape.clone(), dev)?;
         let t = Tensor::full(T::from_f32(t_val), shape, dev)?;
 
@@ -101,7 +102,8 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let emb_std = vb.tensor("emb_std", (cfg.ldim,))?;
         let emb_mean = vb.tensor("emb_mean", (cfg.ldim,))?;
         let bos_emb = vb.tensor("bos_emb", (cfg.ldim,))?;
-        let input_linear_weight = vb.pp("input_linear").tensor("weight", (cfg.d_model, cfg.ldim))?;
+        let input_linear_weight =
+            vb.pp("input_linear").tensor("weight", (cfg.d_model, cfg.ldim))?;
         let out_norm_weight = vb.pp("out_norm").tensor("weight", (cfg.d_model,))?;
         let out_norm_bias = vb.pp("out_norm").tensor("bias", (cfg.d_model,))?;
         let out_eos_weight = vb.pp("out_eos").tensor("weight", (1, cfg.d_model))?;
@@ -124,11 +126,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         })
     }
 
-    pub fn init_state(
-        &self,
-        batch_size: usize,
-        sequence_length: usize,
-    ) -> FlowLMState<T, B> {
+    pub fn init_state(&self, batch_size: usize, sequence_length: usize) -> FlowLMState<T, B> {
         let transformer_state = self.transformer.init_state(batch_size, sequence_length);
         FlowLMState { transformer_state }
     }
@@ -169,12 +167,30 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         // Replace NaN values (BOS markers) with bos_emb
         // For simplicity, check if it's the first step (s=1 and all NaN)
         let sequence = self.replace_nan_with_bos(sequence)?;
+        let seq_data = sequence.to_vec()?;
+        let has_nan = seq_data.iter().any(|v| (*v).to_f32().is_nan());
+        eprintln!(
+            "[sample_next_latent] after replace_nan_with_bos: shape={:?}, has_nan={has_nan}",
+            sequence.shape()
+        );
 
         // input_linear(sequence)
         let input = sequence.matmul_t(&self.input_linear_weight)?;
+        let input_data = input.to_vec()?;
+        let has_nan = input_data.iter().any(|v| (*v).to_f32().is_nan());
+        eprintln!(
+            "[sample_next_latent] after input_linear: shape={:?}, has_nan={has_nan}",
+            input.shape()
+        );
 
         // Run backbone
         let transformer_out = self.backbone(&input, text_embeddings, s, state)?;
+        let tout_data = transformer_out.to_vec()?;
+        let has_nan = tout_data.iter().any(|v| (*v).to_f32().is_nan());
+        eprintln!(
+            "[sample_next_latent] after backbone: shape={:?}, has_nan={has_nan}",
+            transformer_out.shape()
+        );
 
         // Take last position
         let t_len = transformer_out.dim(1usize)?;
@@ -186,6 +202,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let eos_logit = eos_logit.broadcast_add(&self.out_eos_bias)?;
         let eos_val = eos_logit.to_vec()?;
         let is_eos = eos_val[0].to_f32() > eos_threshold;
+        eprintln!("[sample_next_latent] eos_val={}, is_eos={is_eos}", eos_val[0].to_f32());
 
         // Generate noise
         let std = temp.sqrt();
@@ -205,25 +222,32 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
                     })
                     .collect()
             }
-            None => {
-                (0..b * self.ldim)
-                    .map(|i| {
-                        use std::f32::consts::PI;
-                        let u1 = ((i as u64 * 6364136223846793005 + 1442695040888963407) as f32)
-                            / u64::MAX as f32;
-                        let u2 = (((i as u64 + 1) * 6364136223846793005 + 1442695040888963407)
-                            as f32)
-                            / u64::MAX as f32;
-                        let z = (-2.0 * u1.max(1e-10).ln()).sqrt() * (2.0 * PI * u2).cos();
-                        T::from_f32(z * std)
-                    })
-                    .collect()
-            }
+            None => (0..b * self.ldim)
+                .map(|i| {
+                    use std::f32::consts::PI;
+                    let u1 = ((i as u64 * 6364136223846793005 + 1442695040888963407) as f32)
+                        / u64::MAX as f32;
+                    let u2 = (((i as u64 + 1) * 6364136223846793005 + 1442695040888963407) as f32)
+                        / u64::MAX as f32;
+                    let z = (-2.0 * u1.max(1e-10).ln()).sqrt() * (2.0 * PI * u2).cos();
+                    T::from_f32(z * std)
+                })
+                .collect(),
         };
         let noise = Tensor::from_vec(noise_data, (b, self.ldim), dev)?;
+        let noise_has_nan = noise.to_vec()?.iter().any(|v| (*v).to_f32().is_nan());
+        eprintln!("[sample_next_latent] noise has_nan={noise_has_nan}");
+
+        let noise = noise.scale(T::zero())?;
 
         // LSD decode
         let latent = lsd_decode(&self.flow_net, &transformer_out, &noise, lsd_decode_steps)?;
+        let lat_data = latent.to_vec()?;
+        let has_nan = lat_data.iter().any(|v| (*v).to_f32().is_nan());
+        eprintln!(
+            "[sample_next_latent] after lsd_decode: shape={:?}, has_nan={has_nan}",
+            latent.shape()
+        );
 
         // Reshape to [B, 1, ldim]
         let latent = latent.reshape((b, 1, self.ldim))?;
@@ -247,5 +271,4 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
 
         Tensor::from_vec(out_data, sequence.shape().clone(), sequence.device())
     }
-
 }

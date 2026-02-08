@@ -25,7 +25,38 @@ impl<T: WithDTypeF, B: Backend> RMSNorm<T, B> {
     }
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        x.rms_norm(&self.alpha, self.eps)
+        // Python version uses variance (not mean-of-squares):
+        //   var = eps + x.var(dim=-1, keepdim=True)   # unbiased (N-1)
+        //   y = x * (alpha * rsqrt(var))
+        let dims = x.dims().to_vec();
+        let last_dim = *dims.last().unwrap();
+        let n = last_dim as f32;
+        let data = x.to_vec()?;
+        let alpha_data = self.alpha.to_vec()?;
+        let eps = self.eps;
+
+        let mut out = vec![T::from_f32(0.0); data.len()];
+        for (chunk_in, chunk_out) in data.chunks_exact(last_dim).zip(out.chunks_exact_mut(last_dim))
+        {
+            // Unbiased variance: sum((x - mean)^2) / (N - 1)
+            let mean: f32 = chunk_in.iter().map(|&v| v.to_f32()).sum::<f32>() / n;
+            let var: f32 = chunk_in
+                .iter()
+                .map(|&v| {
+                    let d = v.to_f32() - mean;
+                    d * d
+                })
+                .sum::<f32>()
+                / (n - 1.0);
+            let rsqrt = 1.0 / (var + eps).sqrt();
+            for ((o, &x_val), &a) in
+                chunk_out.iter_mut().zip(chunk_in.iter()).zip(alpha_data.iter())
+            {
+                *o = T::from_f32(x_val.to_f32() * a.to_f32() * rsqrt);
+            }
+        }
+
+        Tensor::from_vec(out, x.shape().clone(), x.device())
     }
 }
 
@@ -80,7 +111,8 @@ pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
     pub fn load(vb: &Path<B>, hidden_size: usize, frequency_embedding_size: usize) -> Result<Self> {
         let mlp = vb.pp("mlp");
-        let linear1_weight = mlp.pp("0").tensor("weight", (hidden_size, frequency_embedding_size))?;
+        let linear1_weight =
+            mlp.pp("0").tensor("weight", (hidden_size, frequency_embedding_size))?;
         let linear1_bias = mlp.pp("0").tensor("bias", (hidden_size,))?;
         let linear2_weight = mlp.pp("2").tensor("weight", (hidden_size, hidden_size))?;
         let linear2_bias = mlp.pp("2").tensor("bias", (hidden_size,))?;
@@ -112,7 +144,8 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         x = x.silu()?;
         x = x.matmul_t(&self.linear2_weight)?;
         x = x.broadcast_add(&self.linear2_bias)?;
-        self.rms_norm.forward(&x)
+        x = self.rms_norm.forward(&x)?;
+        Ok(x)
     }
 }
 
@@ -202,7 +235,13 @@ impl<T: WithDTypeF, B: Backend> FinalLayer<T, B> {
             ada.pp("1").tensor("weight", (2 * model_channels, model_channels))?;
         let ada_ln_silu_linear_bias = ada.pp("1").tensor("bias", (2 * model_channels,))?;
 
-        Ok(Self { norm_final, linear_weight, linear_bias, ada_ln_silu_linear_weight, ada_ln_silu_linear_bias })
+        Ok(Self {
+            norm_final,
+            linear_weight,
+            linear_bias,
+            ada_ln_silu_linear_weight,
+            ada_ln_silu_linear_bias,
+        })
     }
 
     pub fn forward(&self, x: &Tensor<T, B>, c: &Tensor<T, B>) -> Result<Tensor<T, B>> {
@@ -244,13 +283,19 @@ impl<T: WithDTypeF, B: Backend> SimpleMLPAdaLN<T, B> {
     ) -> Result<Self> {
         let mut time_embeds = Vec::new();
         for i in 0..num_time_conds {
-            time_embeds.push(TimestepEmbedder::load(&vb.pp("time_embed").pp(i), model_channels, 256)?);
+            time_embeds.push(TimestepEmbedder::load(
+                &vb.pp("time_embed").pp(i),
+                model_channels,
+                256,
+            )?);
         }
 
-        let cond_embed_weight = vb.pp("cond_embed").tensor("weight", (model_channels, cond_channels))?;
+        let cond_embed_weight =
+            vb.pp("cond_embed").tensor("weight", (model_channels, cond_channels))?;
         let cond_embed_bias = vb.pp("cond_embed").tensor("bias", (model_channels,))?;
 
-        let input_proj_weight = vb.pp("input_proj").tensor("weight", (model_channels, in_channels))?;
+        let input_proj_weight =
+            vb.pp("input_proj").tensor("weight", (model_channels, in_channels))?;
         let input_proj_bias = vb.pp("input_proj").tensor("bias", (model_channels,))?;
 
         let mut res_blocks = Vec::new();

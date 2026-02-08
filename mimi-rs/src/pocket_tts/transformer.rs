@@ -4,49 +4,30 @@ use crate::{Backend, Result, Tensor, WithDTypeF};
 
 /// State for StreamingMultiheadAttention.
 pub struct StreamingMHAState<T: WithDTypeF, B: Backend> {
-    /// KV cache: shape [2, batch_size, sequence_length, num_heads, dim_per_head]
-    pub cache: Tensor<T, B>,
+    /// Key cache: shape [batch_size, sequence_length, num_heads, dim_per_head]
+    pub k_cache: Tensor<T, B>,
+    /// Value cache: shape [batch_size, sequence_length, num_heads, dim_per_head]
+    pub v_cache: Tensor<T, B>,
     /// Current end position (number of tokens seen so far).
     pub current_end: usize,
 }
 
 #[allow(clippy::type_complexity)]
 fn complete_kv<T: WithDTypeF, B: Backend>(
-    cache: &Tensor<T, B>,
+    k_cache: &Tensor<T, B>,
+    v_cache: &Tensor<T, B>,
     current_end: usize,
     k: &Tensor<T, B>,
     v: &Tensor<T, B>,
 ) -> Result<(Tensor<T, B>, Tensor<T, B>, usize)> {
     let t = k.dim(1usize)?;
 
-    // cache[0, :, current_end..current_end+t] = k
-    // cache[1, :, current_end..current_end+t] = v
-    cache
-        .narrow(0, 0..1)?
-        .contiguous()?
-        .reshape(cache.dims()[1..].to_vec())?
-        .slice_set(k, 1usize, current_end)?;
-    cache
-        .narrow(0, 1..2)?
-        .contiguous()?
-        .reshape(cache.dims()[1..].to_vec())?
-        .slice_set(v, 1usize, current_end)?;
+    k_cache.slice_set(k, 1usize, current_end)?;
+    v_cache.slice_set(v, 1usize, current_end)?;
 
     let new_end = current_end + t;
-    // valid = cache[:, :, :new_end]
-    let cache_shape = cache.dims().to_vec();
-    let keys = cache
-        .narrow(0, 0..1)?
-        .contiguous()?
-        .reshape(cache_shape[1..].to_vec())?
-        .narrow(1, 0..new_end)?
-        .contiguous()?;
-    let values = cache
-        .narrow(0, 1..2)?
-        .contiguous()?
-        .reshape(cache_shape[1..].to_vec())?
-        .narrow(1, 0..new_end)?
-        .contiguous()?;
+    let keys = k_cache.narrow(1, 0..new_end)?.contiguous()?;
+    let values = v_cache.narrow(1, 0..new_end)?.contiguous()?;
     Ok((keys, values, new_end))
 }
 
@@ -98,13 +79,11 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         sequence_length: usize,
     ) -> StreamingMHAState<T, B> {
         let dim_per_head = self.embed_dim / self.num_heads;
-        let cache = Tensor::full(
-            T::from_f32(f32::NAN),
-            (2, batch_size, sequence_length, self.num_heads, dim_per_head),
-            self.in_proj_weight.device(),
-        )
-        .unwrap();
-        StreamingMHAState { cache, current_end: 0 }
+        let shape = (batch_size, sequence_length, self.num_heads, dim_per_head);
+        let dev = self.in_proj_weight.device();
+        let k_cache = Tensor::zeros(shape, dev).unwrap();
+        let v_cache = Tensor::zeros(shape, dev).unwrap();
+        StreamingMHAState { k_cache, v_cache, current_end: 0 }
     }
 
     pub fn forward(
@@ -118,18 +97,17 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let offset = state.current_end;
 
         let projected = query.matmul_t(&self.in_proj_weight)?;
-        // Reshape to [b, t, 3, num_heads, d]
-        let packed = projected.reshape((b, t, 3, self.num_heads, d))?;
-        // q, k, v each [b, t, num_heads, d]
-        let q = packed.narrow(2, 0..1)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
-        let k = packed.narrow(2, 1..2)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
-        let v = packed.narrow(2, 2..3)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        // Split into q, k, v by narrowing on the last dimension
+        let ed = self.embed_dim;
+        let q = projected.narrow(2, 0..ed)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        let k = projected.narrow(2, ed..2 * ed)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
+        let v = projected.narrow(2, 2 * ed..3 * ed)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
 
         // Apply RoPE: q, k are [b, t, h, d]
         let (q, k) = rope.forward(&q, &k, offset)?;
 
         // Complete KV cache: k, v are [b, t, h, d]
-        let (k, v, new_end) = complete_kv(&state.cache, offset, &k, &v)?;
+        let (k, v, new_end) = complete_kv(&state.k_cache, &state.v_cache, offset, &k, &v)?;
         state.current_end = new_end;
 
         // Causal mask
