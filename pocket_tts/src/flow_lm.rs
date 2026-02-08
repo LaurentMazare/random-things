@@ -132,9 +132,13 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         })
     }
 
-    pub fn init_state(&self, batch_size: usize, sequence_length: usize) -> FlowLMState<T, B> {
-        let transformer_state = self.transformer.init_state(batch_size, sequence_length);
-        FlowLMState { transformer_state }
+    pub fn init_state(
+        &self,
+        batch_size: usize,
+        sequence_length: usize,
+    ) -> Result<FlowLMState<T, B>> {
+        let transformer_state = self.transformer.init_state(batch_size, sequence_length)?;
+        Ok(FlowLMState { transformer_state })
     }
 
     /// Run the backbone: concat text_embeddings + input, run transformer, strip prefix.

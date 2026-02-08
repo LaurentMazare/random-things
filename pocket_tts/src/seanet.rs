@@ -1,4 +1,7 @@
-use crate::conv::{PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState, StreamingConvTranspose1d};
+use crate::conv::{
+    PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState,
+    StreamingConvTranspose1d,
+};
 use mimi::nn::var_builder::Path;
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
@@ -25,20 +28,35 @@ impl<T: WithDTypeF, B: Backend> SEANetResnetBlock<T, B> {
         let mut convs = Vec::new();
         for (i, (&ks, &dil)) in kernel_sizes.iter().zip(dilations.iter()).enumerate() {
             let in_c = if i == 0 { dim } else { hidden };
-            let out_c = if i == kernel_sizes.len() - 1 { dim } else { hidden };
+            let out_c = if i == kernel_sizes.len() - 1 {
+                dim
+            } else {
+                hidden
+            };
             // block.{2*i+1} in Python (ELU at even indices, Conv at odd)
             let conv = StreamingConv1d::load(
                 &vb.pp("block").pp(2 * i + 1),
-                in_c, out_c, ks, 1, dil, pad_mode, 1, true,
+                in_c,
+                out_c,
+                ks,
+                1,
+                dil,
+                pad_mode,
+                1,
+                true,
             )?;
             convs.push(conv);
         }
         Ok(Self { convs })
     }
 
-    pub fn init_state(&self, batch_size: usize) -> SEANetResnetBlockState<T, B> {
-        let conv_states = self.convs.iter().map(|c| c.init_state(batch_size)).collect();
-        SEANetResnetBlockState { conv_states }
+    pub fn init_state(&self, batch_size: usize) -> Result<SEANetResnetBlockState<T, B>> {
+        let conv_states = self
+            .convs
+            .iter()
+            .map(|c| c.init_state(batch_size))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(SEANetResnetBlockState { conv_states })
     }
 
     pub fn forward(
@@ -70,7 +88,10 @@ pub struct SEANetEncoder<T: WithDTypeF, B: Backend> {
     pub dimension: usize,
 }
 
-type EncoderLayerState<T, B> = (Vec<SEANetResnetBlockState<T, B>>, StreamingConv1dState<T, B>);
+type EncoderLayerState<T, B> = (
+    Vec<SEANetResnetBlockState<T, B>>,
+    StreamingConv1dState<T, B>,
+);
 
 pub struct SEANetEncoderState<T: WithDTypeF, B: Backend> {
     init_conv_state: StreamingConv1dState<T, B>,
@@ -101,7 +122,14 @@ impl<T: WithDTypeF, B: Backend> SEANetEncoder<T, B> {
         let mut mult = 1usize;
         let init_conv = StreamingConv1d::load(
             &vb.pp("model").pp(0),
-            channels, mult * n_filters, kernel_size, 1, 1, pad_mode, 1, true,
+            channels,
+            mult * n_filters,
+            kernel_size,
+            1,
+            1,
+            pad_mode,
+            1,
+            true,
         )?;
 
         let mut layers = Vec::new();
@@ -136,32 +164,56 @@ impl<T: WithDTypeF, B: Backend> SEANetEncoder<T, B> {
                 true,
             )?;
             layer_idx += 2;
-            layers.push(EncoderLayer { residuals, downsample });
+            layers.push(EncoderLayer {
+                residuals,
+                downsample,
+            });
             mult *= 2;
         }
 
         // ELU at layer_idx, final conv at layer_idx+1
         let final_conv = StreamingConv1d::load(
             &vb.pp("model").pp(layer_idx + 1),
-            mult * n_filters, dimension, last_kernel_size, 1, 1, pad_mode, 1, true,
+            mult * n_filters,
+            dimension,
+            last_kernel_size,
+            1,
+            1,
+            pad_mode,
+            1,
+            true,
         )?;
 
-        Ok(Self { init_conv, layers, final_conv, hop_length, dimension })
+        Ok(Self {
+            init_conv,
+            layers,
+            final_conv,
+            hop_length,
+            dimension,
+        })
     }
 
-    pub fn init_state(&self, batch_size: usize) -> SEANetEncoderState<T, B> {
-        let init_conv_state = self.init_conv.init_state(batch_size);
+    pub fn init_state(&self, batch_size: usize) -> Result<SEANetEncoderState<T, B>> {
+        let init_conv_state = self.init_conv.init_state(batch_size)?;
         let layer_states = self
             .layers
             .iter()
             .map(|l| {
-                let res = l.residuals.iter().map(|r| r.init_state(batch_size)).collect();
-                let down = l.downsample.init_state(batch_size);
-                (res, down)
+                let res = l
+                    .residuals
+                    .iter()
+                    .map(|r| r.init_state(batch_size))
+                    .collect::<Result<Vec<_>>>()?;
+                let down = l.downsample.init_state(batch_size)?;
+                Ok((res, down))
             })
-            .collect();
-        let final_conv_state = self.final_conv.init_state(batch_size);
-        SEANetEncoderState { init_conv_state, layer_states, final_conv_state }
+            .collect::<Result<Vec<_>>>()?;
+        let final_conv_state = self.final_conv.init_state(batch_size)?;
+        Ok(SEANetEncoderState {
+            init_conv_state,
+            layer_states,
+            final_conv_state,
+        })
     }
 
     pub fn forward(
@@ -197,7 +249,10 @@ pub struct SEANetDecoder<T: WithDTypeF, B: Backend> {
     final_conv: StreamingConv1d<T, B>,
 }
 
-type DecoderLayerState<T, B> = (StreamingConvTr1dState<T, B>, Vec<SEANetResnetBlockState<T, B>>);
+type DecoderLayerState<T, B> = (
+    StreamingConvTr1dState<T, B>,
+    Vec<SEANetResnetBlockState<T, B>>,
+);
 
 pub struct SEANetDecoderState<T: WithDTypeF, B: Backend> {
     init_conv_state: StreamingConv1dState<T, B>,
@@ -225,7 +280,14 @@ impl<T: WithDTypeF, B: Backend> SEANetDecoder<T, B> {
 
         let init_conv = StreamingConv1d::load(
             &vb.pp("model").pp(0),
-            dimension, mult * n_filters, kernel_size, 1, 1, pad_mode, 1, true,
+            dimension,
+            mult * n_filters,
+            kernel_size,
+            1,
+            1,
+            pad_mode,
+            1,
+            true,
         )?;
 
         let mut layers = Vec::new();
@@ -259,32 +321,54 @@ impl<T: WithDTypeF, B: Backend> SEANetDecoder<T, B> {
                 layer_idx += 1;
             }
 
-            layers.push(DecoderLayer { upsample, residuals });
+            layers.push(DecoderLayer {
+                upsample,
+                residuals,
+            });
             mult /= 2;
         }
 
         // ELU at layer_idx, final conv at layer_idx+1
         let final_conv = StreamingConv1d::load(
             &vb.pp("model").pp(layer_idx + 1),
-            n_filters, channels, last_kernel_size, 1, 1, pad_mode, 1, true,
+            n_filters,
+            channels,
+            last_kernel_size,
+            1,
+            1,
+            pad_mode,
+            1,
+            true,
         )?;
 
-        Ok(Self { init_conv, layers, final_conv })
+        Ok(Self {
+            init_conv,
+            layers,
+            final_conv,
+        })
     }
 
-    pub fn init_state(&self, batch_size: usize) -> SEANetDecoderState<T, B> {
-        let init_conv_state = self.init_conv.init_state(batch_size);
+    pub fn init_state(&self, batch_size: usize) -> Result<SEANetDecoderState<T, B>> {
+        let init_conv_state = self.init_conv.init_state(batch_size)?;
         let layer_states = self
             .layers
             .iter()
             .map(|l| {
-                let up = l.upsample.init_state(batch_size);
-                let res = l.residuals.iter().map(|r| r.init_state(batch_size)).collect();
-                (up, res)
+                let up = l.upsample.init_state(batch_size)?;
+                let res = l
+                    .residuals
+                    .iter()
+                    .map(|r| r.init_state(batch_size))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok((up, res))
             })
-            .collect();
-        let final_conv_state = self.final_conv.init_state(batch_size);
-        SEANetDecoderState { init_conv_state, layer_states, final_conv_state }
+            .collect::<Result<Vec<_>>>()?;
+        let final_conv_state = self.final_conv.init_state(batch_size)?;
+        Ok(SEANetDecoderState {
+            init_conv_state,
+            layer_states,
+            final_conv_state,
+        })
     }
 
     pub fn forward(
@@ -293,8 +377,7 @@ impl<T: WithDTypeF, B: Backend> SEANetDecoder<T, B> {
         state: &mut SEANetDecoderState<T, B>,
     ) -> Result<Tensor<T, B>> {
         let mut z = self.init_conv.forward(z, &mut state.init_conv_state)?;
-        for (layer, (up_state, res_states)) in
-            self.layers.iter().zip(state.layer_states.iter_mut())
+        for (layer, (up_state, res_states)) in self.layers.iter().zip(state.layer_states.iter_mut())
         {
             z = z.elu(1.0)?;
             z = layer.upsample.forward(&z, up_state)?;

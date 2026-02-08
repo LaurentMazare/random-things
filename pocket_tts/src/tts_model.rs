@@ -53,8 +53,14 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
     }
 
     /// Initialize flow LM state with the given sequence length budget.
-    pub fn init_flow_lm_state(&self, batch_size: usize, sequence_length: usize) -> TTSState<T, B> {
-        TTSState { flow_lm_state: self.flow_lm.init_state(batch_size, sequence_length) }
+    pub fn init_flow_lm_state(
+        &self,
+        batch_size: usize,
+        sequence_length: usize,
+    ) -> Result<TTSState<T, B>> {
+        Ok(TTSState {
+            flow_lm_state: self.flow_lm.init_state(batch_size, sequence_length)?,
+        })
     }
 
     /// Encode audio for voice conditioning. Returns [1, T', dim].
@@ -136,7 +142,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
     }
 
     /// Initialize mimi streaming state.
-    pub fn init_mimi_state(&self, batch_size: usize, context: usize) -> MimiState<T, B> {
+    pub fn init_mimi_state(&self, batch_size: usize, context: usize) -> Result<MimiState<T, B>> {
         self.mimi.init_state(batch_size, context)
     }
 
@@ -149,8 +155,10 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         // Run backbone (just to update the state, we discard output during prompting)
         let input = backbone_input_latents.matmul_t(&self.flow_lm.input_linear_weight)?;
         let input = Tensor::cat(&[text_embeddings, &input], 1)?;
-        let _out =
-            self.flow_lm.transformer.forward(&input, &mut state.flow_lm_state.transformer_state)?;
+        let _out = self
+            .flow_lm
+            .transformer
+            .forward(&input, &mut state.flow_lm_state.transformer_state)?;
         Ok(())
     }
 }

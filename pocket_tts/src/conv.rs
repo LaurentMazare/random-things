@@ -11,7 +11,11 @@ pub fn pad_for_conv1d<T: WithDTypeF, B: Backend>(
     let n_frames = (length as f64 - kernel_size as f64) / stride as f64 + 1.0;
     let ideal_length = (n_frames.ceil() as usize - 1) * stride + kernel_size;
     let extra = ideal_length.saturating_sub(length);
-    if extra > 0 { x.pad_with_zeros(2usize, 0, extra) } else { Ok(x.copy()?) }
+    if extra > 0 {
+        x.pad_with_zeros(2usize, 0, extra)
+    } else {
+        Ok(x.copy()?)
+    }
 }
 
 /// Conv1d wrapper with weight and optional bias.
@@ -39,12 +43,32 @@ impl<T: WithDTypeF, B: Backend> Conv1d<T, B> {
         bias: bool,
     ) -> Result<Self> {
         let weight = vb.tensor("weight", (out_channels, in_channels / groups, kernel_size))?;
-        let bias = if bias { Some(vb.tensor("bias", (out_channels,))?) } else { None };
-        Ok(Self { weight, bias, stride, dilation, kernel_size, in_channels, out_channels, groups })
+        let bias = if bias {
+            Some(vb.tensor("bias", (out_channels,))?)
+        } else {
+            None
+        };
+        Ok(Self {
+            weight,
+            bias,
+            stride,
+            dilation,
+            kernel_size,
+            in_channels,
+            out_channels,
+            groups,
+        })
     }
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        x.conv1d(&self.weight, self.bias.as_ref(), self.stride, 0, self.dilation, self.groups)
+        x.conv1d(
+            &self.weight,
+            self.bias.as_ref(),
+            self.stride,
+            0,
+            self.dilation,
+            self.groups,
+        )
     }
 }
 
@@ -69,12 +93,30 @@ impl<T: WithDTypeF, B: Backend> ConvTranspose1d<T, B> {
         bias: bool,
     ) -> Result<Self> {
         let weight = vb.tensor("weight", (in_channels, out_channels / groups, kernel_size))?;
-        let bias = if bias { Some(vb.tensor("bias", (out_channels,))?) } else { None };
-        Ok(Self { weight, bias, stride, kernel_size, out_channels, groups })
+        let bias = if bias {
+            Some(vb.tensor("bias", (out_channels,))?)
+        } else {
+            None
+        };
+        Ok(Self {
+            weight,
+            bias,
+            stride,
+            kernel_size,
+            out_channels,
+            groups,
+        })
     }
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        x.conv_transpose1d(&self.weight, self.bias.as_ref(), self.stride, 0, 0, self.groups)
+        x.conv_transpose1d(
+            &self.weight,
+            self.bias.as_ref(),
+            self.stride,
+            0,
+            0,
+            self.groups,
+        )
     }
 }
 
@@ -109,8 +151,16 @@ impl<T: WithDTypeF, B: Backend> StreamingConv1d<T, B> {
         groups: usize,
         bias: bool,
     ) -> Result<Self> {
-        let conv =
-            Conv1d::load(&vb.pp("conv"), in_channels, out_channels, kernel_size, stride, dilation, groups, bias)?;
+        let conv = Conv1d::load(
+            &vb.pp("conv"),
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            dilation,
+            groups,
+            bias,
+        )?;
         Ok(Self { conv, pad_mode })
     }
 
@@ -118,13 +168,17 @@ impl<T: WithDTypeF, B: Backend> StreamingConv1d<T, B> {
         (self.conv.kernel_size - 1) * self.conv.dilation + 1
     }
 
-    pub fn init_state(&self, batch_size: usize) -> StreamingConv1dState<T, B> {
+    pub fn init_state(&self, batch_size: usize) -> Result<StreamingConv1dState<T, B>> {
         let kernel = self.effective_kernel_size();
         let prev_len = kernel - self.conv.stride;
-        let previous =
-            Tensor::zeros((batch_size, self.conv.in_channels, prev_len), self.conv.weight.device())
-                .unwrap();
-        StreamingConv1dState { previous, first: true }
+        let previous = Tensor::zeros(
+            (batch_size, self.conv.in_channels, prev_len),
+            self.conv.weight.device(),
+        )?;
+        Ok(StreamingConv1dState {
+            previous,
+            first: true,
+        })
     }
 
     pub fn forward(
@@ -152,7 +206,11 @@ impl<T: WithDTypeF, B: Backend> StreamingConv1d<T, B> {
         }
 
         // Prepend previous state
-        let x = if tp > 0 { Tensor::cat(&[&state.previous, x], 2)? } else { x.copy()? };
+        let x = if tp > 0 {
+            Tensor::cat(&[&state.previous, x], 2)?
+        } else {
+            x.copy()?
+        };
 
         // Run convolution
         let y = self.conv.forward(&x)?;
@@ -190,17 +248,25 @@ impl<T: WithDTypeF, B: Backend> StreamingConvTranspose1d<T, B> {
         groups: usize,
         bias: bool,
     ) -> Result<Self> {
-        let convtr =
-            ConvTranspose1d::load(&vb.pp("convtr"), in_channels, out_channels, kernel_size, stride, groups, bias)?;
+        let convtr = ConvTranspose1d::load(
+            &vb.pp("convtr"),
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            groups,
+            bias,
+        )?;
         Ok(Self { convtr })
     }
 
-    pub fn init_state(&self, batch_size: usize) -> StreamingConvTr1dState<T, B> {
+    pub fn init_state(&self, batch_size: usize) -> Result<StreamingConvTr1dState<T, B>> {
         let pt = self.convtr.kernel_size - self.convtr.stride;
-        let partial =
-            Tensor::zeros((batch_size, self.convtr.out_channels, pt), self.convtr.weight.device())
-                .unwrap();
-        StreamingConvTr1dState { partial }
+        let partial = Tensor::zeros(
+            (batch_size, self.convtr.out_channels, pt),
+            self.convtr.weight.device(),
+        )?;
+        Ok(StreamingConvTr1dState { partial })
     }
 
     pub fn forward(

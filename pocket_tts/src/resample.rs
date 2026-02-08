@@ -1,4 +1,7 @@
-use crate::conv::{PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState, StreamingConvTranspose1d};
+use crate::conv::{
+    PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState,
+    StreamingConvTranspose1d,
+};
 use mimi::nn::var_builder::Path;
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
@@ -22,7 +25,7 @@ impl<T: WithDTypeF, B: Backend> ConvDownsample1d<T, B> {
         Ok(Self { conv })
     }
 
-    pub fn init_state(&self, batch_size: usize) -> StreamingConv1dState<T, B> {
+    pub fn init_state(&self, batch_size: usize) -> Result<StreamingConv1dState<T, B>> {
         self.conv.init_state(batch_size)
     }
 
@@ -37,7 +40,7 @@ impl<T: WithDTypeF, B: Backend> ConvDownsample1d<T, B> {
     /// Non-streaming forward (creates and discards state).
     pub fn forward_no_state(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let b = x.dim(0usize)?;
-        let mut state = self.init_state(b);
+        let mut state = self.init_state(b)?;
         self.conv.forward(x, &mut state)
     }
 }
@@ -60,7 +63,7 @@ impl<T: WithDTypeF, B: Backend> ConvTrUpsample1d<T, B> {
         Ok(Self { convtr })
     }
 
-    pub fn init_state(&self, batch_size: usize) -> StreamingConvTr1dState<T, B> {
+    pub fn init_state(&self, batch_size: usize) -> Result<StreamingConvTr1dState<T, B>> {
         self.convtr.init_state(batch_size)
     }
 

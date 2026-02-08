@@ -110,8 +110,8 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         })
     }
 
-    pub fn init_state(&self) -> KvCache<T, B> {
-        KvCache::new(self.context)
+    pub fn init_state(&self) -> Result<KvCache<T, B>> {
+        Ok(KvCache::new(self.context))
     }
 
     pub fn forward(
@@ -250,13 +250,14 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         &self,
         batch_size: usize,
         sequence_length: usize,
-    ) -> LayerAttentionState<T, B> {
-        match &self.self_attn {
-            AttentionKind::Mimi(attn) => LayerAttentionState::Mimi(attn.init_state()),
+    ) -> Result<LayerAttentionState<T, B>> {
+        let s = match &self.self_attn {
+            AttentionKind::Mimi(attn) => LayerAttentionState::Mimi(attn.init_state()?),
             AttentionKind::FlowLm(attn) => {
-                LayerAttentionState::FlowLm(attn.init_state(batch_size, sequence_length))
+                LayerAttentionState::FlowLm(attn.init_state(batch_size, sequence_length)?)
             }
-        }
+        };
+        Ok(s)
     }
 
     pub fn forward(
@@ -337,13 +338,13 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
         &self,
         batch_size: usize,
         sequence_length: usize,
-    ) -> StreamingTransformerState<T, B> {
+    ) -> Result<StreamingTransformerState<T, B>> {
         let layer_states = self
             .layers
             .iter()
             .map(|l| l.init_state(batch_size, sequence_length))
-            .collect();
-        StreamingTransformerState { layer_states }
+            .collect::<Result<Vec<_>>>()?;
+        Ok(StreamingTransformerState { layer_states })
     }
 
     pub fn forward(
@@ -426,7 +427,7 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
         &self,
         batch_size: usize,
         sequence_length: usize,
-    ) -> StreamingTransformerState<T, B> {
+    ) -> Result<StreamingTransformerState<T, B>> {
         self.transformer.init_state(batch_size, sequence_length)
     }
 
