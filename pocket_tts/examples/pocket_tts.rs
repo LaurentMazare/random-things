@@ -248,7 +248,6 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         move || {
             let mut audio_chunks: Vec<Tensor<f32, Dev>> = Vec::new();
             while let Ok(next_latent) = latent_rx.recv() {
-                let next_latent = Tensor::from_vec(next_latent, (1, 1, ()), &dev)?;
                 // Decode latent to audio
                 let audio_chunk = model.decode_latent(&next_latent, &mut mimi_state)?;
                 audio_chunks.push(audio_chunk);
@@ -282,7 +281,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     for step in 0..max_frames {
         let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent)?;
-        latent_tx.send(next_latent.to_vec().unwrap()).unwrap();
+        latent_tx.send(next_latent.clone()).unwrap();
 
         if is_eos && eos_countdown.is_none() {
             println!("  EOS detected at step {step}");
