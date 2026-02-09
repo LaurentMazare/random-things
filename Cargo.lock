@@ -1695,6 +1695,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "sentencepiece",
+ "tracing",
  "tracing-chrome",
  "tracing-subscriber",
 ]

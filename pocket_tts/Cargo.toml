@@ -8,6 +8,7 @@ mimi = { path = "../mimi-rs" }
 rand = "0.9"
 rand_distr = "0.5"
 sentencepiece = "0.13.1"
+tracing = "0.1.44"
 tracing-subscriber = "0.3"
 
 [dev-dependencies]

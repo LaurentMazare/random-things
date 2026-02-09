@@ -86,6 +86,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         Ok(StreamingMHAState { k_cache, v_cache, current_end: 0 })
     }
 
+    #[tracing::instrument(name = "attn", skip_all)]
     pub fn forward(
         &self,
         query: &Tensor<T, B>,

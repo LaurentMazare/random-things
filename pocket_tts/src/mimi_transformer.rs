@@ -237,6 +237,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         Ok(s)
     }
 
+    #[tracing::instrument(name = "transformer-layer", skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,
@@ -399,6 +400,7 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
     }
 
     /// Forward pass. Input x is [B, C, T] (conv layout).
+    #[tracing::instrument(name = "transformer", skip_all)]
     pub fn forward(
         &self,
         x: &Tensor<T, B>,

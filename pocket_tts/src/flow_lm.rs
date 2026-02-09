@@ -203,6 +203,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
                 .collect()
         };
         let noise = Tensor::from_vec(noise_data, (b, self.ldim), dev)?;
+        let noise = noise.zeros_like()?;
 
         // LSD decode
         let latent = lsd_decode(&self.flow_net, &transformer_out, &noise, lsd_decode_steps)?;
@@ -225,7 +226,6 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
                 out_data[i] = bos_data[i % ldim];
             }
         }
-
         Tensor::from_vec(out_data, sequence.shape().clone(), sequence.device())
     }
 }

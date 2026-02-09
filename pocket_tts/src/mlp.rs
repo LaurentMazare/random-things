@@ -24,6 +24,7 @@ impl<T: WithDTypeF, B: Backend> RMSNorm<T, B> {
         Ok(Self { alpha, eps: 1e-5 })
     }
 
+    #[tracing::instrument(name = "rms-norm", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // Python version uses variance (not mean-of-squares):
         //   var = eps + x.var(dim=-1, keepdim=True)   # unbiased (N-1)
@@ -77,6 +78,7 @@ impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
         Ok(Self { weight, bias, eps: 1e-6 })
     }
 
+    #[tracing::instrument(name = "layer-norm", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         match (&self.weight, &self.bias) {
             (Some(w), Some(b)) => x.layer_norm(w, b, self.eps),
@@ -130,6 +132,7 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         })
     }
 
+    #[tracing::instrument(name = "ts-embedder", skip_all)]
     pub fn forward(&self, t: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // t: [..., 1] -> frequency embedding
         let args = t.broadcast_mul(&self.freqs)?;
@@ -188,6 +191,7 @@ impl<T: WithDTypeF, B: Backend> ResBlock<T, B> {
         })
     }
 
+    #[tracing::instrument(name = "resblock", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>, y: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // adaLN modulation
         let ada = y.silu()?.matmul_t(&self.ada_ln_silu_linear_weight)?;
@@ -321,6 +325,7 @@ impl<T: WithDTypeF, B: Backend> SimpleMLPAdaLN<T, B> {
     /// s: start time tensor
     /// t: target time tensor
     /// x: input tensor [N, C]
+    #[tracing::instrument(name = "mlp-adaln", skip_all)]
     pub fn forward(
         &self,
         c: &Tensor<T, B>,

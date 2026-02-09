@@ -1,8 +1,8 @@
 use crate::Result;
 use crate::{BinaryOp, UnaryOp};
 
-pub trait Backend: Sized + Clone + 'static {
-    type Storage<T: crate::WithDType>: Sized;
+pub trait Backend: Sized + Clone + 'static + Sync + Send {
+    type Storage<T: crate::WithDType>: Sized + Sync + Send + 'static;
 
     fn name(&self) -> String;
     fn synchronize(&self) -> Result<()>;

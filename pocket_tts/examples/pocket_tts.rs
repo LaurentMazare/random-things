@@ -239,14 +239,50 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let nan_data: Vec<f32> = vec![f32::NAN; ldim];
     let mut prev_latent: Tensor<f32, Dev> = Tensor::from_vec(nan_data, (1, 1, ldim), &dev)?;
 
-    let mut audio_chunks: Vec<Tensor<f32, Dev>> = Vec::new();
     let mut eos_countdown: Option<usize> = None;
+
+    let (latent_tx, latent_rx) = std::sync::mpsc::channel();
+    let model = std::sync::Arc::new(model);
+    let jh = std::thread::spawn({
+        let model = model.clone();
+        move || {
+            let mut audio_chunks: Vec<Tensor<f32, Dev>> = Vec::new();
+            while let Ok(next_latent) = latent_rx.recv() {
+                let next_latent = Tensor::from_vec(next_latent, (1, 1, ()), &dev)?;
+                // Decode latent to audio
+                let audio_chunk = model.decode_latent(&next_latent, &mut mimi_state)?;
+                audio_chunks.push(audio_chunk);
+            }
+            let gen_elapsed = gen_start.elapsed();
+            println!(
+                "Generated {} frames in {:.2}s",
+                audio_chunks.len(),
+                gen_elapsed.as_secs_f64()
+            );
+
+            // Concatenate audio
+            let audio_refs: Vec<&Tensor<f32, Dev>> = audio_chunks.iter().collect();
+            let audio = Tensor::cat(&audio_refs, 2)?;
+            let audio = audio.narrow(0, ..1)?.contiguous()?;
+            println!("Output audio shape: {:?}", audio.dims());
+
+            let pcm = audio.to_vec()?;
+            let duration = pcm.len() as f64 / 24000.0;
+            println!("Audio duration: {duration:.2}s");
+
+            // Write WAV
+            let output_file = std::fs::File::create(&args.output)?;
+            let mut writer = std::io::BufWriter::new(output_file);
+            kaudio::wav::write_pcm_as_wav(&mut writer, &pcm, 24000, 1)?;
+            println!("Written to {}", args.output.display());
+
+            Ok::<_, anyhow::Error>(())
+        }
+    });
 
     for step in 0..max_frames {
         let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent)?;
-        // Decode latent to audio
-        let audio_chunk = model.decode_latent(&next_latent, &mut mimi_state)?;
-        audio_chunks.push(audio_chunk);
+        latent_tx.send(next_latent.to_vec().unwrap()).unwrap();
 
         if is_eos && eos_countdown.is_none() {
             println!("  EOS detected at step {step}");
@@ -267,25 +303,8 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
             println!("  Step {}/{max_frames}", step + 1);
         }
     }
-
-    let gen_elapsed = gen_start.elapsed();
-    println!("Generated {} frames in {:.2}s", audio_chunks.len(), gen_elapsed.as_secs_f64());
-
-    // Concatenate audio
-    let audio_refs: Vec<&Tensor<f32, Dev>> = audio_chunks.iter().collect();
-    let audio = Tensor::cat(&audio_refs, 2)?;
-    let audio = audio.narrow(0, ..1)?.contiguous()?;
-    println!("Output audio shape: {:?}", audio.dims());
-
-    let pcm = audio.to_vec()?;
-    let duration = pcm.len() as f64 / 24000.0;
-    println!("Audio duration: {duration:.2}s");
-
-    // Write WAV
-    let output_file = std::fs::File::create(&args.output)?;
-    let mut writer = std::io::BufWriter::new(output_file);
-    kaudio::wav::write_pcm_as_wav(&mut writer, &pcm, 24000, 1)?;
-    println!("Written to {}", args.output.display());
+    std::mem::drop(latent_tx); // Close channel to signal generation thread to finish
+    jh.join().unwrap()?;
 
     Ok(())
 }
