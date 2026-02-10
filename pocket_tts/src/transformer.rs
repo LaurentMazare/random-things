@@ -3,6 +3,7 @@ use mimi::nn::var_builder::Path;
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 /// State for StreamingMultiheadAttention.
+#[derive(Debug)]
 pub struct StreamingMHAState<T: WithDTypeF, B: Backend> {
     /// Key cache: shape [batch_size, sequence_length, num_heads, dim_per_head]
     pub k_cache: Tensor<T, B>,

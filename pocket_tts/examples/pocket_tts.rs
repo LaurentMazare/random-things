@@ -131,7 +131,7 @@ fn main() -> Result<()> {
 }
 
 enum Rng {
-    StdRng { inner: rand::rngs::StdRng, distr: rand_distr::Normal<f32> },
+    StdRng { inner: Box<rand::rngs::StdRng>, distr: rand_distr::Normal<f32> },
     FromFile { values: Vec<f32>, index: usize },
 }
 
@@ -140,7 +140,8 @@ impl Rng {
         use rand::SeedableRng;
         let std = temperature.sqrt();
         let distr = rand_distr::Normal::new(0f32, std)?;
-        Ok(Self::StdRng { inner: rand::rngs::StdRng::seed_from_u64(42), distr })
+        let rng = rand::rngs::StdRng::seed_from_u64(42);
+        Ok(Self::StdRng { inner: Box::new(rng), distr })
     }
 
     pub fn from_file(path: &str) -> Result<Self> {

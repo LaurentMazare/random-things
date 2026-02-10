@@ -11,18 +11,20 @@ pub struct KvCache<T: WithDTypeF, B: Backend> {
     k: Option<Tensor<T, B>>,
     v: Option<Tensor<T, B>>,
     max_seq_len: usize,
+    absolute_offset: usize,
 }
 
 impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
     pub fn new(max_seq_len: usize) -> Self {
-        Self { k: None, v: None, max_seq_len }
+        Self { k: None, v: None, max_seq_len, absolute_offset: 0 }
     }
 
-    pub fn current_seq_len(&self) -> usize {
-        match &self.k {
-            Some(k) => k.dims()[2], // k shape: [b, h, seq, d]
+    pub fn current_seq_len(&self) -> Result<usize> {
+        let l = match &self.k {
+            Some(k) => k.dim(2)?, // k shape: [b, h, seq, d]
             None => 0,
-        }
+        };
+        Ok(l)
     }
 
     /// Append new k, v (shape [b, h, t, d]) and return full (k, v).
@@ -41,7 +43,7 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
             _ => (new_k.copy()?, new_v.copy()?),
         };
 
-        let seq_len = k.dims()[2];
+        let seq_len = k.dim(2)?;
         let (k, v) = if seq_len > self.max_seq_len {
             let trim = seq_len - self.max_seq_len;
             (
@@ -52,6 +54,8 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
             (k, v)
         };
 
+        let new_tokens = new_k.dim(2)?;
+        self.absolute_offset += new_tokens;
         self.k = Some(k.copy()?);
         self.v = Some(v.copy()?);
         Ok((k, v))
@@ -70,14 +74,15 @@ pub struct StreamingTransformerState<T: WithDTypeF, B: Backend> {
 }
 
 impl<T: WithDTypeF, B: Backend> StreamingTransformerState<T, B> {
-    pub fn current_seq_len(&self) -> usize {
+    pub fn current_seq_len(&self) -> Result<usize> {
         if self.layer_states.is_empty() {
-            return 0;
+            return Ok(0);
         }
-        match &self.layer_states[0] {
-            LayerAttentionState::Mimi(cache) => cache.current_seq_len(),
+        let v = match &self.layer_states[0] {
+            LayerAttentionState::Mimi(cache) => cache.current_seq_len()?,
             LayerAttentionState::FlowLm(state) => state.current_end,
-        }
+        };
+        Ok(v)
     }
 }
 
@@ -112,7 +117,7 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
     ) -> Result<Tensor<T, B>> {
         let (b, t, _) = query.dims3()?;
         let d = self.embed_dim / self.num_heads;
-        let offset = state.current_seq_len();
+        let offset = state.absolute_offset;
 
         let projected = query.matmul_t(&self.in_proj_weight)?;
         let packed = projected.reshape((b, t, 3, self.num_heads, d))?;
