@@ -271,7 +271,6 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     // Prompt with audio conditioning
     println!("Prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
-    println!("{voice_emb}");
     model.prompt_audio(&mut tts_state, &voice_emb)?;
 
     // Prompt with text
@@ -301,21 +300,17 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
                 audio_chunks.push(audio_chunk);
             }
             let gen_elapsed = gen_start.elapsed();
-            println!(
-                "Generated {} frames in {:.2}s",
-                audio_chunks.len(),
-                gen_elapsed.as_secs_f64()
-            );
-
             // Concatenate audio
             let audio_refs: Vec<&Tensor<f32, Dev>> = audio_chunks.iter().collect();
             let audio = Tensor::cat(&audio_refs, 2)?;
             let audio = audio.narrow(0, ..1)?.contiguous()?;
-            println!("Output audio shape: {:?}", audio.dims());
-
             let pcm = audio.to_vec()?;
             let duration = pcm.len() as f64 / 24000.0;
-            println!("Audio duration: {duration:.2}s");
+            let rtf = duration / gen_elapsed.as_secs_f64();
+            println!(
+                "Generated {duration:.2}s of audio in {:.2}s (RTF {rtf:.2}x)",
+                gen_elapsed.as_secs_f64()
+            );
 
             // Write WAV
             let output_file = std::fs::File::create(&args.output)?;
@@ -329,17 +324,14 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     for step in 0..max_frames {
         let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent, &mut rng)?;
-        println!("Step {step}:\n{next_latent}");
         latent_tx.send(next_latent.clone()).unwrap();
 
         if is_eos && eos_countdown.is_none() {
-            println!("  EOS detected at step {step}");
             eos_countdown = Some(frames_after_eos);
         }
 
         if let Some(ref mut countdown) = eos_countdown {
             if *countdown == 0 {
-                println!("  Stopping after {frames_after_eos} frames past EOS");
                 break;
             }
             *countdown -= 1;
