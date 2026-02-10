@@ -16,6 +16,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hf-hub = "0.4"
 kaudio = "0.2.1"
+serde_json = "1.0"
 tracing-chrome = "0.7"
 
 [features]

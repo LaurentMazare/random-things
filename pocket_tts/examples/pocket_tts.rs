@@ -31,6 +31,9 @@ struct Args {
 
     #[arg(long)]
     chrome_tracing: bool,
+
+    #[arg(long)]
+    rng_values: Option<String>,
 }
 
 const VOICES: &[&str] =
@@ -127,24 +130,42 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-struct Rng {
-    inner: rand::rngs::StdRng,
-    distr: rand_distr::Normal<f32>,
+enum Rng {
+    StdRng { inner: rand::rngs::StdRng, distr: rand_distr::Normal<f32> },
+    FromFile { values: Vec<f32>, index: usize },
 }
 
 impl Rng {
-    pub fn new(temperature: f32) -> Result<Self> {
+    pub fn std_rng(temperature: f32) -> Result<Self> {
         use rand::SeedableRng;
         let std = temperature.sqrt();
         let distr = rand_distr::Normal::new(0f32, std)?;
-        Ok(Self { inner: rand::rngs::StdRng::seed_from_u64(42), distr })
+        Ok(Self::StdRng { inner: rand::rngs::StdRng::seed_from_u64(42), distr })
+    }
+
+    pub fn from_file(path: &str) -> Result<Self> {
+        let file = std::fs::read_to_string(path)?;
+        let values = serde_json::from_str::<Vec<f32>>(&file)?;
+        Ok(Self::FromFile { values, index: 0 })
     }
 }
 
 impl pocket_tts::flow_lm::Rng for Rng {
     fn sample(&mut self) -> f32 {
-        use rand::Rng;
-        self.inner.sample(self.distr)
+        match self {
+            Self::StdRng { inner, distr } => {
+                use rand::Rng;
+                inner.sample(*distr)
+            }
+            Self::FromFile { values, index } => {
+                if *index >= values.len() {
+                    *index = 0;
+                }
+                let val = values[*index];
+                *index += 1;
+                val
+            }
+        }
     }
 }
 
@@ -201,7 +222,10 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         eos_threshold: -4.0,
     };
 
-    let mut rng = Rng::new(args.temperature)?;
+    let mut rng = match args.rng_values {
+        Some(path) => Rng::from_file(&path)?,
+        None => Rng::std_rng(args.temperature)?,
+    };
 
     let model: TTSModel<f32, Dev> = TTSModel::load(&root, &cfg)?;
     println!("Model loaded successfully!");
