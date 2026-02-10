@@ -4,6 +4,10 @@ use crate::mlp::SimpleMLPAdaLN;
 use mimi::nn::var_builder::Path;
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
+pub trait Rng {
+    fn sample(&mut self) -> f32;
+}
+
 /// Lagrangian Self Distillation decode.
 /// Rebuilds the data sample from starting point x_0.
 fn lsd_decode<T: WithDTypeF, B: Backend>(
@@ -161,8 +165,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         text_embeddings: &Tensor<T, B>,
         state: &mut FlowLMState<T, B>,
         lsd_decode_steps: usize,
-        temp: f32,
-        noise_clamp: Option<f32>,
+        rng: &mut impl Rng,
         eos_threshold: f32,
     ) -> Result<(Tensor<T, B>, bool)> {
         let (b, s, _) = sequence.dims3()?;
@@ -186,24 +189,9 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let eos_val = eos_logit.to_vec()?;
         let is_eos = eos_val[0].to_f32() > eos_threshold;
 
-        // Generate noise
-        let std = temp.sqrt();
-        let normal = rand_distr::Normal::new(0.0f32, std).unwrap();
-        let noise_data: Vec<T> = {
-            use rand::Rng;
-            let mut rng = rand::rng();
-            (0..b * self.ldim)
-                .map(|_| {
-                    let z: f32 = rng.sample(normal);
-                    match noise_clamp {
-                        Some(clamp) => T::from_f32(z.clamp(-clamp, clamp)),
-                        None => T::from_f32(z),
-                    }
-                })
-                .collect()
-        };
+        let noise_data: Vec<T> = (0..b * self.ldim).map(|_| T::from_f32(rng.sample())).collect();
         let noise = Tensor::from_vec(noise_data, (b, self.ldim), dev)?;
-        let noise = noise.zeros_like()?;
+        // let noise = noise.zeros_like()?;
 
         // LSD decode
         let latent = lsd_decode(&self.flow_net, &transformer_out, &noise, lsd_decode_steps)?;

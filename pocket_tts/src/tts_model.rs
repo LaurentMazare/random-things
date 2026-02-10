@@ -16,9 +16,7 @@ pub struct TTSModel<T: WithDTypeF, B: Backend> {
     pub flow_lm: FlowLM<T, B>,
     pub mimi: MimiModel<T, B>,
     speaker_proj_weight: Option<Tensor<T, B>>,
-    temp: f32,
     lsd_decode_steps: usize,
-    noise_clamp: Option<f32>,
     eos_threshold: f32,
 }
 
@@ -41,9 +39,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
             flow_lm,
             mimi,
             speaker_proj_weight,
-            temp: cfg.temp,
             lsd_decode_steps: cfg.lsd_decode_steps,
-            noise_clamp: cfg.noise_clamp,
             eos_threshold: cfg.eos_threshold,
         })
     }
@@ -106,6 +102,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         &self,
         state: &mut TTSState<T, B>,
         backbone_input: &Tensor<T, B>,
+        rng: &mut impl crate::flow_lm::Rng,
     ) -> Result<(Tensor<T, B>, bool)> {
         let dev = backbone_input.device();
         let empty_text = Tensor::zeros((1, 0, self.flow_lm.conditioner.dim), dev)?;
@@ -115,8 +112,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
             &empty_text,
             &mut state.flow_lm_state,
             self.lsd_decode_steps,
-            self.temp,
-            self.noise_clamp,
+            rng,
             self.eos_threshold,
         )?;
 

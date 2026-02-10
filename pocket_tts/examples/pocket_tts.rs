@@ -127,6 +127,27 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+struct Rng {
+    inner: rand::rngs::StdRng,
+    distr: rand_distr::Normal<f32>,
+}
+
+impl Rng {
+    pub fn new(temperature: f32) -> Result<Self> {
+        use rand::SeedableRng;
+        let std = temperature.sqrt();
+        let distr = rand_distr::Normal::new(0f32, std)?;
+        Ok(Self { inner: rand::rngs::StdRng::seed_from_u64(42), distr })
+    }
+}
+
+impl pocket_tts::flow_lm::Rng for Rng {
+    fn sample(&mut self) -> f32 {
+        use rand::Rng;
+        self.inner.sample(self.distr)
+    }
+}
+
 fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let (model_path, tokenizer_path, voice_path) = download_files(&args.voice)?;
 
@@ -179,6 +200,8 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         noise_clamp: None,
         eos_threshold: -4.0,
     };
+
+    let mut rng = Rng::new(args.temperature)?;
 
     let model: TTSModel<f32, Dev> = TTSModel::load(&root, &cfg)?;
     println!("Model loaded successfully!");
@@ -280,7 +303,8 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     });
 
     for step in 0..max_frames {
-        let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent)?;
+        let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent, &mut rng)?;
+        println!("Step {step}:\n{next_latent}");
         latent_tx.send(next_latent.clone()).unwrap();
 
         if is_eos && eos_countdown.is_none() {
