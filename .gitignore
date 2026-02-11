@@ -23,3 +23,4 @@ target
 tmp
 **/trace-*
 **/out*.wav
+**/*output*.wav

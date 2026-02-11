@@ -44,21 +44,20 @@ fn download_files(
 ) -> Result<(std::path::PathBuf, std::path::PathBuf, std::path::PathBuf)> {
     use hf_hub::{Repo, RepoType, api::sync::Api};
     let repo_id = "kyutai/pocket-tts-without-voice-cloning";
-    println!("Downloading from {repo_id}...");
+    tracing::info!(?repo_id, "downloading weights...");
     let api = Api::new()?;
     let repo = api.repo(Repo::new(repo_id.to_string(), RepoType::Model));
 
     let model_path = repo.get("tts_b6369a24.safetensors").context("model weights not found")?;
-    println!("  Model weights: {}", model_path.display());
+    tracing::info!(?model_path, "model weights downloaded");
 
     let tokenizer_path = repo.get("tokenizer.model").context("tokenizer not found")?;
-    println!("  Tokenizer: {}", tokenizer_path.display());
+    tracing::info!(?tokenizer_path, "tokenizer downloaded");
 
     let voice_file = format!("embeddings/{voice}.safetensors");
     let voice_path =
         repo.get(&voice_file).with_context(|| format!("voice embedding '{voice}' not found"))?;
-    println!("  Voice embedding: {}", voice_path.display());
-
+    tracing::info!(?voice_path, "voice embedding downloaded");
     Ok((model_path, tokenizer_path, voice_path))
 }
 
@@ -100,7 +99,12 @@ fn init_tracing() -> tracing_chrome::FlushGuard {
 }
 
 fn main() -> Result<()> {
+    use tracing_subscriber::prelude::*;
+
     let args = Args::parse();
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::Layer::new().with_target(false))
+        .init();
     let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
 
     if !VOICES.contains(&args.voice.as_str()) {
@@ -110,10 +114,10 @@ fn main() -> Result<()> {
     #[cfg(feature = "cuda")]
     {
         if args.cpu {
-            println!("Using CPU backend");
+            tracing::info!("using cpu backend");
             run_for_device(args, mimi::CPU)?;
         } else {
-            println!("Using CUDA backend");
+            tracing::info!("using cuda backend");
             let dev = mimi::cuda_backend::Device::new(0)?;
             unsafe {
                 dev.disable_event_tracking();
@@ -123,7 +127,7 @@ fn main() -> Result<()> {
     }
     #[cfg(not(feature = "cuda"))]
     {
-        println!("Using CPU backend");
+        tracing::info!("using cpu backend");
         run_for_device(args, mimi::CPU)?;
     }
 
@@ -173,8 +177,6 @@ impl pocket_tts::flow_lm::Rng for Rng {
 fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let (model_path, tokenizer_path, voice_path) = download_files(&args.voice)?;
 
-    // Load model weights with key remapping
-    println!("\nLoading model...");
     let vb = VB::load_with_key_map(&[&model_path], dev.clone(), remap_key)?;
     let root = vb.root();
 
@@ -219,7 +221,6 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         },
         temp: args.temperature,
         lsd_decode_steps: 1,
-        noise_clamp: None,
         eos_threshold: -4.0,
     };
 
@@ -228,7 +229,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         None => Rng::std_rng(args.temperature)?,
     };
 
-    println!(
+    tracing::info!(
         "avx: {}, neon: {}, simd128: {}, f16c: {}",
         mimi::with_avx(),
         mimi::with_neon(),
@@ -237,20 +238,18 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     );
 
     let model: TTSModel<f32, Dev> = TTSModel::load(&root, &cfg)?;
-    println!("Model loaded successfully!");
+    tracing::info!("model loaded successfully!");
 
     // Prepare text
     let (text, frames_after_eos) = prepare_text_prompt(&args.text);
-    println!("Text: {text:?}");
 
     // Tokenize
     let tokens = model.flow_lm.conditioner.tokenize(&text);
     let num_tokens = tokens.len();
-    println!("Tokens: {num_tokens}");
+    tracing::info!(?text, ?num_tokens, "processing text");
 
     // Max generation frames
     let max_frames = ((num_tokens as f64 / 3.0 + 2.0) * 12.5).ceil() as usize;
-    println!("Max generation frames: {max_frames}");
 
     // Budget for transformer state: text tokens + voice frames + generation frames
     let seq_budget = num_tokens + 512 + max_frames;
@@ -260,14 +259,12 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     let mut mimi_state = model.init_mimi_state(1, 250)?;
 
     // Load voice embedding
-    println!("Loading voice embedding...");
     let voice_vb = VB::load(&[&voice_path], dev.clone())?;
     let voice_names = voice_vb.tensor_names();
     let voice_key = voice_names.first().context("no tensors found in voice embedding file")?;
     let voice_td = voice_vb.get_tensor(voice_key).context("voice tensor not found")?;
     let voice_shape = &voice_td.shape;
     let voice_dims = voice_shape.dims();
-    println!("  Voice tensor '{voice_key}': shape {voice_dims:?}");
 
     // Load as raw tensor and reshape to [1, T, dim]
     let voice_emb: Tensor<f32, Dev> = voice_vb.tensor(voice_key, voice_shape.clone())?;
@@ -278,20 +275,21 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
     };
 
     // Prompt with audio conditioning
-    println!("Prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
+    tracing::info!("prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
     let start = std::time::Instant::now();
     model.prompt_audio(&mut tts_state, &voice_emb)?;
-    println!("  Done in {:.2}s", start.elapsed().as_secs_f64());
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    tracing::info!("done prompting with voice conditioning in {elapsed_ms:.2}ms");
 
     // Prompt with text
-    println!("Prompting with text...");
+    tracing::info!("prompting with text conditioning ({} tokens)...", tokens.len());
     let start = std::time::Instant::now();
     model.prompt_text(&mut tts_state, &tokens)?;
-    println!("  Done in {:.2}s", start.elapsed().as_secs_f64());
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    tracing::info!("done prompting with text conditioning in {elapsed_ms:.2}ms");
 
-    // Auto-regressive generation
-    println!("\nGenerating speech...");
-    let gen_start = std::time::Instant::now();
+    let start = std::time::Instant::now();
+    tracing::info!("starting generation...");
 
     // BOS marker: NaN tensor [1, 1, ldim]
     let ldim = cfg.flow_lm.ldim;
@@ -311,24 +309,21 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
                 let audio_chunk = model.decode_latent(&next_latent, &mut mimi_state)?;
                 audio_chunks.push(audio_chunk);
             }
-            let gen_elapsed = gen_start.elapsed();
+            let elapsed = start.elapsed().as_secs_f64();
             // Concatenate audio
             let audio_refs: Vec<&Tensor<f32, Dev>> = audio_chunks.iter().collect();
             let audio = Tensor::cat(&audio_refs, 2)?;
             let audio = audio.narrow(0, ..1)?.contiguous()?;
             let pcm = audio.to_vec()?;
             let duration = pcm.len() as f64 / 24000.0;
-            let rtf = duration / gen_elapsed.as_secs_f64();
-            println!(
-                "Generated {duration:.2}s of audio in {:.2}s (RTF {rtf:.2}x)",
-                gen_elapsed.as_secs_f64()
-            );
+            let rtf = duration / elapsed;
+            tracing::info!("generated {duration:.2}s in {elapsed:.2}s (RTF={rtf:.3})");
 
             // Write WAV
             let output_file = std::fs::File::create(&args.output)?;
             let mut writer = std::io::BufWriter::new(output_file);
             kaudio::wav::write_pcm_as_wav(&mut writer, &pcm, 24000, 1)?;
-            println!("Written to {}", args.output.display());
+            tracing::info!("saving output to {}", args.output.display());
 
             Ok::<_, anyhow::Error>(())
         }
@@ -344,7 +339,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
         if let Some(ref mut countdown) = eos_countdown {
             if *countdown == 0 {
-                println!("  Step {}/{max_frames}", step + 1);
+                tracing::info!(?step, "reached eos");
                 break;
             }
             *countdown -= 1;
@@ -353,7 +348,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         prev_latent = next_latent;
 
         if (step + 1) % 25 == 0 {
-            println!("  Step {}/{max_frames}", step + 1);
+            tracing::info!(?step, ?max_frames, "generation progress");
         }
     }
     std::mem::drop(latent_tx); // Close channel to signal generation thread to finish

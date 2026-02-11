@@ -8,7 +8,6 @@ pub struct TTSConfig {
     pub mimi: MimiConfig,
     pub temp: f32,
     pub lsd_decode_steps: usize,
-    pub noise_clamp: Option<f32>,
     pub eos_threshold: f32,
 }
 
