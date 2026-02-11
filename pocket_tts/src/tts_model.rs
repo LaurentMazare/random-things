@@ -1,6 +1,6 @@
 use crate::flow_lm::{FlowLM, FlowLMConfig, FlowLMState};
 use crate::mimi::{MimiConfig, MimiModel, MimiState};
-use mimi::nn::var_builder::Path;
+use mimi::nn::{Linear, var_builder::Path};
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct TTSConfig {
@@ -14,7 +14,7 @@ pub struct TTSConfig {
 pub struct TTSModel<T: WithDTypeF, B: Backend> {
     pub flow_lm: FlowLM<T, B>,
     pub mimi: MimiModel<T, B>,
-    speaker_proj_weight: Option<Tensor<T, B>>,
+    speaker_proj: Option<Linear<T, B>>,
     lsd_decode_steps: usize,
     eos_threshold: f32,
 }
@@ -28,8 +28,9 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         let flow_lm = FlowLM::load(&vb.pp("flow_lm"), &cfg.flow_lm)?;
         let mimi = MimiModel::load(&vb.pp("mimi"), &cfg.mimi)?;
 
-        let speaker_proj_weight = if vb.contains("flow_lm.speaker_proj_weight") {
-            Some(vb.tensor("flow_lm.speaker_proj_weight", (1024, 512))?)
+        let speaker_proj = if vb.contains("flow_lm.speaker_proj_weight") {
+            let weights = vb.tensor("flow_lm.speaker_proj_weight", (1024, 512))?;
+            Some(Linear::new(weights))
         } else {
             None
         };
@@ -37,7 +38,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         Ok(Self {
             flow_lm,
             mimi,
-            speaker_proj_weight,
+            speaker_proj,
             lsd_decode_steps: cfg.lsd_decode_steps,
             eos_threshold: cfg.eos_threshold,
         })
@@ -61,9 +62,8 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         let encoded = self.mimi.encode_to_latent(audio)?;
         // [B, C, T] -> [B, T, C]
         let latents = encoded.transpose(1, 2)?.contiguous()?;
-        // Project through speaker_proj_weight if available
-        match &self.speaker_proj_weight {
-            Some(w) => latents.matmul_t(w),
+        match self.speaker_proj.as_ref() {
+            Some(p) => p.forward(&latents),
             None => Ok(latents),
         }
     }
@@ -73,8 +73,6 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         let text_embeddings = self.flow_lm.conditioner.embed_tokens(text_tokens)?;
         let dev = text_embeddings.device();
         let empty_latents = Tensor::zeros((1, 0, self.flow_lm.ldim), dev)?;
-
-        // Backbone with text embeddings and empty latents
         self.run_backbone_and_increment(state, &text_embeddings, &empty_latents)?;
         Ok(())
     }
@@ -88,8 +86,6 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         let dev = audio_conditioning.device();
         let empty_text = Tensor::zeros((1, 0, self.flow_lm.conditioner.dim), dev)?;
         let empty_latents = Tensor::zeros((1, 0, self.flow_lm.ldim), dev)?;
-
-        // Text embeddings = empty, audio conditioning is added
         let text_embeddings = Tensor::cat(&[&empty_text, audio_conditioning], 1)?;
         self.run_backbone_and_increment(state, &text_embeddings, &empty_latents)?;
         Ok(())
@@ -124,9 +120,8 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         latent: &Tensor<T, B>,
         mimi_state: &mut MimiState<T, B>,
     ) -> Result<Tensor<T, B>> {
-        // Denormalize: latent * emb_std + emb_mean
-        let denorm = latent.broadcast_mul(&self.flow_lm.emb_std)?;
-        let denorm = denorm.broadcast_add(&self.flow_lm.emb_mean)?;
+        let denorm =
+            latent.broadcast_mul(&self.flow_lm.emb_std)?.broadcast_add(&self.flow_lm.emb_mean)?;
 
         // [B, T, C] -> [B, C, T]
         let transposed = denorm.transpose(1, 2)?.contiguous()?;
@@ -145,8 +140,7 @@ impl<T: WithDTypeF, B: Backend> TTSModel<T, B> {
         text_embeddings: &Tensor<T, B>,
         backbone_input_latents: &Tensor<T, B>,
     ) -> Result<()> {
-        // Run backbone (just to update the state, we discard output during prompting)
-        let input = backbone_input_latents.matmul_t(&self.flow_lm.input_linear_weight)?;
+        let input = self.flow_lm.input_linear.forward(backbone_input_latents)?;
         let input = Tensor::cat(&[text_embeddings, &input], 1)?;
         let _out =
             self.flow_lm.transformer.forward(&input, &mut state.flow_lm_state.transformer_state)?;
@@ -164,22 +158,15 @@ pub fn prepare_text_prompt(text: &str) -> (String, usize) {
 
     let number_of_words = text.split_whitespace().count();
     let frames_after_eos = if number_of_words <= 4 { 3 } else { 1 };
-
-    // Capitalize first letter
     let mut chars = text.chars();
     if let Some(first) = chars.next() {
         text = first.to_uppercase().to_string() + chars.as_str();
     }
-
-    // Add period if ends with alphanumeric
     if text.chars().last().is_some_and(|c| c.is_alphanumeric()) {
         text.push('.');
     }
-
-    // Pad short text
     if text.split_whitespace().count() < 5 {
         text = format!("        {text}");
     }
-
     (text, frames_after_eos)
 }

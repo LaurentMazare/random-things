@@ -1,7 +1,7 @@
 use crate::conditioners::LUTConditioner;
 use crate::mimi_transformer::{StreamingTransformer, StreamingTransformerState};
 use crate::mlp::SimpleMLPAdaLN;
-use mimi::nn::var_builder::Path;
+use mimi::nn::{Linear, var_builder::Path};
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 pub trait Rng {
@@ -58,7 +58,7 @@ pub struct FlowLM<T: WithDTypeF, B: Backend> {
     pub emb_std: Tensor<T, B>,
     pub emb_mean: Tensor<T, B>,
     bos_emb: Tensor<T, B>,
-    pub input_linear_weight: Tensor<T, B>,
+    pub input_linear: Linear<T, B>,
     out_norm_weight: Tensor<T, B>,
     out_norm_bias: Tensor<T, B>,
     out_eos_weight: Tensor<T, B>,
@@ -106,8 +106,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let emb_std = vb.tensor("emb_std", (cfg.ldim,))?;
         let emb_mean = vb.tensor("emb_mean", (cfg.ldim,))?;
         let bos_emb = vb.tensor("bos_emb", (cfg.ldim,))?;
-        let input_linear_weight =
-            vb.pp("input_linear").tensor("weight", (cfg.d_model, cfg.ldim))?;
+        let input_linear = Linear::load(&vb.pp("input_linear"), cfg.ldim, cfg.d_model)?;
         let out_norm_weight = vb.pp("out_norm").tensor("weight", (cfg.d_model,))?;
         let out_norm_bias = vb.pp("out_norm").tensor("bias", (cfg.d_model,))?;
         let out_eos_weight = vb.pp("out_eos").tensor("weight", (1, cfg.d_model))?;
@@ -120,7 +119,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
             emb_std,
             emb_mean,
             bos_emb,
-            input_linear_weight,
+            input_linear,
             out_norm_weight,
             out_norm_bias,
             out_eos_weight,
@@ -175,7 +174,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         // For simplicity, check if it's the first step (s=1 and all NaN)
         let sequence = self.replace_nan_with_bos(sequence)?;
         // input_linear(sequence)
-        let input = sequence.matmul_t(&self.input_linear_weight)?;
+        let input = self.input_linear.forward(&sequence)?;
         // Run backbone
         let transformer_out = self.backbone(&input, text_embeddings, s, state)?;
         // Take last position
