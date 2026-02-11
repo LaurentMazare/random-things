@@ -29,7 +29,7 @@ fn lsd_decode<T: WithDTypeF, B: Backend>(
         let s = Tensor::full(T::from_f32(s_val), shape.clone(), dev)?;
         let t = Tensor::full(T::from_f32(t_val), shape, dev)?;
 
-        let flow_dir = flow_net.forward(transformer_out, &s, &t, &current)?;
+        let flow_dir = flow_net.forward(transformer_out, &[&s, &t], &current)?;
         let step_scale = T::from_f32(1.0 / num_steps as f32);
         current = current.add(&flow_dir.scale(step_scale)?)?;
     }
@@ -186,7 +186,6 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
 
     /// Replace NaN values in sequence with bos_emb.
     fn replace_nan_with_bos(&self, sequence: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        // Check first element to see if it's NaN
         let data = sequence.to_vec()?;
         // TODO(laurent): avoid the `to_vec` below. For this, we could introduce
         // something like torch.where.

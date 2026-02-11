@@ -24,6 +24,28 @@ impl<T: WithDTypeF, B: Backend> RmsNorm<T, B> {
     }
 }
 
+pub struct LayerNorm<T: WithDTypeF, B: Backend> {
+    weight: Tensor<T, B>,
+    bias: Tensor<T, B>,
+    eps: f32,
+}
+
+impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
+    pub fn new(weight: Tensor<T, B>, bias: Tensor<T, B>, eps: f32) -> Self {
+        Self { weight, bias, eps }
+    }
+
+    pub fn load(vb: &Path<B>, dim: usize, eps: f32) -> Result<Self> {
+        let weight = vb.tensor("weight", (dim,))?;
+        let bias = vb.tensor("bias", (dim,))?;
+        Ok(Self::new(weight, bias, eps))
+    }
+
+    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
+        x.layer_norm(&self.weight, &self.bias, self.eps)
+    }
+}
+
 pub struct Linear<T: WithDTypeF, B: Backend> {
     weight: Tensor<T, B>,
     bias: Option<Tensor<T, B>>,
