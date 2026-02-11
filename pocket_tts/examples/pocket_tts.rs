@@ -34,6 +34,9 @@ struct Args {
 
     #[arg(long)]
     rng_values: Option<String>,
+
+    #[arg(long)]
+    wait_to_decode: bool,
 }
 
 const VOICES: &[&str] =
@@ -304,10 +307,19 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     let (latent_tx, latent_rx) = std::sync::mpsc::channel();
     let model = std::sync::Arc::new(model);
+    let is_done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let jh = std::thread::spawn({
+        let wait_to_decode = args.wait_to_decode;
         let model = model.clone();
+        let is_done = is_done.clone();
         move || {
             let mut audio_chunks: Vec<Tensor<f32, Dev>> = Vec::new();
+            if wait_to_decode {
+                tracing::info!("waiting for generation to finish before decoding...");
+                while !is_done.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
             while let Ok(next_latent) = latent_rx.recv() {
                 // Decode latent to audio
                 let audio_chunk = model.decode_latent(&next_latent, &mut mimi_state)?;
@@ -319,14 +331,15 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
             let audio = Tensor::cat(&audio_refs, 2)?;
             let audio = audio.narrow(0, ..1)?.contiguous()?;
             let pcm = audio.to_vec()?;
-            let duration = pcm.len() as f64 / 24000.0;
+            let duration = pcm.len() as f64 / cfg.mimi.sample_rate as f64;
+
             let rtf = duration / elapsed;
             tracing::info!("generated {duration:.2}s in {elapsed:.2}s (RTF={rtf:.3})");
 
             // Write WAV
             let output_file = std::fs::File::create(&args.output)?;
             let mut writer = std::io::BufWriter::new(output_file);
-            kaudio::wav::write_pcm_as_wav(&mut writer, &pcm, 24000, 1)?;
+            kaudio::wav::write_pcm_as_wav(&mut writer, &pcm, cfg.mimi.sample_rate as u32, 1)?;
             tracing::info!("saving output to {}", args.output.display());
 
             Ok::<_, anyhow::Error>(())
@@ -335,7 +348,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     for step in 0..max_frames {
         let (next_latent, is_eos) = model.generate_step(&mut tts_state, &prev_latent, &mut rng)?;
-        latent_tx.send(next_latent.clone()).unwrap();
+        latent_tx.send(next_latent.clone())?;
 
         if is_eos && eos_countdown.is_none() {
             eos_countdown = Some(frames_after_eos);
@@ -356,7 +369,8 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         }
     }
     std::mem::drop(latent_tx); // Close channel to signal generation thread to finish
-    jh.join().unwrap()?;
+    is_done.store(true, std::sync::atomic::Ordering::SeqCst);
+    jh.join().map_err(|_| anyhow::anyhow!("cannot join thread"))??;
 
     Ok(())
 }
