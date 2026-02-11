@@ -89,23 +89,27 @@ fn remap_key(name: &str) -> Option<String> {
     Some(name)
 }
 
-fn init_tracing() -> tracing_chrome::FlushGuard {
-    use tracing_chrome::ChromeLayerBuilder;
-    use tracing_subscriber::{prelude::*, registry::Registry};
+fn init_tracing(chrome_tracing: bool) -> Option<tracing_chrome::FlushGuard> {
+    use tracing_subscriber::prelude::*;
 
-    let (chrome_layer, guard) = ChromeLayerBuilder::new().build();
-    Registry::default().with(chrome_layer).init();
-    guard
+    if chrome_tracing {
+        let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::Layer::new().with_target(false))
+            .with(chrome_layer)
+            .init();
+        Some(guard)
+    } else {
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::Layer::new().with_target(false))
+            .init();
+        None
+    }
 }
 
 fn main() -> Result<()> {
-    use tracing_subscriber::prelude::*;
-
     let args = Args::parse();
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::Layer::new().with_target(false))
-        .init();
-    let _guard = if args.chrome_tracing { Some(init_tracing()) } else { None };
+    let _guard = init_tracing(args.chrome_tracing);
 
     if !VOICES.contains(&args.voice.as_str()) {
         anyhow::bail!("Unknown voice '{}'. Available voices: {}", args.voice, VOICES.join(", "));
