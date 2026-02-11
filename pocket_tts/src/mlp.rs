@@ -17,7 +17,6 @@ pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
     linear2: Linear<T, B>,
     rms_norm: LayerNorm<T, B>,
     freqs: Tensor<T, B>,
-    _frequency_embedding_size: usize,
 }
 
 impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
@@ -36,13 +35,7 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
 
         let freqs = vb.tensor("freqs", (frequency_embedding_size / 2,))?;
 
-        Ok(Self {
-            linear1,
-            linear2,
-            rms_norm,
-            freqs,
-            _frequency_embedding_size: frequency_embedding_size,
-        })
+        Ok(Self { linear1, linear2, rms_norm, freqs })
     }
 
     #[tracing::instrument(name = "ts-embedder", skip_all)]
