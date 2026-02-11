@@ -10,63 +10,12 @@ fn modulate<T: WithDTypeF, B: Backend>(
     x.broadcast_mul(&one_plus_scale)?.broadcast_add(shift)
 }
 
-// TODO(laurent): this is not the typical RMSNorm implementation.
-// Make the version in mimi-rs flexible enough so that it could be
-// used here.
-
-pub struct RMSNorm<T: WithDTypeF, B: Backend> {
-    alpha: Tensor<T, B>,
-    eps: f32,
-}
-
-impl<T: WithDTypeF, B: Backend> RMSNorm<T, B> {
-    pub fn load(vb: &Path<B>, dim: usize) -> Result<Self> {
-        let alpha = vb.tensor("alpha", (dim,))?;
-        Ok(Self { alpha, eps: 1e-5 })
-    }
-
-    #[tracing::instrument(name = "rms-norm", skip_all)]
-    pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        // Python version uses variance (not mean-of-squares):
-        //   var = eps + x.var(dim=-1, keepdim=True)   # unbiased (N-1)
-        //   y = x * (alpha * rsqrt(var))
-        let last_dim = x.dim(mimi::D::Minus1)?;
-        let n = last_dim as f32;
-        let data = x.to_vec()?;
-        let alpha_data = self.alpha.to_vec()?;
-        let eps = self.eps;
-
-        let mut out = vec![T::from_f32(0.0); data.len()];
-        for (chunk_in, chunk_out) in data.chunks_exact(last_dim).zip(out.chunks_exact_mut(last_dim))
-        {
-            // Unbiased variance: sum((x - mean)^2) / (N - 1)
-            let mean: f32 = chunk_in.iter().map(|&v| v.to_f32()).sum::<f32>() / n;
-            let var: f32 = chunk_in
-                .iter()
-                .map(|&v| {
-                    let d = v.to_f32() - mean;
-                    d * d
-                })
-                .sum::<f32>()
-                / (n - 1.0);
-            let rsqrt = 1.0 / (var + eps).sqrt();
-            for ((o, &x_val), &a) in
-                chunk_out.iter_mut().zip(chunk_in.iter()).zip(alpha_data.iter())
-            {
-                *o = T::from_f32(x_val.to_f32() * a.to_f32() * rsqrt);
-            }
-        }
-
-        Tensor::from_vec(out, x.shape().clone(), x.device())
-    }
-}
-
 // ---- TimestepEmbedder ----
 
 pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
     linear1: Linear<T, B>,
     linear2: Linear<T, B>,
-    rms_norm: RMSNorm<T, B>,
+    rms_norm: LayerNorm<T, B>,
     freqs: Tensor<T, B>,
     _frequency_embedding_size: usize,
 }
@@ -76,7 +25,14 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let mlp = vb.pp("mlp");
         let linear1 = Linear::load_b(&mlp.pp("0"), frequency_embedding_size, hidden_size)?;
         let linear2 = Linear::load_b(&mlp.pp("2"), hidden_size, hidden_size)?;
-        let rms_norm = RMSNorm::load(&mlp.pp("3"), hidden_size)?;
+
+        // This is slightly different from the python implementation which uses an unbiased
+        // variance estimate whereas the op in mimi-rs uses a biased one.
+        // This should not have much impact but maybe we want to have the option to make the
+        // estimator unbiased in layer-norm.
+        let ln_w = mlp.tensor("3.alpha", (hidden_size,))?;
+        let ln_b = ln_w.zeros_like()?;
+        let rms_norm = LayerNorm::new(ln_w, ln_b, 1e-5).remove_mean(false);
 
         let freqs = vb.tensor("freqs", (frequency_embedding_size / 2,))?;
 
