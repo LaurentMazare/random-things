@@ -123,9 +123,9 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let mask = materialize_causal_mask::<T, B>(t, kv_len, query.device())?;
 
         // Transpose to [b, h, t, d] for attention
-        let q = q.transpose(1, 2)?.contiguous()?;
-        let k = k.transpose(1, 2)?.contiguous()?;
-        let v = v.transpose(1, 2)?.contiguous()?;
+        let q = q.transpose(1, 2)?;
+        let k = k.transpose(1, 2)?;
+        let v = v.transpose(1, 2)?;
 
         // Scaled dot-product attention
         let scale = T::from_f32(1.0 / (d as f32).sqrt());

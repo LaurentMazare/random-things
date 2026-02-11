@@ -391,6 +391,14 @@ impl<T: WithDTypeF, B: Backend> TensorView<T, B> {
         Ok(result)
     }
 
+    pub fn matmul_t<R: TensorOrView<T, B>>(&self, rhs: &R) -> Result<Tensor<T, B>> {
+        crate::ops::matmul_t(self, rhs)
+    }
+
+    pub fn matmul<R: TensorOrView<T, B>>(&self, rhs: &R) -> Result<Tensor<T, B>> {
+        crate::ops::matmul(self, rhs)
+    }
+
     pub fn sigmoid(&self) -> Result<Tensor<T, B>> {
         self.apply_unary(UnaryOp::Sigmoid)
     }
