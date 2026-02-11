@@ -61,8 +61,7 @@ pub struct FlowLM<T: WithDTypeF, B: Backend> {
     pub input_linear: Linear<T, B>,
     out_norm_weight: Tensor<T, B>,
     out_norm_bias: Tensor<T, B>,
-    out_eos_weight: Tensor<T, B>,
-    out_eos_bias: Tensor<T, B>,
+    out_eos: Linear<T, B>,
     pub dim: usize,
     pub ldim: usize,
 }
@@ -109,8 +108,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let input_linear = Linear::load(&vb.pp("input_linear"), cfg.ldim, cfg.d_model)?;
         let out_norm_weight = vb.pp("out_norm").tensor("weight", (cfg.d_model,))?;
         let out_norm_bias = vb.pp("out_norm").tensor("bias", (cfg.d_model,))?;
-        let out_eos_weight = vb.pp("out_eos").tensor("weight", (1, cfg.d_model))?;
-        let out_eos_bias = vb.pp("out_eos").tensor("bias", (1,))?;
+        let out_eos = Linear::load_b(&vb.pp("out_eos"), cfg.d_model, 1)?;
 
         Ok(Self {
             conditioner,
@@ -122,8 +120,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
             input_linear,
             out_norm_weight,
             out_norm_bias,
-            out_eos_weight,
-            out_eos_bias,
+            out_eos,
             dim: cfg.d_model,
             ldim: cfg.ldim,
         })
@@ -183,8 +180,7 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let transformer_out = transformer_out.reshape((b, self.dim))?;
 
         // EOS detection
-        let eos_logit = transformer_out.matmul_t(&self.out_eos_weight)?;
-        let eos_logit = eos_logit.broadcast_add(&self.out_eos_bias)?;
+        let eos_logit = self.out_eos.forward(&transformer_out)?;
         let eos_val = eos_logit.to_vec()?;
         let is_eos = eos_val[0].to_f32() > eos_threshold;
 
