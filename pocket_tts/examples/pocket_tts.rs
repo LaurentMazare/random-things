@@ -228,6 +228,14 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
         None => Rng::std_rng(args.temperature)?,
     };
 
+    println!(
+        "avx: {}, neon: {}, simd128: {}, f16c: {}",
+        mimi::with_avx(),
+        mimi::with_neon(),
+        mimi::with_simd128(),
+        mimi::with_f16c()
+    );
+
     let model: TTSModel<f32, Dev> = TTSModel::load(&root, &cfg)?;
     println!("Model loaded successfully!");
 
@@ -271,11 +279,15 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     // Prompt with audio conditioning
     println!("Prompting with voice conditioning ({} frames)...", voice_emb.dim(1usize)?);
+    let start = std::time::Instant::now();
     model.prompt_audio(&mut tts_state, &voice_emb)?;
+    println!("  Done in {:.2}s", start.elapsed().as_secs_f64());
 
     // Prompt with text
     println!("Prompting with text...");
+    let start = std::time::Instant::now();
     model.prompt_text(&mut tts_state, &tokens)?;
+    println!("  Done in {:.2}s", start.elapsed().as_secs_f64());
 
     // Auto-regressive generation
     println!("\nGenerating speech...");
@@ -332,6 +344,7 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
         if let Some(ref mut countdown) = eos_countdown {
             if *countdown == 0 {
+                println!("  Step {}/{max_frames}", step + 1);
                 break;
             }
             *countdown -= 1;
