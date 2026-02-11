@@ -31,12 +31,18 @@ impl<T: WithDTypeF, B: Backend> RmsNorm<T, B> {
 pub struct LayerNorm<T: WithDTypeF, B: Backend> {
     weight: Tensor<T, B>,
     bias: Tensor<T, B>,
+    remove_mean: bool,
     eps: f32,
 }
 
 impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
     pub fn new(weight: Tensor<T, B>, bias: Tensor<T, B>, eps: f32) -> Self {
-        Self { weight, bias, eps }
+        Self { weight, bias, eps, remove_mean: true }
+    }
+
+    pub fn remove_mean(mut self, remove_mean: bool) -> Self {
+        self.remove_mean = remove_mean;
+        self
     }
 
     pub fn load(vb: &Path<B>, dim: usize, eps: f32) -> Result<Self> {
@@ -46,7 +52,7 @@ impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
     }
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        x.layer_norm(&self.weight, &self.bias, self.eps)
+        x.layer_norm_rm(&self.weight, &self.bias, self.eps, self.remove_mean)
     }
 
     pub fn device(&self) -> &B {
