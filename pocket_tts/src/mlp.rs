@@ -1,4 +1,4 @@
-use mimi::nn::var_builder::Path;
+use mimi::nn::{Linear, var_builder::Path};
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 fn modulate<T: WithDTypeF, B: Backend>(
@@ -6,12 +6,13 @@ fn modulate<T: WithDTypeF, B: Backend>(
     shift: &Tensor<T, B>,
     scale: &Tensor<T, B>,
 ) -> Result<Tensor<T, B>> {
-    // x * (1 + scale) + shift
     let one_plus_scale = scale.add_scalar(T::from_f32(1.0))?;
     x.broadcast_mul(&one_plus_scale)?.broadcast_add(shift)
 }
 
-// ---- RMSNorm ----
+// TODO(laurent): this is not the typical RMSNorm implementation.
+// Make the version in mimi-rs flexible enough so that it could be
+// used here.
 
 pub struct RMSNorm<T: WithDTypeF, B: Backend> {
     alpha: Tensor<T, B>,
@@ -100,10 +101,8 @@ impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
 // ---- TimestepEmbedder ----
 
 pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
-    linear1_weight: Tensor<T, B>,
-    linear1_bias: Tensor<T, B>,
-    linear2_weight: Tensor<T, B>,
-    linear2_bias: Tensor<T, B>,
+    linear1: Linear<T, B>,
+    linear2: Linear<T, B>,
     rms_norm: RMSNorm<T, B>,
     freqs: Tensor<T, B>,
     _frequency_embedding_size: usize,
@@ -112,20 +111,15 @@ pub struct TimestepEmbedder<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
     pub fn load(vb: &Path<B>, hidden_size: usize, frequency_embedding_size: usize) -> Result<Self> {
         let mlp = vb.pp("mlp");
-        let linear1_weight =
-            mlp.pp("0").tensor("weight", (hidden_size, frequency_embedding_size))?;
-        let linear1_bias = mlp.pp("0").tensor("bias", (hidden_size,))?;
-        let linear2_weight = mlp.pp("2").tensor("weight", (hidden_size, hidden_size))?;
-        let linear2_bias = mlp.pp("2").tensor("bias", (hidden_size,))?;
+        let linear1 = Linear::load_b(&mlp.pp("0"), frequency_embedding_size, hidden_size)?;
+        let linear2 = Linear::load_b(&mlp.pp("2"), hidden_size, hidden_size)?;
         let rms_norm = RMSNorm::load(&mlp.pp("3"), hidden_size)?;
 
         let freqs = vb.tensor("freqs", (frequency_embedding_size / 2,))?;
 
         Ok(Self {
-            linear1_weight,
-            linear1_bias,
-            linear2_weight,
-            linear2_bias,
+            linear1,
+            linear2,
             rms_norm,
             freqs,
             _frequency_embedding_size: frequency_embedding_size,
@@ -141,11 +135,9 @@ impl<T: WithDTypeF, B: Backend> TimestepEmbedder<T, B> {
         let embedding = Tensor::cat(&[&cos, &sin], embedding_last_dim(&cos)?)?;
 
         // MLP: linear -> silu -> linear -> rmsnorm
-        let mut x = embedding.matmul_t(&self.linear1_weight)?;
-        x = x.broadcast_add(&self.linear1_bias)?;
+        let mut x = self.linear1.forward(&embedding)?;
         x = x.silu()?;
-        x = x.matmul_t(&self.linear2_weight)?;
-        x = x.broadcast_add(&self.linear2_bias)?;
+        x = self.linear2.forward(&x)?;
         x = self.rms_norm.forward(&x)?;
         Ok(x)
     }
@@ -159,43 +151,25 @@ fn embedding_last_dim<T: WithDTypeF, B: Backend>(t: &Tensor<T, B>) -> Result<usi
 
 pub struct ResBlock<T: WithDTypeF, B: Backend> {
     in_ln: LayerNorm<T, B>,
-    mlp_linear1_weight: Tensor<T, B>,
-    mlp_linear1_bias: Tensor<T, B>,
-    mlp_linear2_weight: Tensor<T, B>,
-    mlp_linear2_bias: Tensor<T, B>,
-    ada_ln_silu_linear_weight: Tensor<T, B>,
-    ada_ln_silu_linear_bias: Tensor<T, B>,
+    mlp_linear1: Linear<T, B>,
+    mlp_linear2: Linear<T, B>,
+    ada_ln_silu_linear: Linear<T, B>,
 }
 
 impl<T: WithDTypeF, B: Backend> ResBlock<T, B> {
     pub fn load(vb: &Path<B>, channels: usize) -> Result<Self> {
         let in_ln = LayerNorm::load(&vb.pp("in_ln"), channels, true)?;
         let mlp = vb.pp("mlp");
-        let mlp_linear1_weight = mlp.pp("0").tensor("weight", (channels, channels))?;
-        let mlp_linear1_bias = mlp.pp("0").tensor("bias", (channels,))?;
-        let mlp_linear2_weight = mlp.pp("2").tensor("weight", (channels, channels))?;
-        let mlp_linear2_bias = mlp.pp("2").tensor("bias", (channels,))?;
-
+        let mlp_linear1 = Linear::load_b(&mlp.pp("0"), channels, channels)?;
+        let mlp_linear2 = Linear::load_b(&mlp.pp("2"), channels, channels)?;
         let ada = vb.pp("adaLN_modulation");
-        let ada_ln_silu_linear_weight = ada.pp("1").tensor("weight", (3 * channels, channels))?;
-        let ada_ln_silu_linear_bias = ada.pp("1").tensor("bias", (3 * channels,))?;
-
-        Ok(Self {
-            in_ln,
-            mlp_linear1_weight,
-            mlp_linear1_bias,
-            mlp_linear2_weight,
-            mlp_linear2_bias,
-            ada_ln_silu_linear_weight,
-            ada_ln_silu_linear_bias,
-        })
+        let ada_ln_silu_linear = Linear::load_b(&ada.pp("1"), 3 * channels, channels)?;
+        Ok(Self { in_ln, mlp_linear1, mlp_linear2, ada_ln_silu_linear })
     }
 
     #[tracing::instrument(name = "resblock", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>, y: &Tensor<T, B>) -> Result<Tensor<T, B>> {
-        // adaLN modulation
-        let ada = y.silu()?.matmul_t(&self.ada_ln_silu_linear_weight)?;
-        let ada = ada.broadcast_add(&self.ada_ln_silu_linear_bias)?;
+        let ada = self.ada_ln_silu_linear.forward(&y.silu()?)?;
         let channels = x.dim(mimi::D::Minus1)?;
         let shift_mlp = ada.narrow(ada.rank() - 1, 0..channels)?.contiguous()?;
         let scale_mlp = ada.narrow(ada.rank() - 1, channels..2 * channels)?.contiguous()?;
@@ -206,13 +180,9 @@ impl<T: WithDTypeF, B: Backend> ResBlock<T, B> {
         let h = modulate(&h, &shift_mlp, &scale_mlp)?;
 
         // MLP
-        let h = h.matmul_t(&self.mlp_linear1_weight)?;
-        let h = h.broadcast_add(&self.mlp_linear1_bias)?;
+        let h = self.mlp_linear1.forward(&h)?;
         let h = h.silu()?;
-        let h = h.matmul_t(&self.mlp_linear2_weight)?;
-        let h = h.broadcast_add(&self.mlp_linear2_bias)?;
-
-        // x + gate * h
+        let h = self.mlp_linear2.forward(&h)?;
         x.add(&gate_mlp.broadcast_mul(&h)?)
     }
 }

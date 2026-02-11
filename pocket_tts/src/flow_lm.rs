@@ -167,32 +167,20 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
         let (b, s, _) = sequence.dims3()?;
         let dev = sequence.device();
 
-        // Replace NaN values (BOS markers) with bos_emb
-        // For simplicity, check if it's the first step (s=1 and all NaN)
         let sequence = self.replace_nan_with_bos(sequence)?;
-        // input_linear(sequence)
         let input = self.input_linear.forward(&sequence)?;
-        // Run backbone
         let transformer_out = self.backbone(&input, text_embeddings, s, state)?;
-        // Take last position
         let t_len = transformer_out.dim(1usize)?;
         let transformer_out = transformer_out.narrow(1, t_len - 1..t_len)?.contiguous()?;
         let transformer_out = transformer_out.reshape((b, self.dim))?;
 
-        // EOS detection
         let eos_logit = self.out_eos.forward(&transformer_out)?;
         let eos_val = eos_logit.to_vec()?;
         let is_eos = eos_val[0].to_f32() > eos_threshold;
-
         let noise_data: Vec<T> = (0..b * self.ldim).map(|_| T::from_f32(rng.sample())).collect();
         let noise = Tensor::from_vec(noise_data, (b, self.ldim), dev)?;
-        // let noise = noise.zeros_like()?;
-
-        // LSD decode
         let latent = lsd_decode(&self.flow_net, &transformer_out, &noise, lsd_decode_steps)?;
-        // Reshape to [B, 1, ldim]
         let latent = latent.reshape((b, 1, self.ldim))?;
-
         Ok((latent, is_eos))
     }
 
@@ -200,6 +188,8 @@ impl<T: WithDTypeF, B: Backend> FlowLM<T, B> {
     fn replace_nan_with_bos(&self, sequence: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         // Check first element to see if it's NaN
         let data = sequence.to_vec()?;
+        // TODO(laurent): avoid the `to_vec` below. For this, we could introduce
+        // something like torch.where.
         let bos_data = self.bos_emb.to_vec()?;
         let mut out_data = data.clone();
         let ldim = self.ldim;
