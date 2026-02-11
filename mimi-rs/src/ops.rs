@@ -208,8 +208,19 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
 
     #[tracing::instrument(skip_all)]
     pub fn layer_norm(&self, weight: &Self, bias: &Self, eps: f32) -> Result<Self> {
+        self.layer_norm_rm(weight, bias, eps, true)
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn layer_norm_rm(
+        &self,
+        weight: &Self,
+        bias: &Self,
+        eps: f32,
+        remove_mean: bool,
+    ) -> Result<Self> {
         let result = unsafe { Tensor::alloc_uninit(self.shape.clone(), self.device()) }?;
-        result.layer_norm_(self, weight, bias, eps)?;
+        result.layer_norm_(self, weight, bias, eps, remove_mean)?;
         Ok(result)
     }
 

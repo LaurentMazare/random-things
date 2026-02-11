@@ -586,6 +586,7 @@ impl crate::Backend for crate::CpuDevice {
         dim_m1: usize,
         d: usize,
         eps: f32,
+        remove_mean: bool,
     ) -> Result<()> {
         let src = &src[..d * dim_m1];
         let dst = &mut dst[..d * dim_m1];
@@ -596,7 +597,7 @@ impl crate::Backend for crate::CpuDevice {
             let sum: f32 = src.iter().map(|&v| v.to_f32()).sum();
             let mean = sum / dim_m1 as f32;
 
-            // Compute variance
+            // Compute variance (always uses mean)
             let var: f32 = src
                 .iter()
                 .map(|&v| {
@@ -610,7 +611,8 @@ impl crate::Backend for crate::CpuDevice {
 
             // Normalize and apply weight/bias
             for i in 0..dim_m1 {
-                let normalized = (src[i].to_f32() - mean) * inv_std;
+                let centered = if remove_mean { src[i].to_f32() - mean } else { src[i].to_f32() };
+                let normalized = centered * inv_std;
                 dst[i] = T::from_f32(normalized * weight[i].to_f32() + bias[i].to_f32());
             }
         });

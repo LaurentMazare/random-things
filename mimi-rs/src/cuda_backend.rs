@@ -1042,10 +1042,12 @@ impl crate::Backend for Device {
         dim_m1: usize,
         d: usize,
         eps: f32,
+        remove_mean: bool,
     ) -> Result<()> {
         // dim_m1 is ncols (last dimension), d is nrows
         let ncols = dim_m1 as i32;
         let nrows = d as i32;
+        let remove_mean: i32 = if remove_mean { 1 } else { 0 };
 
         let kname = kernel_name::<T>("layernorm");
         let func = dst.device.get_func(&kname, PTXModule::Reduce)?;
@@ -1064,6 +1066,7 @@ impl crate::Backend for Device {
         launch_args.arg(&ncols);
         launch_args.arg(&block_size);
         launch_args.arg(&eps);
+        launch_args.arg(&remove_mean);
         unsafe { launch_args.launch(cfg) }?;
         Ok(())
     }

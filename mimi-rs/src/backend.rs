@@ -173,7 +173,10 @@ pub trait Backend: Sized + Clone + 'static + Sync + Send {
 
     /// Layer normalization.
     /// Normalizes over the last dimension using mean and variance.
-    /// y = (x - mean) / sqrt(variance + eps) * weight + bias
+    /// When `remove_mean` is true: y = (x - mean) / sqrt(variance + eps) * weight + bias
+    /// When `remove_mean` is false: y = x / sqrt(variance + eps) * weight + bias
+    /// The mean is always used when computing the variance.
+    #[allow(clippy::too_many_arguments)]
     fn layer_norm<T: crate::WithDTypeF>(
         dst: &mut Self::Storage<T>,
         src: &Self::Storage<T>,
@@ -182,6 +185,7 @@ pub trait Backend: Sized + Clone + 'static + Sync + Send {
         dim_m1: usize,
         d: usize,
         eps: f32,
+        remove_mean: bool,
     ) -> Result<()>;
 
     /// Reduce max along a dimension.

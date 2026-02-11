@@ -70,7 +70,7 @@ static __device__ __forceinline__ float warp_reduce_sum(float x) {
 // LayerNorm implementation adapted from ggml, accumulation is made using f32.
 // https://github.com/ggerganov/llama.cpp/blob/d59bd97065cd7ded6c4ecab54b1d5e0b1b11e318/ggml-cuda.cu#L477
 template <typename T>
-__device__ void layernorm(const T * x, T * dst, const T * alpha, const T * beta, const int ncols, const int block_size, const float eps) {
+__device__ void layernorm(const T * x, T * dst, const T * alpha, const T * beta, const int ncols, const int block_size, const float eps, const int remove_mean) {
     const int row = blockIdx.x*blockDim.y + threadIdx.y;
     const int tid = threadIdx.x;
 
@@ -99,24 +99,25 @@ __device__ void layernorm(const T * x, T * dst, const T * alpha, const T * beta,
     const float mean = mean_var.x / ncols;
     const float var = mean_var.y / ncols - mean * mean;
     const float inv_std = rsqrtf(var + eps);
+    const float mean_offset = remove_mean ? mean : 0.0f;
 
     if (alpha == nullptr && beta == nullptr) {
       for (int col = tid; col < ncols; col += block_size) {
-          float lhs = (static_cast<float>(x[row*ncols + col]) - mean) * inv_std; 
+          float lhs = (static_cast<float>(x[row*ncols + col]) - mean_offset) * inv_std;
           dst[row*ncols + col] = static_cast<T>(lhs);
       }
     }
     else if (alpha == nullptr && beta != nullptr) {
       for (int col = tid; col < ncols; col += block_size) {
           float b = static_cast<float>(beta[col]);
-          float lhs = (static_cast<float>(x[row*ncols + col]) - mean) * inv_std; 
+          float lhs = (static_cast<float>(x[row*ncols + col]) - mean_offset) * inv_std;
           dst[row*ncols + col] = static_cast<T>(lhs + b);
       }
     }
     else if (alpha != nullptr && beta == nullptr) {
       for (int col = tid; col < ncols; col += block_size) {
           float a = static_cast<float>(alpha[col]);
-          float lhs = (static_cast<float>(x[row*ncols + col]) - mean) * inv_std; 
+          float lhs = (static_cast<float>(x[row*ncols + col]) - mean_offset) * inv_std;
           dst[row*ncols + col] = static_cast<T>(lhs * a);
       }
     }
@@ -124,7 +125,7 @@ __device__ void layernorm(const T * x, T * dst, const T * alpha, const T * beta,
       for (int col = tid; col < ncols; col += block_size) {
           float a = static_cast<float>(alpha[col]);
           float b = static_cast<float>(beta[col]);
-          float lhs = (static_cast<float>(x[row*ncols + col]) - mean) * inv_std; 
+          float lhs = (static_cast<float>(x[row*ncols + col]) - mean_offset) * inv_std;
           dst[row*ncols + col] = static_cast<T>(lhs * a + b);
       }
     }
@@ -548,8 +549,8 @@ fast_argmax(const size_t src_numel, const size_t el_to_sum_per_block,
 #define LAYERNORM_OP(TYPENAME, FN_NAME) \
   extern "C" __global__ void FN_NAME(                                          \
       const TYPENAME *src, TYPENAME *dst, const TYPENAME *alpha,               \
-      const TYPENAME *beta, const int n_cols, const int block_size, const float eps) { \
-    layernorm<TYPENAME>(src, dst, alpha, beta, n_cols, block_size, eps);       \
+      const TYPENAME *beta, const int n_cols, const int block_size, const float eps, const int remove_mean) { \
+    layernorm<TYPENAME>(src, dst, alpha, beta, n_cols, block_size, eps, remove_mean); \
   }                                                                            \
 
 #define ROPE_OP(TYPENAME, FN_NAME, FN_NAME_I, FN_NAME_THD) \

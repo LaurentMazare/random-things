@@ -272,7 +272,14 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         Ok(())
     }
 
-    pub fn layer_norm_(&self, src: &Self, weight: &Self, bias: &Self, eps: f32) -> Result<()> {
+    pub fn layer_norm_(
+        &self,
+        src: &Self,
+        weight: &Self,
+        bias: &Self,
+        eps: f32,
+        remove_mean: bool,
+    ) -> Result<()> {
         check_same_shape(&self.shape, &src.shape, "layer_norm_ src")?;
         if eps <= 0.0 {
             crate::bail!("layer_norm_ eps must be positive");
@@ -286,7 +293,16 @@ impl<T: WithDTypeF, B: Backend> Tensor<T, B> {
         let src_data = src.storage()?;
         let weight_data = weight.storage()?;
         let bias_data = bias.storage()?;
-        B::layer_norm(&mut *dst, &*src_data, &*weight_data, &*bias_data, dim_m1, d, eps)?;
+        B::layer_norm(
+            &mut *dst,
+            &*src_data,
+            &*weight_data,
+            &*bias_data,
+            dim_m1,
+            d,
+            eps,
+            remove_mean,
+        )?;
         Ok(())
     }
 
