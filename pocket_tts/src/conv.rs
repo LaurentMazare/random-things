@@ -11,7 +11,7 @@ pub fn pad_for_conv1d<T: WithDTypeF, B: Backend>(
     let n_frames = (length as f64 - kernel_size as f64) / stride as f64 + 1.0;
     let ideal_length = (n_frames.ceil() as usize - 1) * stride + kernel_size;
     let extra = ideal_length.saturating_sub(length);
-    if extra > 0 { x.pad_with_zeros(2usize, 0, extra) } else { Ok(x.copy()?) }
+    if extra > 0 { x.pad_with_zeros(2usize, 0, extra) } else { Ok(x.clone()) }
 }
 
 /// Conv1d wrapper with weight and optional bias.
@@ -161,7 +161,7 @@ impl<T: WithDTypeF, B: Backend> StreamingConv1d<T, B> {
         }
 
         // Prepend previous state
-        let x = if tp > 0 { Tensor::cat(&[&state.previous, x], 2)? } else { x.copy()? };
+        let x = if tp > 0 { Tensor::cat(&[&state.previous, x], 2)? } else { x.clone() };
 
         // Run convolution
         let y = self.conv.forward(&x)?;

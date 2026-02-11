@@ -1,7 +1,7 @@
 use crate::layer_scale::LayerScale;
 use crate::rope::RotaryEmbedding;
 use crate::transformer::{StreamingMHAState, StreamingMultiheadAttention};
-use mimi::nn::var_builder::Path;
+use mimi::nn::{LayerNorm, Linear, var_builder::Path};
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 // ---- KV Cache ----
@@ -40,7 +40,7 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
                 let v = Tensor::cat(&[prev_v, new_v], 2)?;
                 (k, v)
             }
-            _ => (new_k.copy()?, new_v.copy()?),
+            _ => (new_k.clone(), new_v.clone()),
         };
 
         let seq_len = k.dim(2)?;
@@ -56,8 +56,8 @@ impl<T: WithDTypeF, B: Backend> KvCache<T, B> {
 
         let new_tokens = new_k.dim(2)?;
         self.absolute_offset += new_tokens;
-        self.k = Some(k.copy()?);
-        self.v = Some(v.copy()?);
+        self.k = Some(k.clone());
+        self.v = Some(v.clone());
         Ok((k, v))
     }
 }
@@ -90,8 +90,8 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerState<T, B> {
 // Uses KV cache with context window.
 
 pub struct MimiStreamingMultiheadAttention<T: WithDTypeF, B: Backend> {
-    in_proj_weight: Tensor<T, B>,
-    out_proj_weight: Tensor<T, B>,
+    in_proj: Linear<T, B>,
+    out_proj: Linear<T, B>,
     embed_dim: usize,
     num_heads: usize,
     context: usize,
@@ -100,9 +100,9 @@ pub struct MimiStreamingMultiheadAttention<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
     pub fn load(vb: &Path<B>, embed_dim: usize, num_heads: usize, context: usize) -> Result<Self> {
         let out_dim = 3 * embed_dim;
-        let in_proj_weight = vb.pp("in_proj").tensor("weight", (out_dim, embed_dim))?;
-        let out_proj_weight = vb.pp("out_proj").tensor("weight", (embed_dim, embed_dim))?;
-        Ok(Self { in_proj_weight, out_proj_weight, embed_dim, num_heads, context })
+        let in_proj = Linear::load(&vb.pp("in_proj"), embed_dim, out_dim)?;
+        let out_proj = Linear::load(&vb.pp("out_proj"), embed_dim, embed_dim)?;
+        Ok(Self { in_proj, out_proj, embed_dim, num_heads, context })
     }
 
     pub fn init_state(&self) -> Result<KvCache<T, B>> {
@@ -119,7 +119,7 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         let d = self.embed_dim / self.num_heads;
         let offset = state.absolute_offset;
 
-        let projected = query.matmul_t(&self.in_proj_weight)?;
+        let projected = self.in_proj.forward(query)?;
         let packed = projected.reshape((b, t, 3, self.num_heads, d))?;
         let q = packed.narrow(2, 0..1)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
         let k = packed.narrow(2, 1..2)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
@@ -144,7 +144,7 @@ impl<T: WithDTypeF, B: Backend> MimiStreamingMultiheadAttention<T, B> {
         let x = attn.matmul(&v)?;
 
         let x = x.transpose(1, 2)?.reshape((b, t, self.embed_dim))?;
-        mimi::ops::matmul_t(&x, &self.out_proj_weight)
+        self.out_proj.forward(&x)
     }
 }
 
@@ -163,12 +163,10 @@ pub enum Kind {
 
 pub struct StreamingTransformerLayer<T: WithDTypeF, B: Backend> {
     self_attn: AttentionKind<T, B>,
-    norm1_weight: Tensor<T, B>,
-    norm1_bias: Tensor<T, B>,
-    norm2_weight: Tensor<T, B>,
-    norm2_bias: Tensor<T, B>,
-    linear1_weight: Tensor<T, B>,
-    linear2_weight: Tensor<T, B>,
+    norm1: LayerNorm<T, B>,
+    norm2: LayerNorm<T, B>,
+    linear1: Linear<T, B>,
+    linear2: Linear<T, B>,
     layer_scale_1: Option<LayerScale<T, B>>,
     layer_scale_2: Option<LayerScale<T, B>>,
 }
@@ -197,12 +195,10 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
             )?),
         };
 
-        let norm1_weight = vb.pp("norm1").tensor("weight", (d_model,))?;
-        let norm1_bias = vb.pp("norm1").tensor("bias", (d_model,))?;
-        let norm2_weight = vb.pp("norm2").tensor("weight", (d_model,))?;
-        let norm2_bias = vb.pp("norm2").tensor("bias", (d_model,))?;
-        let linear1_weight = vb.pp("linear1").tensor("weight", (dim_feedforward, d_model))?;
-        let linear2_weight = vb.pp("linear2").tensor("weight", (d_model, dim_feedforward))?;
+        let norm1 = LayerNorm::load(&vb.pp("norm1"), d_model, 1e-5)?;
+        let norm2 = LayerNorm::load(&vb.pp("norm2"), d_model, 1e-5)?;
+        let linear1 = Linear::load(&vb.pp("linear1"), d_model, dim_feedforward)?;
+        let linear2 = Linear::load(&vb.pp("linear2"), dim_feedforward, d_model)?;
 
         let layer_scale_1 = if layer_scale.is_some() {
             Some(LayerScale::load(&vb.pp("layer_scale_1"), d_model)?)
@@ -215,17 +211,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
             None
         };
 
-        Ok(Self {
-            self_attn,
-            norm1_weight,
-            norm1_bias,
-            norm2_weight,
-            norm2_bias,
-            linear1_weight,
-            linear2_weight,
-            layer_scale_1,
-            layer_scale_2,
-        })
+        Ok(Self { self_attn, norm1, norm2, linear1, linear2, layer_scale_1, layer_scale_2 })
     }
 
     pub fn init_state(
@@ -250,7 +236,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         state: &mut LayerAttentionState<T, B>,
     ) -> Result<Tensor<T, B>> {
         // Self-attention block: x + layer_scale_1(attn(norm1(x)))
-        let norm1 = x.layer_norm(&self.norm1_weight, &self.norm1_bias, 1e-5)?;
+        let norm1 = self.norm1.forward(x)?;
         let mut attn_out = match (&self.self_attn, state) {
             (AttentionKind::Mimi(attn), LayerAttentionState::Mimi(cache)) => {
                 attn.forward(&norm1, rope, cache)?
@@ -266,10 +252,10 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
         let x = x.add(&attn_out)?;
 
         // FF block: x + layer_scale_2(ff(norm2(x)))
-        let norm2 = x.layer_norm(&self.norm2_weight, &self.norm2_bias, 1e-5)?;
-        let mut ff_out = norm2.matmul_t(&self.linear1_weight)?;
+        let norm2 = self.norm2.forward(&x)?;
+        let mut ff_out = self.linear1.forward(&norm2)?;
         ff_out = ff_out.gelu_erf()?;
-        ff_out = ff_out.matmul_t(&self.linear2_weight)?;
+        ff_out = self.linear2.forward(&ff_out)?;
         if let Some(ls) = &self.layer_scale_2 {
             ff_out = ls.forward(&ff_out)?;
         }
@@ -335,7 +321,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
         x: &Tensor<T, B>,
         state: &mut StreamingTransformerState<T, B>,
     ) -> Result<Tensor<T, B>> {
-        let mut x = x.copy()?;
+        let mut x = x.clone();
         for (layer, layer_state) in self.layers.iter().zip(state.layer_states.iter_mut()) {
             x = layer.forward(&x, &self.rope, layer_state)?;
         }
@@ -347,8 +333,8 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformer<T, B> {
 
 pub struct ProjectedTransformer<T: WithDTypeF, B: Backend> {
     pub transformer: StreamingTransformer<T, B>,
-    input_proj: Option<Tensor<T, B>>,
-    output_projs: Vec<Option<Tensor<T, B>>>,
+    input_proj: Option<Linear<T, B>>,
+    output_projs: Vec<Option<Linear<T, B>>>,
 }
 
 impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
@@ -378,7 +364,7 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
         )?;
 
         let input_proj = if d_model != input_dimension {
-            Some(vb.pp("input_proj").tensor("weight", (d_model, input_dimension))?)
+            Some(Linear::load(&vb.pp("input_proj"), input_dimension, d_model)?)
         } else {
             None
         };
@@ -388,8 +374,8 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
             if d_model == out_dim {
                 output_projs.push(None);
             } else {
-                output_projs
-                    .push(Some(vb.pp("output_projs").pp(i).tensor("weight", (out_dim, d_model))?));
+                let proj = Linear::load(&vb.pp("output_proj").pp(i), d_model, out_dim)?;
+                output_projs.push(Some(proj));
             }
         }
 
@@ -415,7 +401,7 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
         let x = x.transpose(1, 2)?.contiguous()?;
 
         let x = match &self.input_proj {
-            Some(proj) => x.matmul_t(proj)?,
+            Some(proj) => proj.forward(&x)?,
             None => x,
         };
 
@@ -424,8 +410,8 @@ impl<T: WithDTypeF, B: Backend> ProjectedTransformer<T, B> {
         let mut ys = Vec::with_capacity(self.output_projs.len());
         for proj in &self.output_projs {
             let y = match proj {
-                Some(p) => z.matmul_t(p)?,
-                None => z.copy()?,
+                Some(p) => p.forward(&z)?,
+                None => z.clone(),
             };
             ys.push(y.transpose(1, 2)?.contiguous()?);
         }

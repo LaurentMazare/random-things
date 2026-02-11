@@ -193,7 +193,7 @@ impl<T: WithDTypeF, B: Backend> MimiModel<T, B> {
         // Downsample to frame rate
         match &self.downsample {
             Some(ds) => ds.forward_no_state(emb),
-            None => Ok(emb.copy()?),
+            None => Ok(emb.clone()),
         }
     }
 
@@ -206,7 +206,7 @@ impl<T: WithDTypeF, B: Backend> MimiModel<T, B> {
         // Upsample to encoder frame rate
         let emb = match (&self.upsample, &mut state.upsample_state) {
             (Some(us), Some(us_state)) => us.forward(latent, us_state)?,
-            _ => latent.copy()?,
+            _ => latent.clone(),
         };
 
         let outs = self.decoder_transformer.forward(&emb, &mut state.decoder_transformer_state)?;

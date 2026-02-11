@@ -57,7 +57,7 @@ impl<T: WithDTypeF, B: Backend> SEANetResnetBlock<T, B> {
         x: &Tensor<T, B>,
         state: &mut SEANetResnetBlockState<T, B>,
     ) -> Result<Tensor<T, B>> {
-        let mut v = x.copy()?;
+        let mut v = x.clone();
         for (conv, cs) in self.convs.iter().zip(state.conv_states.iter_mut()) {
             v = v.elu(1.0)?;
             v = conv.forward(&v, cs)?;

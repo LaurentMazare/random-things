@@ -16,7 +16,7 @@ fn lsd_decode<T: WithDTypeF, B: Backend>(
     x_0: &Tensor<T, B>,
     num_steps: usize,
 ) -> Result<Tensor<T, B>> {
-    let mut current = x_0.copy()?;
+    let mut current = x_0.clone();
     let dev = x_0.device();
 
     for i in 0..num_steps {

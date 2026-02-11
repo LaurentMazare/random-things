@@ -22,6 +22,10 @@ impl<T: WithDTypeF, B: Backend> RmsNorm<T, B> {
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         x.rms_norm(&self.weight, self.eps)
     }
+
+    pub fn device(&self) -> &B {
+        self.weight.device()
+    }
 }
 
 pub struct LayerNorm<T: WithDTypeF, B: Backend> {
@@ -43,6 +47,10 @@ impl<T: WithDTypeF, B: Backend> LayerNorm<T, B> {
 
     pub fn forward(&self, x: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         x.layer_norm(&self.weight, &self.bias, self.eps)
+    }
+
+    pub fn device(&self) -> &B {
+        self.weight.device()
     }
 }
 
@@ -81,5 +89,9 @@ impl<T: WithDTypeF, B: Backend> Linear<T, B> {
             None => x,
         };
         Ok(x)
+    }
+
+    pub fn device(&self) -> &B {
+        self.weight.device()
     }
 }

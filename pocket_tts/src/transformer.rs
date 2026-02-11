@@ -1,5 +1,5 @@
 use crate::rope::RotaryEmbedding;
-use mimi::nn::var_builder::Path;
+use mimi::nn::{Linear, var_builder::Path};
 use mimi::{Backend, Result, Tensor, WithDTypeF};
 
 /// State for StreamingMultiheadAttention.
@@ -54,8 +54,8 @@ fn materialize_causal_mask<T: WithDTypeF, B: Backend>(
 
 /// Streaming multi-head attention (used by the flow LM transformer).
 pub struct StreamingMultiheadAttention<T: WithDTypeF, B: Backend> {
-    in_proj_weight: Tensor<T, B>,
-    out_proj_weight: Tensor<T, B>,
+    in_proj: Linear<T, B>,
+    out_proj: Linear<T, B>,
     pub embed_dim: usize,
     pub num_heads: usize,
     name: String,
@@ -64,10 +64,10 @@ pub struct StreamingMultiheadAttention<T: WithDTypeF, B: Backend> {
 impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
     pub fn load(vb: &Path<B>, embed_dim: usize, num_heads: usize) -> Result<Self> {
         let out_dim = 3 * embed_dim;
-        let in_proj_weight = vb.pp("in_proj").tensor("weight", (out_dim, embed_dim))?;
-        let out_proj_weight = vb.pp("out_proj").tensor("weight", (embed_dim, embed_dim))?;
+        let in_proj = Linear::load(&vb.pp("in_proj"), embed_dim, out_dim)?;
+        let out_proj = Linear::load(&vb.pp("out_proj"), embed_dim, embed_dim)?;
         let name = vb.prefix();
-        Ok(Self { in_proj_weight, out_proj_weight, embed_dim, num_heads, name })
+        Ok(Self { in_proj, out_proj, embed_dim, num_heads, name })
     }
 
     pub fn name(&self) -> &str {
@@ -81,7 +81,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
     ) -> Result<StreamingMHAState<T, B>> {
         let dim_per_head = self.embed_dim / self.num_heads;
         let shape = (batch_size, sequence_length, self.num_heads, dim_per_head);
-        let dev = self.in_proj_weight.device();
+        let dev = self.in_proj.device();
         let k_cache = Tensor::zeros(shape, dev)?;
         let v_cache = Tensor::zeros(shape, dev)?;
         Ok(StreamingMHAState { k_cache, v_cache, current_end: 0 })
@@ -98,7 +98,7 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
         let d = self.embed_dim / self.num_heads;
         let offset = state.current_end;
 
-        let projected = query.matmul_t(&self.in_proj_weight)?;
+        let projected = self.in_proj.forward(query)?;
         // Split into q, k, v by narrowing on the last dimension
         let ed = self.embed_dim;
         let q = projected.narrow(2, 0..ed)?.contiguous()?.reshape((b, t, self.num_heads, d))?;
@@ -136,6 +136,6 @@ impl<T: WithDTypeF, B: Backend> StreamingMultiheadAttention<T, B> {
 
         // Back to [b, t, h*d]
         let x = x.transpose(1, 2)?.reshape((b, t, self.embed_dim))?;
-        mimi::ops::matmul_t(&x, &self.out_proj_weight)
+        self.out_proj.forward(&x)
     }
 }
