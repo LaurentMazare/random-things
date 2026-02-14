@@ -923,39 +923,20 @@ impl crate::Backend for crate::CpuDevice {
             // We want [B, L_out, out_channels]
             let mut result = vec![T::zero(); batch * out_length * out_channels];
 
-            for b_idx in 0..batch {
-                let col_offset = b_idx * out_length * k;
-                let res_offset = b_idx * out_length * out_channels;
-
-                // Use gemm for the matrix multiplication
-                // col[b]: [m, k] row-major where m = out_length, k = in_channels * kernel_size
-                // kernel: stored as [n, k] where n = out_channels, need to transpose to [k, n]
-                // Result: [m, n] = [out_length, out_channels]
-                unsafe {
-                    gemm::gemm(
-                        /* m */ out_length,
-                        /* n */ out_channels,
-                        /* k */ k,
-                        /* dst */ result[res_offset..].as_mut_ptr(),
-                        /* dst_cs */ 1isize,
-                        /* dst_rs */ out_channels as isize,
-                        /* read_dst */ false,
-                        /* lhs */ col[col_offset..].as_ptr(),
-                        /* lhs_cs */ 1isize,
-                        /* lhs_rs */ k as isize,
-                        /* rhs */ kernel.as_ptr(),
-                        /* rhs_cs */
-                        k as isize, // column stride: to next out_channel, jump k elements
-                        /* rhs_rs */ 1isize, // row stride: to next k element, jump 1
-                        /* alpha */ T::zero(),
-                        /* beta */ T::one(),
-                        /* conj_dst */ false,
-                        /* conj_lhs */ false,
-                        /* conj_rhs */ false,
-                        gemm::Parallelism::Rayon(get_num_threads()),
-                    )
-                }
-            }
+            Self::gemm(
+                &mut result,
+                (&col, 0),
+                (&kernel, 0),
+                /* m */ out_length,
+                /* n */ out_channels,
+                /* k */ k,
+                batch,
+                out_length * k,
+                out_length * out_channels,
+                (1, out_channels),
+                (1, k),
+                (k, 1),
+            )?;
 
             // Step 3: Transpose from [B, L_out, out_channels] to [B, out_channels, L_out]
             for b_idx in 0..batch {
@@ -1038,35 +1019,20 @@ impl crate::Backend for crate::CpuDevice {
             let n = out_channels * kernel_size;
             let mut col = vec![T::zero(); batch * length * n];
 
-            for b_idx in 0..batch {
-                let src_offset = b_idx * length * in_channels;
-                let col_offset = b_idx * length * n;
-
-                // gemm: [L_in, C_in] @ [C_in, C_out * K] -> [L_in, C_out * K]
-                unsafe {
-                    gemm::gemm(
-                        /* m */ length,
-                        /* n */ n,
-                        /* k */ in_channels,
-                        /* dst */ col[col_offset..].as_mut_ptr(),
-                        /* dst_cs */ 1isize,
-                        /* dst_rs */ n as isize,
-                        /* read_dst */ false,
-                        /* lhs */ src_transposed[src_offset..].as_ptr(),
-                        /* lhs_cs */ 1isize,
-                        /* lhs_rs */ in_channels as isize,
-                        /* rhs */ kernel.as_ptr(),
-                        /* rhs_cs */ 1isize,
-                        /* rhs_rs */ n as isize,
-                        /* alpha */ T::zero(),
-                        /* beta */ T::one(),
-                        /* conj_dst */ false,
-                        /* conj_lhs */ false,
-                        /* conj_rhs */ false,
-                        gemm::Parallelism::Rayon(get_num_threads()),
-                    )
-                }
-            }
+            Self::gemm(
+                &mut col,
+                (&src_transposed, 0),
+                (&kernel, 0),
+                /* m */ length,
+                /* n */ n,
+                /* k */ in_channels,
+                batch,
+                length * in_channels,
+                in_channels * n,
+                (1, n),
+                (1, in_channels),
+                (1, n),
+            )?;
 
             // Step 3: Col2Im transformation
             // col is [B, L_in, C_out * K] = [B, L_in, C_out, K]
