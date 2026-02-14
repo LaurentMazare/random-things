@@ -85,7 +85,11 @@ fn main() -> Result<()> {
                 run::<MatMul>(args.iters)?
             }
         }
-        Task::Matvec => run::<MatVec>(args.iters)?,
+        Task::Matvec => {
+            for _ in 0..20 {
+                run::<MatVec>(args.iters)?
+            }
+        }
     }
     Ok(())
 }

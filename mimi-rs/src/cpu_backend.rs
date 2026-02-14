@@ -41,6 +41,54 @@ fn copy_strided_3d<T: WithDType>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn gemm_<T: WithDType>(
+    dst: &mut [T],
+    (lhs, lhs_o): (&[T], usize),
+    (rhs, rhs_o): (&[T], usize),
+    m: usize,
+    n: usize,
+    k: usize,
+    lhs_b: usize,
+    lhs_b_stride: usize,
+    rhs_b_stride: usize,
+    (dst_cs, dst_rs): (usize, usize),
+    (lhs_cs, lhs_rs): (usize, usize),
+    (rhs_cs, rhs_rs): (usize, usize),
+) -> Result<()> {
+    let lhs = &lhs[lhs_o..];
+    let rhs = &rhs[rhs_o..];
+    for b_idx in 0..lhs_b {
+        let dst = &mut dst[b_idx * m * n..(b_idx + 1) * m * n];
+        let lhs = &lhs[b_idx * lhs_b_stride..];
+        let rhs = &rhs[b_idx * rhs_b_stride..];
+        unsafe {
+            gemm::gemm(
+                /* m: usize = */ m,
+                /* n: usize = */ n,
+                /* k: usize = */ k,
+                /* dst: *mut T = */ dst.as_mut_ptr(),
+                /* dst_cs: isize = */ dst_cs as isize,
+                /* dst_rs: isize = */ dst_rs as isize,
+                /* read_dst: bool = */ false,
+                /* lhs: *const T = */ lhs.as_ptr(),
+                /* lhs_cs: isize = */ lhs_cs as isize,
+                /* lhs_rs: isize = */ lhs_rs as isize,
+                /* rhs: *const T = */ rhs.as_ptr(),
+                /* rhs_cs: isize = */ rhs_cs as isize,
+                /* rhs_rs: isize = */ rhs_rs as isize,
+                /* alpha: T = */ T::zero(),
+                /* beta: T = */ T::one(),
+                /* conj_dst: bool = */ false,
+                /* conj_lhs: bool = */ false,
+                /* conj_rhs: bool = */ false,
+                gemm::Parallelism::Rayon(get_num_threads()),
+            )
+        }
+    }
+    Ok(())
+}
+
 impl crate::Backend for crate::CpuDevice {
     type Storage<T: WithDType> = Vec<T>;
 
@@ -395,9 +443,20 @@ impl crate::Backend for crate::CpuDevice {
         } else if rhs_cs == k && rhs_rs == 1 {
             (k as i32, b'T')
         } else {
-            crate::bail!(
-                "unsupported rhs layout for accelerate matmul {m} {n} {k} {rhs_rs} {rhs_cs}"
-            )
+            return gemm_(
+                dst,
+                (lhs, lhs_o),
+                (rhs, rhs_o),
+                m,
+                n,
+                k,
+                lhs_b,
+                lhs_b_stride,
+                rhs_b_stride,
+                (dst_cs, dst_rs),
+                (lhs_cs, lhs_rs),
+                (rhs_cs, rhs_rs),
+            );
         };
         // The b tensor has dims batching, m, k (lhs)
         let (ldb, transb) = if (lhs_cs == 1 || k == 1) && (lhs_rs == k || m == 1) {
@@ -405,9 +464,20 @@ impl crate::Backend for crate::CpuDevice {
         } else if lhs_cs == m && lhs_rs == 1 {
             (m as i32, b'T')
         } else {
-            crate::bail!(
-                "unsupported rhs layout for accelerate matmul {m} {n} {k} {lhs_rs} {lhs_cs}"
-            )
+            return gemm_(
+                dst,
+                (lhs, lhs_o),
+                (rhs, rhs_o),
+                m,
+                n,
+                k,
+                lhs_b,
+                lhs_b_stride,
+                rhs_b_stride,
+                (dst_cs, dst_rs),
+                (lhs_cs, lhs_rs),
+                (rhs_cs, rhs_rs),
+            );
         };
 
         match T::DTYPE {
@@ -429,7 +499,22 @@ impl crate::Backend for crate::CpuDevice {
                     }
                 }
             }
-            dtype => crate::bail!("unsupported dtype for matmul-accelerate"),
+            _ => {
+                return gemm_(
+                    dst,
+                    (lhs, lhs_o),
+                    (rhs, rhs_o),
+                    m,
+                    n,
+                    k,
+                    lhs_b,
+                    lhs_b_stride,
+                    rhs_b_stride,
+                    (dst_cs, dst_rs),
+                    (lhs_cs, lhs_rs),
+                    (rhs_cs, rhs_rs),
+                );
+            }
         }
         Ok(())
     }
@@ -449,37 +534,20 @@ impl crate::Backend for crate::CpuDevice {
         (lhs_cs, lhs_rs): (usize, usize),
         (rhs_cs, rhs_rs): (usize, usize),
     ) -> Result<()> {
-        let lhs = &lhs[lhs_o..];
-        let rhs = &rhs[rhs_o..];
-        for b_idx in 0..lhs_b {
-            let dst = &mut dst[b_idx * m * n..(b_idx + 1) * m * n];
-            let lhs = &lhs[b_idx * lhs_b_stride..];
-            let rhs = &rhs[b_idx * rhs_b_stride..];
-            unsafe {
-                gemm::gemm(
-                    /* m: usize = */ m,
-                    /* n: usize = */ n,
-                    /* k: usize = */ k,
-                    /* dst: *mut T = */ dst.as_mut_ptr(),
-                    /* dst_cs: isize = */ dst_cs as isize,
-                    /* dst_rs: isize = */ dst_rs as isize,
-                    /* read_dst: bool = */ false,
-                    /* lhs: *const T = */ lhs.as_ptr(),
-                    /* lhs_cs: isize = */ lhs_cs as isize,
-                    /* lhs_rs: isize = */ lhs_rs as isize,
-                    /* rhs: *const T = */ rhs.as_ptr(),
-                    /* rhs_cs: isize = */ rhs_cs as isize,
-                    /* rhs_rs: isize = */ rhs_rs as isize,
-                    /* alpha: T = */ T::zero(),
-                    /* beta: T = */ T::one(),
-                    /* conj_dst: bool = */ false,
-                    /* conj_lhs: bool = */ false,
-                    /* conj_rhs: bool = */ false,
-                    gemm::Parallelism::Rayon(get_num_threads()),
-                )
-            }
-        }
-        Ok(())
+        gemm_(
+            dst,
+            (lhs, lhs_o),
+            (rhs, rhs_o),
+            m,
+            n,
+            k,
+            lhs_b,
+            lhs_b_stride,
+            rhs_b_stride,
+            (dst_cs, dst_rs),
+            (lhs_cs, lhs_rs),
+            (rhs_cs, rhs_rs),
+        )
     }
 
     fn copy_strided<T: WithDType>(
