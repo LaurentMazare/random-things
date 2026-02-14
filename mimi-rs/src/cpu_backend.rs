@@ -373,6 +373,68 @@ impl crate::Backend for crate::CpuDevice {
         Ok(())
     }
 
+    #[cfg(feature = "accelerate")]
+    fn gemm<T: WithDType>(
+        dst: &mut Self::Storage<T>,
+        (lhs, lhs_o): (&Self::Storage<T>, usize),
+        (rhs, rhs_o): (&Self::Storage<T>, usize),
+        m: usize,
+        n: usize,
+        k: usize,
+        lhs_b: usize,
+        lhs_b_stride: usize,
+        rhs_b_stride: usize,
+        (dst_cs, dst_rs): (usize, usize),
+        (lhs_cs, lhs_rs): (usize, usize),
+        (rhs_cs, rhs_rs): (usize, usize),
+    ) -> Result<()> {
+        let lhs = &lhs[lhs_o..];
+        let rhs = &rhs[rhs_o..];
+        let (lda, transa) = if (rhs_cs == 1 || n == 1) && (rhs_rs == n || k == 1) {
+            (n as i32, b'N')
+        } else if rhs_cs == k && rhs_rs == 1 {
+            (k as i32, b'T')
+        } else {
+            crate::bail!(
+                "unsupported rhs layout for accelerate matmul {m} {n} {k} {rhs_rs} {rhs_cs}"
+            )
+        };
+        // The b tensor has dims batching, m, k (lhs)
+        let (ldb, transb) = if (lhs_cs == 1 || k == 1) && (lhs_rs == k || m == 1) {
+            (k as i32, b'N')
+        } else if lhs_cs == m && lhs_rs == 1 {
+            (m as i32, b'T')
+        } else {
+            crate::bail!(
+                "unsupported rhs layout for accelerate matmul {m} {n} {k} {lhs_rs} {lhs_cs}"
+            )
+        };
+
+        match T::DTYPE {
+            crate::DType::F32 => {
+                for b_idx in 0..lhs_b {
+                    let dst_p = &mut dst[b_idx * m * n..(b_idx + 1) * m * n];
+                    let lhs_p = &lhs[b_idx * lhs_b_stride..];
+                    let rhs_p = &rhs[b_idx * rhs_b_stride..];
+                    unsafe {
+                        let a = rhs_p.as_ptr() as *const f32;
+                        let b = lhs_p.as_ptr() as *const f32;
+                        let c = dst_p.as_mut_ptr() as *mut f32;
+                        crate::accelerate::sgemm(
+                            transa, transb, /* m= */ n as i32, /* n= */ m as i32,
+                            /* k= */ k as i32, /* alpha= */ 1., /* a= */ a,
+                            /* lda= */ lda, /* b= */ b, /* ldb= */ ldb,
+                            /* beta= */ 0., /* c= */ c, /* ldc= */ n as i32,
+                        )
+                    }
+                }
+            }
+            dtype => crate::bail!("unsupported dtype for matmul-accelerate"),
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "accelerate"))]
     fn gemm<T: WithDType>(
         dst: &mut Self::Storage<T>,
         (lhs, lhs_o): (&Self::Storage<T>, usize),

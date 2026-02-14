@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 gemm = "0.19.0"
 half = { version = "2.7.1", features = ["num-traits"] }
+libc = { version = "0.2", optional = true }
 libm = "0.2"
 memmap2 = "0.9"
 num-traits = "0.2.19"
@@ -35,6 +36,7 @@ bindgen_cuda = { version = "0.1.6", optional = true }
 
 [features]
 default = []
+accelerate = ["dep:libc"]
 cuda = ["dep:cudarc", "dep:bindgen_cuda"]
 
 [[example]]

@@ -1,5 +1,9 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    #[cfg(feature = "accelerate")]
+    {
+        println!("cargo:rustc-link-lib=framework=Accelerate");
+    }
     #[cfg(feature = "cuda")]
     {
         println!("cargo:rerun-if-changed=src/compatibility.cuh");

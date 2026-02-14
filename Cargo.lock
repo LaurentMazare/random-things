@@ -1344,6 +1344,7 @@ dependencies = [
  "half",
  "hf-hub",
  "kaudio",
+ "libc",
  "libm",
  "memmap2",
  "num-traits",
