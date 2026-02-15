@@ -926,7 +926,7 @@ impl crate::Backend for crate::CpuDevice {
             Self::gemm(
                 &mut result,
                 (&col, 0),
-                (&kernel, 0),
+                (kernel, 0),
                 /* m */ out_length,
                 /* n */ out_channels,
                 /* k */ k,
@@ -1022,7 +1022,7 @@ impl crate::Backend for crate::CpuDevice {
             Self::gemm(
                 &mut col,
                 (&src_transposed, 0),
-                (&kernel, 0),
+                (kernel, 0),
                 /* m */ length,
                 /* n */ n,
                 /* k */ in_channels,
