@@ -1,8 +1,8 @@
 use crate::conditioners::LUTConditioner;
 use crate::mimi_transformer::{StreamingTransformer, StreamingTransformerState};
 use crate::mlp::SimpleMLPAdaLN;
-use mimi::nn::{Linear, var_builder::Path};
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::{Linear, var_builder::Path};
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub trait Rng {
     fn sample(&mut self) -> f32;

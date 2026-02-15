@@ -1,6 +1,6 @@
 #![cfg(feature = "cuda")]
 
-use mimi::{Result, Tensor, cuda_backend::Device};
+use xn::{Result, Tensor, cuda_backend::Device};
 
 fn get_device() -> Device {
     Device::new(0).expect("Failed to initialize CUDA device")

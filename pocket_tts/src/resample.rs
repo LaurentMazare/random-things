@@ -2,8 +2,8 @@ use crate::conv::{
     PadMode, StreamingConv1d, StreamingConv1dState, StreamingConvTr1dState,
     StreamingConvTranspose1d,
 };
-use mimi::nn::var_builder::Path;
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::var_builder::Path;
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct ConvDownsample1d<T: WithDTypeF, B: Backend> {
     conv: StreamingConv1d<T, B>,

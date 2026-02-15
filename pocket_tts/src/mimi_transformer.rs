@@ -1,8 +1,8 @@
 use crate::layer_scale::LayerScale;
 use crate::rope::RotaryEmbedding;
 use crate::transformer::{StreamingMHAState, StreamingMultiheadAttention};
-use mimi::nn::{LayerNorm, Linear, var_builder::Path};
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::{LayerNorm, Linear, var_builder::Path};
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 // ---- KV Cache ----
 
@@ -244,7 +244,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerLayer<T, B> {
             (AttentionKind::FlowLm(attn), LayerAttentionState::FlowLm(mha_state)) => {
                 attn.forward(&norm1, rope, mha_state)?
             }
-            _ => mimi::bail!("attention kind and state type mismatch"),
+            _ => xn::bail!("attention kind and state type mismatch"),
         };
         if let Some(ls) = &self.layer_scale_1 {
             attn_out = ls.forward(&attn_out)?;

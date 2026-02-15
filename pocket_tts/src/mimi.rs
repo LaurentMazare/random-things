@@ -4,8 +4,8 @@ use crate::dummy_quantizer::DummyQuantizer;
 use crate::mimi_transformer::{ProjectedTransformer, StreamingTransformerState};
 use crate::resample::{ConvDownsample1d, ConvTrUpsample1d};
 use crate::seanet::{SEANetDecoder, SEANetDecoderState, SEANetEncoder, SEANetEncoderState};
-use mimi::nn::var_builder::Path;
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::var_builder::Path;
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct MimiConfig {
     pub channels: usize,

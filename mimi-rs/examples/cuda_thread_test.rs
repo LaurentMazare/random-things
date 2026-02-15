@@ -3,7 +3,7 @@
 //!
 //! Run with: cargo run --release --example cuda_thread_test
 
-use mimi::{Result, Tensor, cuda_backend::Device};
+use xn::{Result, Tensor, cuda_backend::Device};
 use std::sync::{Arc, Barrier};
 use std::thread;
 

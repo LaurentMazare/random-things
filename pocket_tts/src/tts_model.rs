@@ -1,7 +1,7 @@
 use crate::flow_lm::{FlowLM, FlowLMConfig, FlowLMState};
 use crate::mimi::{MimiConfig, MimiModel, MimiState};
-use mimi::nn::{Linear, var_builder::Path};
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::{Linear, var_builder::Path};
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct TTSConfig {
     pub flow_lm: FlowLMConfig,

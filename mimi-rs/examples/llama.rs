@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use mimi::models::llama::{Config, KvCache, Llama};
-use mimi::nn::VB;
-use mimi::{Backend, Tensor};
+use xn::models::llama::{Config, KvCache, Llama};
+use xn::nn::VB;
+use xn::{Backend, Tensor};
 use rand::Rng;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -201,10 +201,10 @@ fn main() -> Result<()> {
     {
         if args.cpu {
             println!("Using CPU despite CUDA being available");
-            run_for_device(args, mimi::CPU)?;
+            run_for_device(args, xn::CPU)?;
         } else {
             println!("Using CUDA backend");
-            let dev = mimi::cuda_backend::Device::new(0)?;
+            let dev = xn::cuda_backend::Device::new(0)?;
             unsafe {
                 dev.disable_event_tracking();
             }
@@ -214,13 +214,13 @@ fn main() -> Result<()> {
     #[cfg(not(feature = "cuda"))]
     {
         println!("Using CPU backend");
-        run_for_device(args, mimi::CPU)?;
+        run_for_device(args, xn::CPU)?;
     }
 
     Ok(())
 }
 
-fn run_for_device<Dev: mimi::Backend>(args: Args, dev: Dev) -> Result<()> {
+fn run_for_device<Dev: xn::Backend>(args: Args, dev: Dev) -> Result<()> {
     let config = args.model_size.config();
 
     println!("Model: {:?}", args.model_size);

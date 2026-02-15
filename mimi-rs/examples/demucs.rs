@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use mimi::Tensor;
-use mimi::models::demucs::{Config, Demucs, DemucsStreamer};
-use mimi::nn::VB;
+use xn::Tensor;
+use xn::models::demucs::{Config, Demucs, DemucsStreamer};
+use xn::nn::VB;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -84,9 +84,9 @@ fn main() -> Result<()> {
     println!("\nLoading model weights...");
     let model_path = args.ckpt_path.join("checkpoint.safetensors");
 
-    let dev = mimi::CPU;
+    let dev = xn::CPU;
     let vb = VB::load(&[model_path], dev)?;
-    let model: Demucs<f32, mimi::CpuDevice> = Demucs::load(&vb.root(), config.clone())?;
+    let model: Demucs<f32, xn::CpuDevice> = Demucs::load(&vb.root(), config.clone())?;
     println!("Model loaded successfully!");
 
     let mut streamer = DemucsStreamer::new(
@@ -138,8 +138,8 @@ fn main() -> Result<()> {
             frame_data[frame_size..frame_size + r_chunk_len].copy_from_slice(&r_data[r_pos..r_end]);
         }
 
-        let frame: Tensor<f32, mimi::CpuDevice> =
-            Tensor::from_vec(frame_data, (config.chin, frame_size), &mimi::CPU)?;
+        let frame: Tensor<f32, xn::CpuDevice> =
+            Tensor::from_vec(frame_data, (config.chin, frame_size), &xn::CPU)?;
         let out = streamer.feed(&frame)?;
 
         if out.dim(1)? > 0 {
@@ -168,7 +168,7 @@ fn main() -> Result<()> {
     println!("\nConcatenating output...");
     let out_refs: Vec<_> = out_chunks.iter().collect();
     let output = if out_refs.is_empty() {
-        Tensor::zeros((config.chout, 0), &mimi::CPU)?
+        Tensor::zeros((config.chout, 0), &xn::CPU)?
     } else {
         Tensor::cat(&out_refs, 1)?
     };

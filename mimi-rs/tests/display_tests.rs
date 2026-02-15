@@ -1,4 +1,4 @@
-use mimi::{CPU, CpuTensor, display};
+use xn::{CPU, CpuTensor, display};
 use std::sync::Mutex;
 
 // Tests that modify global print options must hold this lock

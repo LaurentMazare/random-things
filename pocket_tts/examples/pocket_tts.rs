@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use mimi::nn::VB;
-use mimi::{Backend, Tensor};
+use xn::nn::VB;
+use xn::{Backend, Tensor};
 use pocket_tts::flow_lm::FlowLMConfig;
 use pocket_tts::mimi::MimiConfig;
 use pocket_tts::tts_model::{TTSConfig, TTSModel, prepare_text_prompt};
@@ -122,10 +122,10 @@ fn main() -> Result<()> {
     {
         if args.cpu {
             tracing::info!("using cpu backend");
-            run_for_device(args, mimi::CPU)?;
+            run_for_device(args, xn::CPU)?;
         } else {
             tracing::info!("using cuda backend");
-            let dev = mimi::cuda_backend::Device::new(0)?;
+            let dev = xn::cuda_backend::Device::new(0)?;
             unsafe {
                 dev.disable_event_tracking();
             }
@@ -135,7 +135,7 @@ fn main() -> Result<()> {
     #[cfg(not(feature = "cuda"))]
     {
         tracing::info!("using cpu backend");
-        run_for_device(args, mimi::CPU)?;
+        run_for_device(args, xn::CPU)?;
     }
 
     Ok(())
@@ -238,10 +238,10 @@ fn run_for_device<Dev: Backend>(args: Args, dev: Dev) -> Result<()> {
 
     tracing::info!(
         "avx: {}, neon: {}, simd128: {}, f16c: {}",
-        mimi::with_avx(),
-        mimi::with_neon(),
-        mimi::with_simd128(),
-        mimi::with_f16c()
+        xn::with_avx(),
+        xn::with_neon(),
+        xn::with_simd128(),
+        xn::with_f16c()
     );
 
     let model: TTSModel<f32, Dev> = TTSModel::load(&root, &cfg)?;

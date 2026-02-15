@@ -1,5 +1,5 @@
-use mimi::nn::var_builder::Path;
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::var_builder::Path;
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 pub struct LayerScale<T: WithDTypeF, B: Backend> {
     scale: Tensor<T, B>,

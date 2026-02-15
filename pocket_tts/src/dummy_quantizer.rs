@@ -1,5 +1,5 @@
-use mimi::nn::var_builder::Path;
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::var_builder::Path;
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 /// Simplified quantizer that only provides output projection for TTS.
 pub struct DummyQuantizer<T: WithDTypeF, B: Backend> {

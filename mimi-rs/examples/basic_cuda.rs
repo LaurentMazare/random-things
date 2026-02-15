@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo run --release --example basic_cuda
 
-use mimi::{Result, Tensor, cuda_backend::Device};
+use xn::{Result, Tensor, cuda_backend::Device};
 
 fn main() -> Result<()> {
     println!("Initializing CUDA device...");

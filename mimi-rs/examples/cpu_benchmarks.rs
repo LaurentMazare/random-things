@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
-use mimi::Result;
+use xn::Result;
 
-type Tensor = mimi::Tensor<f32, mimi::CpuDevice>;
+type Tensor = xn::Tensor<f32, xn::CpuDevice>;
 
 trait Benchmark {
     type PreProcessData;
@@ -18,8 +18,8 @@ impl Benchmark for MatMul {
     type PreProcessData = (Tensor, Tensor);
     type RunResult = Tensor;
     fn preprocess() -> Result<Self::PreProcessData> {
-        let lhs = Tensor::zeros((125, 4096), &mimi::CPU)?;
-        let rhs = Tensor::zeros((4096, 1024), &mimi::CPU)?;
+        let lhs = Tensor::zeros((125, 4096), &xn::CPU)?;
+        let rhs = Tensor::zeros((4096, 1024), &xn::CPU)?;
         Ok((lhs, rhs))
     }
 
@@ -35,8 +35,8 @@ impl Benchmark for MatVec {
     type PreProcessData = (Tensor, Tensor);
     type RunResult = Tensor;
     fn preprocess() -> Result<Self::PreProcessData> {
-        let lhs = Tensor::zeros((1024 * 4, 1024 * 4), &mimi::CPU)?;
-        let rhs = Tensor::zeros((1024 * 4, 1), &mimi::CPU)?;
+        let lhs = Tensor::zeros((1024 * 4, 1024 * 4), &xn::CPU)?;
+        let rhs = Tensor::zeros((1024 * 4, 1), &xn::CPU)?;
         Ok((lhs, rhs))
     }
 

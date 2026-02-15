@@ -1,5 +1,5 @@
-use mimi::nn::var_builder::Path;
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::var_builder::Path;
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 /// Pad input so that a convolution covers the full input.
 pub fn pad_for_conv1d<T: WithDTypeF, B: Backend>(

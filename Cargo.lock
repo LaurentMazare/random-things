@@ -1333,36 +1333,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
-name = "mimi"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bindgen_cuda",
- "clap",
- "cudarc",
- "gemm",
- "half",
- "hf-hub",
- "kaudio",
- "libc",
- "libm",
- "memmap2",
- "num-traits",
- "num_cpus",
- "paste",
- "rand",
- "rayon",
- "safetensors",
- "serde_json",
- "thiserror 2.0.18",
- "tokenizers",
- "tracing",
- "tracing-chrome",
- "tracing-subscriber",
- "yoke",
-]
-
-[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1692,7 +1662,6 @@ dependencies = [
  "clap",
  "hf-hub",
  "kaudio",
- "mimi",
  "rand",
  "rand_distr",
  "sentencepiece",
@@ -1700,6 +1669,7 @@ dependencies = [
  "tracing",
  "tracing-chrome",
  "tracing-subscriber",
+ "xn",
 ]
 
 [[package]]
@@ -3400,6 +3370,36 @@ name = "writeable"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9"
+
+[[package]]
+name = "xn"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bindgen_cuda",
+ "clap",
+ "cudarc",
+ "gemm",
+ "half",
+ "hf-hub",
+ "kaudio",
+ "libc",
+ "libm",
+ "memmap2",
+ "num-traits",
+ "num_cpus",
+ "paste",
+ "rand",
+ "rayon",
+ "safetensors",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokenizers",
+ "tracing",
+ "tracing-chrome",
+ "tracing-subscriber",
+ "yoke",
+]
 
 [[package]]
 name = "yoke"

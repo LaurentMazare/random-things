@@ -1,4 +1,4 @@
-use mimi::{Backend, Result, Tensor, TensorView};
+use xn::{Backend, Result, Tensor, TensorView};
 
 /// Macro to generate tests for both CPU and CUDA backends.
 /// Each test function takes a device reference and runs the test logic.
@@ -7,13 +7,13 @@ macro_rules! test_both_backends {
         paste::paste! {
             #[test]
             fn [<$test_name _cpu>]() -> Result<()> {
-                $test_fn(&mimi::CPU)
+                $test_fn(&xn::CPU)
             }
 
             #[cfg(feature = "cuda")]
             #[test]
             fn [<$test_name _cuda>]() -> Result<()> {
-                let device = mimi::cuda_backend::Device::new(0)?;
+                let device = xn::cuda_backend::Device::new(0)?;
                 $test_fn(&device)
             }
         }

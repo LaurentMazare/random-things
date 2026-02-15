@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use mimi::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
-use mimi::nn::VB;
-use mimi::{Backend, Tensor};
+use xn::models::mimi::{Config, Mimi, StreamMask, StreamTensor};
+use xn::nn::VB;
+use xn::{Backend, Tensor};
 
 #[derive(Parser, Debug)]
 #[command(name = "mimi")]
@@ -66,10 +66,10 @@ fn main() -> Result<()> {
     {
         if args.cpu {
             println!("Using CPU despite CUDA being available");
-            run_for_device(args, mimi::CPU)?;
+            run_for_device(args, xn::CPU)?;
         } else {
             println!("Using CUDA backend");
-            let dev = mimi::cuda_backend::Device::new(0)?;
+            let dev = xn::cuda_backend::Device::new(0)?;
             unsafe {
                 dev.disable_event_tracking();
             }
@@ -79,7 +79,7 @@ fn main() -> Result<()> {
     #[cfg(not(feature = "cuda"))]
     {
         println!("Using CPU backend");
-        run_for_device(args, mimi::CPU)?;
+        run_for_device(args, xn::CPU)?;
     }
 
     Ok(())

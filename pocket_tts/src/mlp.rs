@@ -1,5 +1,5 @@
-use mimi::nn::{LayerNorm, Linear, var_builder::Path};
-use mimi::{Backend, Result, Tensor, WithDTypeF};
+use xn::nn::{LayerNorm, Linear, var_builder::Path};
+use xn::{Backend, Result, Tensor, WithDTypeF};
 
 fn modulate<T: WithDTypeF, B: Backend>(
     x: &Tensor<T, B>,
@@ -82,7 +82,7 @@ impl<T: WithDTypeF, B: Backend> ResBlock<T, B> {
     #[tracing::instrument(name = "resblock", skip_all)]
     pub fn forward(&self, x: &Tensor<T, B>, y: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let ada = self.ada_ln_silu_linear.forward(&y.silu()?)?;
-        let channels = x.dim(mimi::D::Minus1)?;
+        let channels = x.dim(xn::D::Minus1)?;
         let shift_mlp = ada.narrow(ada.rank() - 1, 0..channels)?.contiguous()?;
         let scale_mlp = ada.narrow(ada.rank() - 1, channels..2 * channels)?.contiguous()?;
         let gate_mlp = ada.narrow(ada.rank() - 1, 2 * channels..3 * channels)?.contiguous()?;
@@ -120,7 +120,7 @@ impl<T: WithDTypeF, B: Backend> FinalLayer<T, B> {
 
     pub fn forward(&self, x: &Tensor<T, B>, c: &Tensor<T, B>) -> Result<Tensor<T, B>> {
         let ada = self.ada_ln_silu_linear.forward(&c.silu()?)?;
-        let model_channels = x.dim(mimi::D::Minus1)?;
+        let model_channels = x.dim(xn::D::Minus1)?;
         let shift = ada.narrow(ada.rank() - 1, 0..model_channels)?.contiguous()?;
         let scale = ada.narrow(ada.rank() - 1, model_channels..2 * model_channels)?.contiguous()?;
 
