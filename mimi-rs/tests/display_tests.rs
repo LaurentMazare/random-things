@@ -1,5 +1,5 @@
-use xn::{CPU, CpuTensor, display};
 use std::sync::Mutex;
+use xn::{CPU, CpuTensor, display};
 
 // Tests that modify global print options must hold this lock
 static PRINT_OPTS_LOCK: Mutex<()> = Mutex::new(());

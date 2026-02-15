@@ -3,9 +3,9 @@
 //!
 //! Run with: cargo run --release --example cuda_thread_test
 
-use xn::{Result, Tensor, cuda_backend::Device};
 use std::sync::{Arc, Barrier};
 use std::thread;
+use xn::{Result, Tensor, cuda_backend::Device};
 
 fn main() -> Result<()> {
     // Use a barrier to ensure all 32 threads start simultaneously

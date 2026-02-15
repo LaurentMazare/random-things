@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
+use rand::Rng;
 use xn::models::llama::{Config, KvCache, Llama};
 use xn::nn::VB;
 use xn::{Backend, Tensor};
-use rand::Rng;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ModelSize {

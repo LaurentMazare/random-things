@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::path::PathBuf;
 use xn::Tensor;
 use xn::models::demucs::{Config, Demucs, DemucsStreamer};
 use xn::nn::VB;
-use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "demucs")]
