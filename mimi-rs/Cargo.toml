@@ -2,6 +2,11 @@
 name = "xn"
 version = "0.1.0"
 edition = "2024"
+description = "Another minimalist deep-learning framework optimized for inference."
+repository = "https://github.com/LaurentMazare/xn"
+keywords = ["pytorch", "deep-learning", "machine-learning"]
+categories = ["science"]
+license = "MIT/Apache-2.0"
 
 [dependencies]
 gemm = "0.19.0"
